@@ -9,6 +9,8 @@ The central idea is simple:
 - `frame` stores a canonical snapshot as named collections, optional grids, and an optional box
 - `trajectory` stores a packed list of frame-like snapshots grouped by collection
 - `observables` stores arbitrary derived or reported data (scalar, vector, or grid)
+- `status` stores execution state, stage, progress counters, and task status
+- `metrics` stores append-oriented runtime measurements such as training curves
 - `method` stores typed scientific context that explains how the record was produced
 - `meta` stores record-level metadata and audit information
 
@@ -27,6 +29,8 @@ A MolRec record is the complete logical object rooted at:
 \-- frame
 \-- (trajectory)
 \-- (observables)
+\-- (status)
+\-- (metrics)
 \-- (method)
 \-- (parameters)
 ```
@@ -93,6 +97,35 @@ MolRec supports three observable data kinds:
 - **Vector**: an N-D array of components (e.g., dipole moment, stress tensor)
 - **Grid**: a volumetric field on a spatial grid (e.g., electron density, spin density)
 
+### Status
+
+Status is the current lifecycle and progress snapshot for a record.
+
+It stores fields such as:
+
+- `state`
+- `stage`
+- progress counters like `epoch` and `global_step`
+- task-level status for workflow records
+- current error summary
+
+Status follows the MolNex `TrainState` convention of reserved progress keys plus extensible,
+namespaced fields.
+
+### Metrics
+
+Metrics are append-oriented runtime measurements.
+
+Typical examples:
+
+- `train/loss`
+- `eval/MAE`
+- `performance/step_per_second`
+- `gpu/alloc_gib`
+
+Metrics follow the Molexp run-local event model: records are keyed, typed, optionally stepped, and
+append-oriented.
+
 ### Method
 
 The method group describes how the record was produced.
@@ -142,6 +175,21 @@ Spatial dimension is inferred from array shapes such as:
 - `box/vectors[ndim][ndim]`
 - `trajectory/atoms/position[ntimestep][N][ndim]`
 
+### Metrics are separate from observables
+
+MolRec separates runtime monitoring from scientific record content.
+
+Use `metrics` for append-oriented run-local measurements such as training loss, validation scores,
+throughput, and device counters. Use `observables` for quantities that are part of the interpreted
+scientific record.
+
+### Status is separate from metrics
+
+MolRec separates current execution state from measurement history.
+
+Use `status` for lifecycle state, stage, progress counters, task state, and current error summary.
+Use `metrics` for values recorded across steps or wall time.
+
 ## Normative invariants
 
 The following invariants define MolRec 0.1:
@@ -152,12 +200,19 @@ The following invariants define MolRec 0.1:
 3. `box` is a property of each frame, carrying cell vectors, origin, and boundary conditions.
 4. `trajectory` is interpreted as a list of frame-like snapshots packed into aligned arrays by
    collection.
-5. `trajectory` is not atoms-only. Any named collection may appear if its metadata defines axis and
+5. MolRec accepts coordinate data either as packed Cartesian vectors or as split-axis Cartesian
+   triplets. For atom-like split-axis data, both `x/y/z` and `xu/yu/zu` are legal coordinate
+   triplets, and the spec does not require one triplet to be synthesized from the other.
+6. `trajectory` is not atoms-only. Any named collection may appear if its metadata defines axis and
    alignment semantics.
-6. A trajectory collection is either canonical-aligned or dynamic, and its metadata must state which
+7. A trajectory collection is either canonical-aligned or dynamic, and its metadata must state which
    mode applies.
-7. Every observable dataset `observables/<name>` must have a corresponding metadata entry
+8. Every observable dataset `observables/<name>` must have a corresponding metadata entry
    `observables/meta/<name>`.
-8. `method` stores typed scientific context, not result arrays.
-9. Any custom typed schema used by `method` or an extension module must define parse rules in
+9. If `status` exists, `status/state` is required and must use a lowercase lifecycle state or a
+   state defined by a declared module.
+10. If `metrics` exists, every metric record must have a non-empty key, a type, a wall-time
+   timestamp, and a value matching its metric type.
+11. `method` stores typed scientific context, not result arrays.
+12. Any custom typed schema used by `method` or an extension module must define parse rules in
    [Types](types.md) or in a declared module specification.

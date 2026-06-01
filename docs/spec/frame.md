@@ -82,6 +82,21 @@ Rules:
 The conventional `atoms` collection is still common, but it is not privileged over other
 collections in the specification.
 
+## Coordinates
+
+If a collection stores positions, MolRec accepts either:
+
+- a packed Cartesian vector field such as `frame/atoms/position`
+- split-axis Cartesian coordinate triplets
+
+For atom-like split-axis data, both of these triplets are legal MolRec coordinates:
+
+- `x`, `y`, `z`
+- `xu`, `yu`, `zu`
+
+MolRec does not require readers to synthesize `x/y/z` from `xu/yu/zu`, or vice versa. Source
+columns should be preserved as-is unless a consumer intentionally derives new coordinates.
+
 ## Tuple-based collections
 
 MolRec allows tuple-based collections directly under `frame`.

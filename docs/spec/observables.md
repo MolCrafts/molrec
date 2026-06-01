@@ -63,6 +63,16 @@ MolRec defines the common observable data kinds and their required metadata in [
 If a writer introduces a custom observable kind, its parse rules must be documented in
 [Types](types.md) or in a module declared under `meta/modules`.
 
+## Relationship to metrics
+
+`observables` and `metrics` are intentionally separate.
+
+Use `observables` when a value is part of the interpreted scientific record. Use `metrics` when a
+value is a run-local measurement stream for monitoring, diagnostics, or training curves.
+
+A writer may mirror a scientific value into `metrics` for live display, but the observable remains
+the authoritative scientific value.
+
 ## Time dependence
 
 Time dependence is described in metadata, not inferred solely from shape.

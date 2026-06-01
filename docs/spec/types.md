@@ -55,6 +55,14 @@ The following fields define the minimum contract for `observables/meta/<name>`:
 
 Each `kind` may require additional fields beyond this common contract.
 
+## Relationship to metrics
+
+The observable kinds in this chapter describe scientific data under `observables`.
+
+Runtime metric records under `metrics` use the metric record contract in [Metrics](metrics.md), not
+the observable metadata contract. A value may appear in both places only when it is both useful for
+live monitoring and part of the interpreted scientific record.
+
 ## Scalar
 
 A scalar represents one value per sample.

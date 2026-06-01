@@ -98,6 +98,11 @@ Typical shapes:
 This mode is appropriate for fixed-composition trajectories and any collection with stable entity
 alignment across time.
 
+When a trajectory collection stores positions, MolRec accepts either packed Cartesian vectors or
+split-axis Cartesian triplets at each timestep. For atom-like split-axis trajectory data, both
+`x/y/z` and `xu/yu/zu` are legal coordinate triplets, and readers do not need to synthesize one
+from the other.
+
 ### Dynamic mode
 
 A dynamic trajectory collection allows the active entity set to vary with timestep.
@@ -141,5 +146,6 @@ true`.
 
 This chapter defines frame-like trajectory collections with a shared leading timestep axis.
 
-Quantities that are not part of the evolving frame-like state, such as reduced statistics, spectra,
-free-energy surfaces, or convergence summaries, belong in `observables`.
+Quantities that are not part of the evolving frame-like state, such as reduced scientific
+statistics, spectra, or free-energy surfaces, belong in `observables`. Run-local monitoring values
+and convergence traces belong in `metrics`.
