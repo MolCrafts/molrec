@@ -2,161 +2,83 @@
 
 ## Purpose
 
-`frame` stores a canonical snapshot.
-
-It is the place for structure-like data:
-
-- per-entity arrays for any canonical collection
-- per-bond arrays
-- per-angle arrays
-- per-dihedral arrays
-- volumetric grids (charge density, electrostatic potential, etc.)
-- the simulation cell (box)
-- other snapshot-resolved arrays tied to the canonical configuration
-
-`frame` is not restricted to atoms only.
+`frame` is the canonical snapshot. It is a fully general container: a map of names
+to blocks, plus free-form metadata and an optional box. No block name is
+privileged.
 
 ## Structure
 
 ```text
 frame
-\-- atoms
-|   \-- meta
-|   |   +-- count: Integer[]
-|   |   +-- entity_kind: String[] = "atom"
-|   \-- (id: Integer[N])
-|   \-- (element: String[N])
-|   \-- (atomic_number: Integer[N])
-|   \-- (name: String[N])
-|   \-- (position: Float[N][ndim])
-|   \-- (mass: Float[N])
-|   \-- (charge: Float[N])
++-- <block>
+|   \-- <column>: <dtype>[count][...]
++-- <block>
 |   \-- ...
-\-- (bonds)
-|   \-- meta
-|   |   +-- count: Integer[]
-|   |   +-- entity_kind: String[] = "bond"
-|   \-- (index: Integer[count][2])
-|   \-- ...
-\-- (angles)
-|   \-- meta
-|   |   +-- count: Integer[]
-|   |   +-- entity_kind: String[] = "angle"
-|   \-- (index: Integer[count][3])
-|   \-- ...
-\-- (dihedrals)
-|   \-- meta
-|   |   +-- count: Integer[]
-|   |   +-- entity_kind: String[] = "dihedral"
-|   \-- (index: Integer[count][4])
-|   \-- ...
-\-- (grids)
-|   \-- <grid_name>
-|       +-- dim: Integer[3]
-|       +-- origin: Float[3]
-|       +-- cell: Float[3][3]
-|       +-- pbc: Bool[3]
-|       \-- <array_name>: Float[nx][ny][nz]
-|       \-- ...
++-- meta                         # free-form key -> value
 \-- (box)
-|   +-- vectors: Float[ndim][ndim]
-|   +-- (origin: Float[ndim])
-|   +-- (boundary: Bool[ndim])
-\-- ...
+    +-- vectors: Float[ndim][ndim]     # columns are lattice vectors
+    +-- (origin: Float[ndim])
+    \-- (boundary: Bool[ndim])
 ```
 
-The names above are examples. A canonical collection may represent atoms, beads, fragments, rigid
-bodies, virtual sites, QM atoms, coarse-grained sites, or any other named entity set.
+## Column
 
-## Canonical collections
+A column is a typed N-dimensional array. Its dtype is one of `float`, `int`,
+`uint`, `u8`, `bool`, `string` (see [Types](types.md)). Its leading axis length is
+the owning block's count; trailing axes describe per-entity structure.
 
-Each collection under `frame` is a collection of aligned per-entity arrays.
+## Block
 
-Rules:
+A block is a set of named columns sharing a common count:
 
-- `frame/<collection>/meta/count` defines the canonical entity count for that collection
-- every dataset in `frame/<collection>` except `meta` has leading dimension `count`
-- `frame/<collection>` defines the canonical entity order reused by aligned trajectory or
-  observable data
+- every column has the same axis-0 length (the count);
+- a block may carry an optional structural shape whose product equals the count,
+  letting it describe an N-D object with the same container as a flat table;
+- a block imposes no meaning on its column names — that is a convention.
 
-The conventional `atoms` collection is still common, but it is not privileged over other
-collections in the specification.
+Examples (conventional, not required — see [Conventions](conventions.md)):
 
-## Coordinates
+- an `atoms` block: `count` = number of atoms; columns `x`/`y`/`z`, `element`, ...
+- a `bonds` block: `count` = number of bonds; columns `atomi`/`atomj`, `order`;
+- a `density` block: structural shape `[nx, ny, nz]`; one float column per field.
 
-If a collection stores positions, MolRec accepts either:
+## Frame
 
-- a packed Cartesian vector field such as `frame/atoms/position`
-- split-axis Cartesian coordinate triplets
+A frame maps names to blocks. It enforces no relationship between blocks: block
+counts are independent, and any block name is legal. Free-form metadata lives in
+`frame/meta` as key -> value pairs.
 
-For atom-like split-axis data, both of these triplets are legal MolRec coordinates:
-
-- `x`, `y`, `z`
-- `xu`, `yu`, `zu`
-
-MolRec does not require readers to synthesize `x/y/z` from `xu/yu/zu`, or vice versa. Source
-columns should be preserved as-is unless a consumer intentionally derives new coordinates.
-
-## Tuple-based collections
-
-MolRec allows tuple-based collections directly under `frame`.
-
-This includes:
-
-- `frame/bonds`
-- `frame/angles`
-- `frame/dihedrals`
-- other implementation-defined tuple collections
-
-Each collection may contain:
-
-- an `index` array defining the participating entity tuples
-- aligned arrays of labels, parameters, or properties
-
-Tuple collections are not restricted to atom tuples. The same pattern may be used for bead tuples,
-fragment tuples, or other implementation-defined relations.
-
-Examples:
-
-- bond order
-- equilibrium length
-- angle equilibrium value
-- dihedral periodicity
-
-## Grids
-
-`frame` may contain named volumetric grids under `frame/grids/<name>`.
-
-A grid represents values on a uniform 3-D spatial domain. Each grid stores:
-
-- `dim`: grid dimensions `[nx, ny, nz]`
-- `origin`: Cartesian origin of the grid
-- `cell`: cell vectors defining the spatial extent (columns are lattice vectors)
-- `pbc`: periodic boundary flags for each axis
-- one or more named scalar arrays, each of shape `[nx][ny][nz]`
-
-Grid is a pure data structure. It carries no unit or description. When the same data appears in
-`observables`, the semantic metadata (unit, description, sampling, domain) belongs on the observable
-wrapper, not on the Grid itself.
+Which blocks exist and what their columns mean is supplied by
+[Conventions](conventions.md), not by the frame.
 
 ## Box
 
-`box` is a property of each frame.
+The contract name for the simulation cell is **`Box` / `box` only**. Names such
+as `simbox` / `SimBox` are **not** part of the MolRec contract. Writers MUST emit
+`box`. The reference implementation (molrs) must expose **`Box`** as the public
+type name for this cell.
 
-Each frame carries its own simulation cell:
+`box` is an optional triclinic simulation cell carried by the frame:
 
 ```text
 frame/box
-+-- vectors: Float[ndim][ndim]       # cell vectors
-+-- (origin: Float[ndim])            # cell origin
-+-- (boundary: Bool[ndim])           # periodic boundary conditions
++-- vectors: Float[ndim][ndim]     # cell vectors; columns are lattice vectors
++-- (origin: Float[ndim])          # cell origin
+\-- (boundary: Bool[ndim])         # per-axis periodic boundary flags
 ```
 
-For trajectory data, each frame stores its own box, naturally supporting both fixed-cell and
-variable-cell simulations.
+The cell applies to the whole frame. For a trajectory, each frame carries its own
+box, so fixed-cell and variable-cell runs are both natural.
+
+## Volumetric data
+
+MolRec has no dedicated grid type. Volumetric data is an ordinary block whose
+structural shape is `[nx, ny, nz]` and whose columns are the scalar fields (each
+of shape `[nx][ny][nz]`). The spatial cell is the frame's box — a volumetric
+block carries no cell of its own.
 
 ## Interpretation
 
-`frame` should be read as:
-
-> the canonical stored snapshot of the system, including collections, grids, and the simulation cell.
+Read `frame` as: a general set of named blocks describing the canonical snapshot,
+with a shared optional cell and free-form metadata. Meaning comes from
+conventions, not from privileged fields.

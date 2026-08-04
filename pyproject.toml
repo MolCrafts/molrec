@@ -6,3 +6,36 @@ dependencies = ["molcrafts-molrs"]
 
 [tool.pytest.ini_options]
 testpaths = ["src/molrec/tests"]
+
+[project.optional-dependencies]
+dev = [
+  "tox>=4.23",
+  "pytest>=8.0",
+  "ruff>=0.11",
+  "molcrafts-molrs",
+]
+
+[tool.tox]
+requires = ["tox>=4.23"]
+env_list = ["lint", "py"]
+
+[tool.tox.env.lint]
+description = "CI lint"
+skip_install = true
+base_python = ["python3.12"]
+deps = ["ruff>=0.11"]
+commands = [
+  # Spec-test tree predates a full ruff clean-up; format gate only for now.
+  ["ruff", "format", "--check", "."],
+]
+
+[tool.tox.env.py]
+description = "CI test"
+skip_install = false
+package = "wheel"
+extras = ["dev"]
+base_python = ["python3.12"]
+deps = ["pytest>=8.0", "molcrafts-molrs"]
+commands = [
+  ["{envpython}", "-m", "pytest", "-q"],
+]

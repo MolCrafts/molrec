@@ -5,7 +5,7 @@
   &nbsp;MolRec
 </h1>
 
-<p><strong>A backend-neutral record specification for atomistic data.</strong></p>
+<p><strong>Backend-neutral record contract for the MolCrafts ecosystem.</strong></p>
 
 <p>
   <a href="https://img.shields.io/badge/license-BSD--3--Clause-18432B?style=flat-square"><img src="https://img.shields.io/badge/license-BSD--3--Clause-18432B?style=flat-square" alt="License"></a>
@@ -19,52 +19,77 @@
 
 </div>
 
-MolRec defines **what** a molecular record means — not how to implement it. Any
-project that stores atoms, trajectories, force fields, or computed observables
-can adopt MolRec as its semantic layer.
+MolRec defines **what a scientific record means** — not a store product, not a
+class named `MolStore` / `SimStore`, and not “Frame only.”
+
+Any project that shares:
+
+- molecular **systems** (topology, types, parameters),
+- **snapshots** and **trajectories**,
+- **scientific observables**, or
+- **training / job execution logs** (status + metrics + method)
+
+should adopt MolRec as the semantic layer so tools interoperate without guessing
+private layouts.
 
 > **Under active development.** The specification may change between releases.
 
 ## Why MolRec
 
-Atomistic simulations produce diverse data: atom coordinates, cell vectors, charge densities, energy time-series, force-field parameters, and more. Different codes store these in different formats with different conventions. MolRec provides a single, language-agnostic semantic model so that:
+Atomistic and ML workflows produce diverse data: coordinates, cells, densities,
+energies, force-field tables, training curves, and workflow state. Different
+codes invent different formats. MolRec provides one language-agnostic contract:
 
-- A record written by one tool can be interpreted by another without guessing what the arrays mean.
-- Metadata is always explicit — the spec never infers meaning from array shape or dataset name alone.
-- The model is extensible to classical MD, ML potentials, electronic structure, and multi-stage workflows.
+- A record written by one tool can be read by another without private guessing.
+- Metadata is explicit — meaning is never inferred from array shape alone.
+- The same root serves MD packages, electronic-structure results, and training runs.
 
 ## Record structure
 
 ```text
 /
-+-- meta                  # record-level metadata (required)
-+-- frame                 # canonical snapshot (required)
-|   +-- atoms/            #   named collection: atoms
-|   +-- bonds/            #   named collection: bonds
-|   +-- <grids>/          #   named volumetric grids
-|   +-- box               #   simulation cell (SimBox)
-+-- trajectory            # time-series frames (optional)
-+-- observables           # derived quantities (optional)
-|   +-- <scalar>          #   e.g. total energy per step
-|   +-- <vector>          #   e.g. dipole moment
-|   +-- <grid>            #   e.g. charge density field
-+-- status                # execution state and progress (optional)
-+-- metrics               # runtime metric stream (optional)
-+-- method                # scientific context (optional)
-+-- parameters            # workflow parameters (optional)
++-- meta                  # required — identity, schema version
++-- system                # recommended — system definition (no required xyz)
++-- frame                 # recommended — instantaneous snapshot
++-- trajectory            # optional — frame sequence
++-- observables           # optional — scientific results
++-- status                # optional — lifecycle / progress (run surface)
++-- metrics               # optional — append-only run measurements
++-- method                # optional — scientific / training context
 ```
 
-`meta` and `frame` are mandatory. Everything else is optional.
+There is **no** root `parameters/` (use `system/parameters` or `method`).
+
+`meta` is mandatory. A record must also include **at least one of** `frame`,
+`system`, or `status`. A **Run**-shaped record (`meta` + `status`) does not
+require a frame. Trajectory may omit `system/`. The cell is **Box** only; the
+sole version key is **`record_schema_version` (1)**. See
+[docs/spec/record.md](docs/spec/record.md) and
+[docs/spec/run.md](docs/spec/run.md).
+
+## Layers
+
+| Layer | Role |
+|-------|------|
+| L0 Vocabulary | dtypes, units, hard naming rules |
+| L1 Containers | Column · Block · Frame · Box |
+| L2 Record | Root sections and minimum shapes |
+| L3 Conventions | Domain section and field names |
+| L4 Backend binding | Arrays: Zarr V3 in molrs; metrics stream: JSONL (`metrics/metrics.jsonl`) |
 
 ## Key design principles
 
-- **Collections, not just atoms.** A frame can hold atoms, bonds, angles, beads, fragments, or any named entity set.
-- **Grid as a first-class type.** Volumetric data (charge density, electrostatic potential, etc.) is stored as `Grid` — both inside `frame` and as `ObservableKind::Grid` in observables.
-- **Metadata is mandatory for observables.** Every observable carries explicit `kind`, `description`, and `time_dependent` fields.
-- **Status is explicit.** Execution state, stage, progress counters, task status, and errors live under `status`.
-- **Metrics are append-oriented.** Training curves, validation scores, and performance counters live under `metrics`, separate from scientific observables.
-- **Box lives on frame.** The simulation cell (`SimBox`) is a property of each frame, not a separate root-level concept.
-- **Backend-neutral.** The spec does not mandate a storage format. The reference implementation uses Zarr v3, but HDF5, SQL, or any other backend can implement the same semantics.
+- **Record first.** Frame is an L1 container; the unit of ecosystem interchange is the Record.
+- **Single root.** One Record is one openable root — no nested Record trees in L2.
+- **System ≠ state.** `system/` defines the system; coordinates live on `frame` / `trajectory`.
+- **Run surface.** Training and jobs use `status` + `metrics` + `method` as one surface.
+- **Box only.** The cell contract name is `Box` / `box` — not `simbox`.
+- **One schema version.** `meta.record_schema_version` (starts at 1); no parallel `frame_schema_version`.
+- **molrs first.** Reference Zarr I/O for array sections lands in molrs; molpy re-exports — never a second layout named MolStore. Live **metrics** use JSONL append (`metrics/metrics.jsonl`), not Zarr.
+- **Hard cut.** New writers do not dual-read retired keys or private layouts; migrate offline.
+- **Collections, not only atoms.** Named blocks carry any entity set.
+- **Preserve the unknown.** Readers keep sections, blocks, and columns they do not interpret.
+- **Backend-neutral.** Semantics do not require Zarr; Zarr V3 is the reference binding only.
 
 ## Documentation
 
@@ -72,24 +97,26 @@ Full specification: [docs/index.md](docs/index.md)
 
 ## Reference implementation
 
-[molrs](https://github.com/MolCrafts/molrs) provides a Rust + Python implementation of MolRec with Zarr v3 as the storage backend.
+[molrs](https://github.com/MolCrafts/molrs) implements L1 containers and the
+reference Zarr binding. Other packages **consume** the contract; they must not
+ship a parallel store product name for the same layout.
 
 ## MolCrafts ecosystem
 
 | Project | Role |
 |---------|------|
-| [molpy](https://github.com/MolCrafts/molpy)     | Python toolkit — the shared molecular data model & workflow layer |
-| [molrs](https://github.com/MolCrafts/molrs)     | Rust core — molecular data structures & compute kernels (native + WASM) |
-| [molpack](https://github.com/MolCrafts/molpack) | Packmol-grade molecular packing (Rust + Python) |
-| [molvis](https://github.com/MolCrafts/molvis)   | WebGL molecular visualization & editing |
-| [molexp](https://github.com/MolCrafts/molexp)   | Workflow & experiment-management platform |
-| [molnex](https://github.com/MolCrafts/molnex)   | Molecular machine-learning framework |
-| [molq](https://github.com/MolCrafts/molq)       | Unified job queue — local / SLURM / PBS / LSF |
-| [molcfg](https://github.com/MolCrafts/molcfg)   | Layered configuration library |
-| [mollog](https://github.com/MolCrafts/mollog)   | Structured logging, stdlib-compatible |
-| [molhub](https://github.com/MolCrafts/molhub)   | Molecular dataset hub |
-| [molmcp](https://github.com/MolCrafts/molmcp)   | MCP server for the ecosystem |
-| **molrec** | Atomistic record specification — this repo |
+| [molpy](https://github.com/MolCrafts/molpy) | Python toolkit & workflows |
+| [molrs](https://github.com/MolCrafts/molrs) | Rust core — containers & compute (reference MolRec binding) |
+| [molpack](https://github.com/MolCrafts/molpack) | Molecular packing |
+| [molvis](https://github.com/MolCrafts/molvis) | Visualization |
+| [molexp](https://github.com/MolCrafts/molexp) | Experiment / run management |
+| [molnex](https://github.com/MolCrafts/molnex) | ML framework (run surface consumer) |
+| [molq](https://github.com/MolCrafts/molq) | Job queue |
+| [molcfg](https://github.com/MolCrafts/molcfg) | Configuration |
+| [mollog](https://github.com/MolCrafts/mollog) | Logging |
+| [molhub](https://github.com/MolCrafts/molhub) | Dataset hub |
+| [molmcp](https://github.com/MolCrafts/molmcp) | MCP server |
+| **molrec** | **Record contract — this repo** |
 
 ## License
 

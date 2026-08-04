@@ -27,10 +27,10 @@ class TestStaticBox:
 
 
 class TestNoBoxTrajectory:
-    """Trajectory frames without simbox → frame.box must be None after roundtrip."""
+    """LAMMPS dump frames carry box bounds → frame.box survives the roundtrip."""
 
     def test_roundtrip(self, tests_data, tmp_zarr_path):
-        # LAMMPS dump frames carry no SimBox, so no box should be stored.
+        # LAMMPS dumps include BOX BOUNDS, so a box is parsed and stored.
         frames = molrs.read_lammps_traj(
             str(tests_data / "lammps" / "wrapped.lammpstrj")
         )
@@ -42,4 +42,4 @@ class TestNoBoxTrajectory:
         loaded = molrs.MolRec.read_zarr(str(tmp_zarr_path))
 
         assert loaded.count_frames() == len(frames)
-        assert loaded.frame.box is None
+        assert loaded.frame.box is not None

@@ -1,8 +1,9 @@
-"""Tests for the CHGCAR reader and its integration with the Grid type.
+"""Tests for the CHGCAR reader and its grid block on the molrs Frame.
 
 All tests use synthetic CHGCAR content generated in-memory so no external
 test-data files are required.
 """
+
 from __future__ import annotations
 
 import math
@@ -12,10 +13,10 @@ import molrs
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_chgcar(
     *,
@@ -95,12 +96,14 @@ def chgcar_spin_file(tmp_path: Path) -> Path:
 # TestReadCHGCAR
 # ---------------------------------------------------------------------------
 
+
 class TestReadCHGCAR:
     """Basic I/O tests for read_chgcar_file."""
 
     def test_returns_frame(self, chgcar_file):
         frame = molrs.read_chgcar_file(str(chgcar_file))
-        assert isinstance(frame, molrs.Frame)
+        assert type(frame).__name__ == "Frame"
+        assert "atoms" in frame and "grid" in frame
 
     def test_atoms_block_present(self, chgcar_file):
         frame = molrs.read_chgcar_file(str(chgcar_file))
@@ -110,7 +113,7 @@ class TestReadCHGCAR:
     def test_atom_symbols(self, chgcar_file):
         frame = molrs.read_chgcar_file(str(chgcar_file))
         atoms = frame["atoms"]
-        syms = atoms.view("symbol")
+        syms = atoms.view("element")
         assert list(syms) == ["Fe", "Fe"]
 
     def test_simbox_present(self, chgcar_file):
@@ -130,75 +133,67 @@ class TestReadCHGCAR:
 # TestCHGCARGrid
 # ---------------------------------------------------------------------------
 
+
 class TestCHGCARGrid:
-    """Tests that the Grid embedded in the Frame is correct."""
+    """Tests that the volumetric grid block on the Frame is correct."""
 
     def test_grid_key_exists(self, chgcar_file):
         frame = molrs.read_chgcar_file(str(chgcar_file))
-        g = frame["chgcar"]
-        assert isinstance(g, molrs.Grid)
+        assert "grid" in frame
 
-    def test_grid_dimensions(self, chgcar_file):
+    def test_grid_npoints(self, chgcar_file):
+        """2x2x2 grid = 8 voxels (one flat row each)."""
         frame = molrs.read_chgcar_file(str(chgcar_file))
-        g = frame["chgcar"]
-        assert list(g.dim) == [2, 2, 2]
+        assert frame["grid"].nrows == 2 * 2 * 2
 
     def test_total_array_present(self, chgcar_file):
         frame = molrs.read_chgcar_file(str(chgcar_file))
-        g = frame["chgcar"]
-        assert "total" in g
+        assert "total" in frame["grid"].keys()
 
     def test_total_array_shape(self, chgcar_file):
         frame = molrs.read_chgcar_file(str(chgcar_file))
-        g = frame["chgcar"]
-        total = g["total"]
-        assert total.shape == (2, 2, 2)
+        total = frame["grid"].view("total")
+        assert total.shape == (2 * 2 * 2,)
 
     def test_total_values_uniform(self, chgcar_file):
         """All total values should be 1.0 (as set in the helper)."""
         frame = molrs.read_chgcar_file(str(chgcar_file))
-        total = frame["chgcar"]["total"]
+        total = frame["grid"].view("total")
         np.testing.assert_allclose(total, 1.0, atol=1e-5)
 
     def test_no_diff_without_spin(self, chgcar_file):
         frame = molrs.read_chgcar_file(str(chgcar_file))
-        g = frame["chgcar"]
-        assert "diff" not in g
-
-    def test_grid_meshgrid_shape(self, chgcar_file):
-        """grid.grid must have shape (nx, ny, nz, 3)."""
-        frame = molrs.read_chgcar_file(str(chgcar_file))
-        g = frame["chgcar"]
-        assert g.grid.shape == (2, 2, 2, 3)
+        assert "diff" not in frame["grid"].keys()
 
 
 # ---------------------------------------------------------------------------
 # TestCHGCARSpin
 # ---------------------------------------------------------------------------
 
+
 class TestCHGCARSpin:
     """Tests for spin-polarised CHGCAR (ISPIN=2, total + diff)."""
 
     def test_diff_array_present(self, chgcar_spin_file):
         frame = molrs.read_chgcar_file(str(chgcar_spin_file))
-        g = frame["chgcar"]
-        assert "diff" in g
+        assert "diff" in frame["grid"].keys()
 
     def test_diff_values_uniform(self, chgcar_spin_file):
         """Spin density set to 0.5 in the helper."""
         frame = molrs.read_chgcar_file(str(chgcar_spin_file))
-        diff = frame["chgcar"]["diff"]
+        diff = frame["grid"].view("diff")
         np.testing.assert_allclose(diff, 0.5, atol=1e-5)
 
     def test_both_arrays_same_shape(self, chgcar_spin_file):
         frame = molrs.read_chgcar_file(str(chgcar_spin_file))
-        g = frame["chgcar"]
-        assert g["total"].shape == g["diff"].shape
+        g = frame["grid"]
+        assert g.view("total").shape == g.view("diff").shape
 
 
 # ---------------------------------------------------------------------------
 # TestCHGCARAtomPositions
 # ---------------------------------------------------------------------------
+
 
 class TestCHGCARAtomPositions:
     """Verify atom coordinate conversion from Direct → Cartesian."""
@@ -218,7 +213,9 @@ class TestCHGCARAtomPositions:
         """BCC body-centre at Direct (0.5, 0.5, 0.5) with scale=2.87,
         orthogonal unit lattice → Cartesian (1.435, 1.435, 1.435)."""
         chgcar = _make_chgcar(scale=2.87)
-        import tempfile, os
+        import os
+        import tempfile
+
         with tempfile.NamedTemporaryFile(suffix="CHGCAR", mode="w", delete=False) as fh:
             fh.write(chgcar)
             name = fh.name
@@ -234,6 +231,7 @@ class TestCHGCARAtomPositions:
 # ---------------------------------------------------------------------------
 # TestCHGCARTriclinic
 # ---------------------------------------------------------------------------
+
 
 class TestCHGCARTriclinic:
     """Triclinic cell handling."""
@@ -253,7 +251,9 @@ class TestCHGCARTriclinic:
             counts=[1],
             positions=[(0.0, 0.0, 0.0)],
         )
-        import tempfile, os
+        import os
+        import tempfile
+
         with tempfile.NamedTemporaryFile(suffix="CHGCAR", mode="w", delete=False) as fh:
             fh.write(chgcar)
             name = fh.name
@@ -271,6 +271,7 @@ class TestCHGCARTriclinic:
 # TestCHGCARRoundtrip (Grid → Zarr → reload)
 # ---------------------------------------------------------------------------
 
+
 class TestCHGCARGridZarrRoundtrip:
     """The Grid read from a CHGCAR survives a MolRec Zarr roundtrip."""
 
@@ -282,10 +283,9 @@ class TestCHGCARGridZarrRoundtrip:
         record.write_zarr(str(tmp_zarr_path))
         loaded = molrs.MolRec.read_zarr(str(tmp_zarr_path))
 
-        g = loaded.frame["chgcar"]
-        assert isinstance(g, molrs.Grid)
-        assert list(g.dim) == [2, 2, 2]
-        assert "total" in g
-        assert "diff" in g
-        np.testing.assert_allclose(g["total"], 1.0, atol=1e-5)
-        np.testing.assert_allclose(g["diff"], 0.5, atol=1e-5)
+        g = loaded.frame["grid"]
+        assert g.nrows == 2 * 2 * 2
+        assert "total" in g.keys()
+        assert "diff" in g.keys()
+        np.testing.assert_allclose(g.view("total"), 1.0, atol=1e-5)
+        np.testing.assert_allclose(g.view("diff"), 0.5, atol=1e-5)

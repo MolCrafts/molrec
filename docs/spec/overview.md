@@ -2,217 +2,170 @@
 
 ## Purpose
 
-MolRec defines the meaning of a molecular record.
+MolRec is a **backend-neutral record contract** for the MolCrafts ecosystem.
 
-The central idea is simple:
+It defines:
 
-- `frame` stores a canonical snapshot as named collections, optional grids, and an optional box
-- `trajectory` stores a packed list of frame-like snapshots grouped by collection
-- `observables` stores arbitrary derived or reported data (scalar, vector, or grid)
-- `status` stores execution state, stage, progress counters, and task status
-- `metrics` stores append-oriented runtime measurements such as training curves
-- `method` stores typed scientific context that explains how the record was produced
-- `meta` stores record-level metadata and audit information
+1. A minimal, fully general **data model** (containers with no privileged field names).
+2. A **Record** root — the unit of interchange across tools.
+3. Recommended **conventions** (domain section names and column names).
 
-This is a semantic specification. It exists to make records interpretable across projects and
-languages.
+It does **not** define a product class named `MolStore`, `SimStore`, or similar.
+Implementations may provide record I/O APIs; the specification names **layout and
+semantics**, not a store brand.
 
-## Core definitions
+The design rule for L1 containers is: **the model has no special fields.**
+Atoms, bonds, coordinates, charge density, and energy are conventional names
+for ordinary blocks and columns. This keeps the model tiny and lets it carry
+data its authors never anticipated.
 
-### Record
+## Layers (L0–L4)
 
-A MolRec record is the complete logical object rooted at:
+| Layer | Name | Contents | Normativity |
+|-------|------|----------|-------------|
+| L0 | Vocabulary | dtypes, units, hard naming rules | Normative |
+| L1 | Containers | Column · Block · Frame · Box | Normative |
+| L2 | Record | Root sections, versioning, minimum shapes | Normative |
+| L3 | Conventions | `system`, `trajectory`, `status`, `metrics`, … | Recommended |
+| L4 | Backend binding | Arrays: Zarr V3 in molrs; metrics stream: JSONL | Reference only |
+
+## The model (L1)
+
+### Column
+
+A `Column` is a typed N-dimensional array. Its element type (`dtype`) is one of:
 
 ```text
-/
-\-- meta
-\-- frame
-\-- (trajectory)
-\-- (observables)
-\-- (status)
-\-- (metrics)
-\-- (method)
-\-- (parameters)
+float      64-bit floating point
+int        signed integer
+uint       unsigned integer
+u8         8-bit unsigned integer
+bool       boolean
+string     UTF-8 string
 ```
 
-### Canonical frame
+The dtype set is closed; see [Types](types.md).
 
-The canonical frame is the reference snapshot of the system.
+### Block
 
-It may represent:
+A `Block` is a set of named columns that share a common leading length, the
+block's **count**:
 
-- an initial structure
-- a relaxed structure
-- a canonical snapshot extracted from a run
-- a static molecular structure
+```text
+block
++-- <name>: Column
++-- <name>: Column
+\-- ...
+```
 
-The canonical frame defines the default entity ordering for any canonical collection reused by the
-record.
+Every column in a block has the same axis-0 length. A block may also carry an
+optional structural **shape** whose product equals the count — this lets one
+block describe an N-D object (e.g. a volumetric grid `[nx, ny, nz]`) with the same
+container as a flat table. When no shape is set, the block is a plain table of
+`count` rows.
+
+### Frame
+
+A `Frame` is a snapshot: a set of named blocks, free-form metadata, and an
+optional box.
+
+```text
+frame
++-- <block>: Block
++-- <block>: Block
++-- meta: key -> value
+\-- (box)
+```
+
+A frame enforces no relationship between its blocks — it is a general container.
+The count of one block is independent of another's, and any block name is legal.
 
 ### Box
 
-`box` is a property of each `frame`.
-
-Each frame carries its own simulation cell (cell vectors, origin, and periodic boundary conditions).
-For trajectory data, each frame stores its own box, naturally supporting both fixed-cell and
-variable-cell workflows.
-
-### Grid
-
-`Grid` is a data structure for values on a uniform 3-D spatial grid.
-
-A grid is defined by:
-
-- `dim`: grid dimensions `[nx, ny, nz]`
-- `origin`: Cartesian origin
-- `cell`: cell vectors defining the spatial extent
-- `pbc`: periodic boundary flags
-- named scalar arrays, each of length `nx * ny * nz`
-
-Grid appears in two places:
-
-- **In frame**: as part of the canonical snapshot (e.g., charge density read from a file).
-- **In observables**: as `kind: "grid"`, carrying semantic metadata (description, unit, etc.).
+`box` is an optional property of a frame: a triclinic simulation cell. It carries
+cell vectors (columns are lattice vectors), an origin, and per-axis periodic
+boundary flags. See [Frame](frame.md#box).
 
 ### Trajectory
 
-A trajectory is conceptually a list of frames.
+A `trajectory` is an ordered sequence of frames, with optional `step` (integer)
+and `time` (float) index arrays aligned to the sequence. It is a plain carrier;
+the canonical entity remains the frame. See [Trajectory](trajectory.md).
 
-In storage, it is packed into aligned arrays grouped by collection. The fundamental interpretation
-is still:
+## Model vs conventions
 
-> `trajectory` is a list of frame-like snapshots compressed into shared arrays, not a requirement to
-> duplicate full frame objects per timestep.
+- **L0–L2** — this chapter, [Types](types.md), [Frame](frame.md), [Record](record.md)
+  — are normative.
+- **L3** — [Conventions](conventions.md), [System](system.md), [Run surface](run.md),
+  and the section chapters — are recommended so tools interoperate.
 
-Writers should prefer packed storage over literal per-frame object repetition. This keeps trajectory
-reads efficient and avoids metadata duplication while preserving frame-like semantics.
+A conforming reader must traverse the model. Interpreting an unknown convention
+is optional, but unknown blocks and columns MUST be preserved.
 
-### Observable
+## Records (L2)
 
-An observable is any recorded quantity outside the core frame/trajectory definition.
+A **Record** bundles optional companion sections under one root. See
+[Record](record.md) for the full section map and versioning.
 
-MolRec supports three observable data kinds:
+```text
+/
++-- meta            required
++-- (system)        system definition
++-- (frame)         snapshot
++-- (trajectory)    frame sequence
++-- (observables)   scientific results
++-- (method)        scientific / training context
++-- (status)        execution lifecycle
+\-- (metrics)       append-only run measurements
+```
 
-- **Scalar**: a single value or 1-D array (e.g., total energy, temperature)
-- **Vector**: an N-D array of components (e.g., dipole moment, stress tensor)
-- **Grid**: a volumetric field on a spatial grid (e.g., electron density, spin density)
+No record-root `parameters/`. Parameters: `system/parameters` or `method`.
 
-### Status
+### Minimum shapes
 
-Status is the current lifecycle and progress snapshot for a record.
+| Shape | Required | Notes |
+|-------|----------|-------|
+| Structure | `meta` + `frame` | Single snapshot |
+| System def | `meta` + `system` | Definition without coordinates |
+| Trajectory | `meta` + `trajectory` | `system` optional; with system prefer coords/state-only updates |
+| **Run** | `meta` + `status` (+ `metrics` and/or `method`) | **No `frame` required** |
+| Full | combinations | Experiment package |
 
-It stores fields such as:
+A record MUST include `meta` and **at least one of** `frame`, `system`, or
+`status`.
 
-- `state`
-- `stage`
-- progress counters like `epoch` and `global_step`
-- task-level status for workflow records
-- current error summary
+`system` vs `frame`: definition vs instantaneous state — see [System](system.md).
+Training / job logs: see [Run surface](run.md).
 
-Status follows the MolNex `TrainState` convention of reserved progress keys plus extensible,
-namespaced fields.
+## Backend binding (L4)
 
-### Metrics
+The specification does not mandate a storage engine. The **reference** binding
+is Zarr V3 in [molrs](https://github.com/MolCrafts/molrs). Other backends may
+implement the same section semantics.
 
-Metrics are append-oriented runtime measurements.
-
-Typical examples:
-
-- `train/loss`
-- `eval/MAE`
-- `performance/step_per_second`
-- `gpu/alloc_gib`
-
-Metrics follow the Molexp run-local event model: records are keyed, typed, optionally stepped, and
-append-oriented.
-
-### Method
-
-The method group describes how the record was produced.
-
-Examples:
-
-- classical force field and integrator
-- ML potential and model metadata
-- electronic-structure method, basis, and solver settings
-- custom typed schemas documented in [Types](types.md)
-
-## Design decisions
-
-### Bonded collections live in frame
-
-If a snapshot needs per-bond, per-angle, or per-dihedral information, those arrays belong in
-`frame`, because they are part of the stored snapshot or reference structure.
-
-### Box lives on frame
-
-The simulation cell is a property of each frame, not a separate root-level concept. This simplifies
-the data model: every frame is self-contained with its own atoms, grids, and cell.
-
-### Grid is a data structure, not an observable kind
-
-Grid itself is a pure data container (dimensions, cell, arrays). It carries no unit or description.
-When a Grid appears in observables, the semantic metadata (unit, description, sampling, domain)
-lives on the `ObservableRecord` wrapper, not on the Grid object itself.
-
-### Trajectories are collection-based, not atoms-only
-
-MolRec does not require trajectory data to be stored only as atom vectors.
-
-Any named collection may appear in `trajectory` if its metadata defines:
-
-- whether it is aligned to a canonical frame collection or dynamic over time
-- what its entity axis means
-- how any additional axes should be interpreted
-
-### No standalone frame dimension field
-
-MolRec does not use a separate `frame.dimension` field.
-
-Spatial dimension is inferred from array shapes such as:
-
-- `position[N][ndim]`
-- `box/vectors[ndim][ndim]`
-- `trajectory/atoms/position[ntimestep][N][ndim]`
-
-### Metrics are separate from observables
-
-MolRec separates runtime monitoring from scientific record content.
-
-Use `metrics` for append-oriented run-local measurements such as training loss, validation scores,
-throughput, and device counters. Use `observables` for quantities that are part of the interpreted
-scientific record.
-
-### Status is separate from metrics
-
-MolRec separates current execution state from measurement history.
-
-Use `status` for lifecycle state, stage, progress counters, task state, and current error summary.
-Use `metrics` for values recorded across steps or wall time.
+MolRec never names a required product API `MolStore` or `SimStore`.
+The cell is **`Box` / `box` only** in the contract. The sole schema version key
+is **`record_schema_version`** (starts at 1). Reference I/O is implemented in
+**molrs first**, then consumed by molpy via re-export — never a second layout
+called MolStore. **No backward-compatible dual reads** of retired keys or
+layouts; migrate offline.
 
 ## Normative invariants
 
-The following invariants define MolRec 0.1:
+The following invariants define MolRec 0.3:
 
-1. Every record has exactly one canonical `frame`.
-2. `frame` contains zero or more named canonical collections, each with its own count and default
-   entity order.
-3. `box` is a property of each frame, carrying cell vectors, origin, and boundary conditions.
-4. `trajectory` is interpreted as a list of frame-like snapshots packed into aligned arrays by
-   collection.
-5. MolRec accepts coordinate data either as packed Cartesian vectors or as split-axis Cartesian
-   triplets. For atom-like split-axis data, both `x/y/z` and `xu/yu/zu` are legal coordinate
-   triplets, and the spec does not require one triplet to be synthesized from the other.
-6. `trajectory` is not atoms-only. Any named collection may appear if its metadata defines axis and
-   alignment semantics.
-7. A trajectory collection is either canonical-aligned or dynamic, and its metadata must state which
-   mode applies.
-8. Every observable dataset `observables/<name>` must have a corresponding metadata entry
-   `observables/meta/<name>`.
-9. If `status` exists, `status/state` is required and must use a lowercase lifecycle state or a
-   state defined by a declared module.
-10. If `metrics` exists, every metric record must have a non-empty key, a type, a wall-time
-   timestamp, and a value matching its metric type.
-11. `method` stores typed scientific context, not result arrays.
-12. Any custom typed schema used by `method` or an extension module must define parse rules in
-   [Types](types.md) or in a declared module specification.
+1. L1 has exactly three containers — Column, Block, Frame — with no privileged
+   field names.
+2. A Column's dtype is one of `float`, `int`, `uint`, `u8`, `bool`, `string`.
+3. All columns in a Block share the same count (axis-0 length).
+4. A Block's optional structural shape has product equal to its count.
+5. A Frame is a general map of names to Blocks; it enforces no cross-block
+   relationship.
+6. `box`, when present, is a triclinic cell whose `vectors` columns are lattice
+   vectors.
+7. A trajectory is an ordered list of frames with optional aligned `step`/`time`
+   arrays.
+8. A reader must preserve blocks, columns, and record sections it does not
+   recognize.
+9. A Record requires `meta` and at least one of `frame`, `system`, or `status`.
+10. Instantaneous Cartesian coordinates are not required content of `system/`.

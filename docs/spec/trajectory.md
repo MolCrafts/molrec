@@ -2,150 +2,62 @@
 
 ## Purpose
 
-`trajectory` stores a packed list of frames.
-
-Conceptually:
+`trajectory` is an ordered sequence of frames — the time evolution of the system.
+It is a recommended record section built on the general model: each element is a
+[frame](frame.md), carried alongside two optional index arrays.
 
 ```text
 trajectory == [frame_0, frame_1, frame_2, ...]
 ```
 
-Physically, these frames are stored as aligned arrays grouped by collection. This preserves
-frame-like semantics without requiring literal storage as repeated frame objects.
+The canonical entity remains the frame; a trajectory adds ordering and indexing,
+not new structure.
 
-## Structure
+## Logical model
 
 ```text
 trajectory
-\-- meta
-|   +-- ntimestep: Integer[]
-|   +-- storage: String[] = "packed_collections"
-\-- (step: Integer[ntimestep])
-\-- (time: Float[ntimestep])
-\-- (atoms)
-|   \-- meta
-|   |   +-- count_mode: String[] = "canonical" | "dynamic"
-|   |   +-- (target: String[] = "/frame/atoms")
-|   |   +-- (max_count: Integer[])
-|   |   +-- (count: Integer[ntimestep])
-|   \-- (mask: Bool[ntimestep][M])
-|   \-- (id: Integer[ntimestep][M])
-|   \-- (position: Float[ntimestep][M][ndim])
-|   \-- (velocity: Float[ntimestep][M][ndim])
-|   \-- (charge: Float[ntimestep][M])
-|   \-- ...
-\-- (bonds)
-|   \-- meta
-|   |   +-- count_mode: String[] = "canonical" | "dynamic"
-|   |   +-- (target: String[] = "/frame/bonds")
-|   |   +-- (max_count: Integer[])
-|   |   +-- (count: Integer[ntimestep])
-|   \-- (mask: Bool[ntimestep][M])
-|   \-- (index: Integer[ntimestep][M][2])
-|   \-- (order: Float[ntimestep][M])
-|   \-- ...
-\-- (custom_collection)
-|   \-- ...
-\-- ...
++-- frames: [Frame]                 # ordered frame-like states
++-- (step: Integer[nstep])          # discrete iteration indices
+\-- (time: Float[nstep])            # physical time values
 ```
-
-`M` denotes the entity-axis storage size for a collection. In canonical mode, `M` equals the count
-of the referenced frame collection. In dynamic mode, `M` equals `max_count`.
-
-## Required metadata
-
-- `trajectory/meta/ntimestep`
-- `trajectory/meta/storage`
 
 Rules:
 
-- every trajectory collection has a `meta/count_mode`
-- every trajectory dataset has leading axis `ntimestep`
-- each trajectory collection defines the meaning of its entity axis through `count_mode` and, when
-  relevant, `target`
+- `step` and `time`, when present, are aligned to the frame order (length
+  `nstep`).
+- Each frame carries its own [box](frame.md#box), so fixed-cell and variable-cell
+  runs are both natural.
+- A record **MAY** omit `system/` and still carry `trajectory/` (frames may embed
+  full blocks, including topology).
+- When both `system/` and `trajectory/` are present, trajectory **SHOULD** update
+  **state only** (coordinates, instantaneous properties, instantaneous box) and
+  not restate topology held in `system/`.
 
-## Logical list, packed storage
+## Packed storage (convention)
 
-MolRec treats `trajectory` as a logical list of frame-like snapshots. Writers should normally store
-that list in packed collection arrays rather than as repeated nested frame objects.
+Storing a trajectory as a literal list of frame objects duplicates metadata every
+step. By convention a writer instead packs the sequence into per-block arrays
+with a leading time axis:
 
-This keeps:
+```text
+trajectory
+\-- atoms
+|   +-- x: Float[nstep][count]
+|   \-- ...
+\-- bonds
+    +-- atomi: UInt[nstep][count]
+    \-- ...
+```
 
-- I/O efficient for common slices such as `position[:, :, :]`
-- metadata deduplicated across timesteps
-- trajectory semantics close to in-memory frame objects
-
-The storage model therefore does not imply larger files than a specialized trajectory backend. It
-only constrains how the arrays should be interpreted.
-
-## Collection modes
-
-### Canonical mode
-
-A canonical trajectory collection reuses the entity order of a frame collection.
-
-Required metadata:
-
-- `meta/count_mode = "canonical"`
-- `meta/target = "/frame/<collection>"`
-
-Typical shapes:
-
-- `Float[ntimestep][count]`
-- `Float[ntimestep][count][ndim]`
-- `Integer[ntimestep][count][arity]`
-
-This mode is appropriate for fixed-composition trajectories and any collection with stable entity
-alignment across time.
-
-When a trajectory collection stores positions, MolRec accepts either packed Cartesian vectors or
-split-axis Cartesian triplets at each timestep. For atom-like split-axis trajectory data, both
-`x/y/z` and `xu/yu/zu` are legal coordinate triplets, and readers do not need to synthesize one
-from the other.
-
-### Dynamic mode
-
-A dynamic trajectory collection allows the active entity set to vary with timestep.
-
-Required metadata:
-
-- `meta/count_mode = "dynamic"`
-- `meta/max_count`
-- `meta/count[ntimestep]`
-
-Required companion datasets:
-
-- `mask[ntimestep][max_count]`
-
-Strongly recommended companion datasets:
-
-- `id[ntimestep][max_count]` for persistent entity identity
-- `index[ntimestep][max_count][arity]` for dynamic tuple collections
-
-Dynamic mode is appropriate for changing composition, changing topology, insertion or deletion
-workflows, adaptive-resolution methods, and any trajectory where a canonical entity alignment alone
-is insufficient.
-
-## Shared timestep axes
-
-The optional arrays:
-
-- `step[ntimestep]`
-- `time[ntimestep]`
-
-provide the shared indexing for the packed list of frames.
-
-`step` is appropriate for discrete iteration indices.
-
-`time` is appropriate when physical time exists.
-
-The root-level `box` group may also use this same timestep axis when `box/meta/time_dependent =
-true`.
+This is a storage convention (see
+[Conventions](conventions.md#trajectory-packing)), not a change to the logical
+model — the packed arrays still mean an ordered list of frames. A block whose
+entity set changes over time may add a per-step `count` and a `mask` array marking
+active entities; fixed-composition blocks need neither.
 
 ## Scope
 
-This chapter defines frame-like trajectory collections with a shared leading timestep axis.
-
-Quantities that are not part of the evolving frame-like state, such as reduced scientific
-statistics, spectra, or free-energy surfaces, belong in `observables`. Run-local monitoring values
-and convergence traces belong in `metrics`.
+Evolving frame-like state belongs in `trajectory`. Reduced scientific statistics
+(spectra, free-energy surfaces) belong in [observables](observables.md); run-local
+monitoring belongs in [metrics](metrics.md).

@@ -2,7 +2,12 @@
 
 ## Purpose
 
-`method` stores the scientific context needed to interpret a MolRec record.
+`method` stores the scientific context needed to interpret a MolRec record. It is
+part of the **run surface** (with [Status](status.md) and [Metrics](metrics.md))
+— see [Run surface](run.md).
+
+It is a recommended record section — a convention layered on the general model
+(see [Overview](overview.md)).
 
 It answers questions such as:
 
@@ -36,8 +41,8 @@ method
 MolRec 0.1 ships with standard types such as `classical`, `ml`, `electronic_structure`, and
 `workflow`, but `method` is not restricted to a fixed closed vocabulary.
 
-Any custom method type is valid if its parse rules are documented in [Types](types.md) or in a
-module declared under `meta/modules`.
+Any custom method type is valid if its parse rules are documented in a module declared under
+`meta/modules`.
 
 ## Typed method schemas
 
@@ -48,7 +53,7 @@ Rules:
 - `method/type` is required
 - `method/description` is required
 - `method/engine/name` is required
-- custom method types must define their parse rules in [Types](types.md) or a declared module
+- custom method types must define their parse rules in a module declared under `meta/modules`
 - result arrays stay in `frame`, `trajectory`, or `observables`
 
 ## Standard types
@@ -116,8 +121,8 @@ MolRec allows custom method types such as:
 - active-learning loops
 - multiscale workflows
 
-The only requirement is that the `type` be declared and its parse rules be documented in
-[Types](types.md) or a declared module.
+The only requirement is that the `type` be declared and its parse rules be documented in a module
+declared under `meta/modules`.
 
 ## Example
 

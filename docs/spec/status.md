@@ -2,7 +2,11 @@
 
 ## Purpose
 
-`status` stores execution state for a record.
+`status` stores execution state for a record. It is part of the **run surface**
+(with [Metrics](metrics.md) and [Method](method.md)) — see [Run surface](run.md).
+
+It is a recommended record section — a convention layered on the general model
+(see [Overview](overview.md)), not part of the core model.
 
 It is intended for monitoring, resume decisions, and UI summaries. It is not the place for
 scientific result arrays. Result arrays belong in `frame`, `trajectory`, `observables`, or

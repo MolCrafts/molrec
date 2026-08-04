@@ -2,7 +2,8 @@
 
 ## Purpose
 
-`meta` stores record-level metadata.
+`meta` stores record-level metadata. It is a recommended record section — a
+convention layered on the general model (see [Overview](overview.md)).
 
 This includes both descriptive metadata and audit-like metadata about authorship and creation.
 
@@ -57,4 +58,3 @@ Module entries are identified by:
 
 - a module name
 - a major/minor version
-
