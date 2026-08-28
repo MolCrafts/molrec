@@ -30,6 +30,5 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra dev
-      - name: pytest (known failures until MolRec API port)
+      - name: pytest
         run: uv run pytest -q
-        continue-on-error: true
