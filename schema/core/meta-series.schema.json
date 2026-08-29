@@ -1,0 +1,49 @@
+{
+  "description": "One per-step meta key, declared once for the whole sequence.\n\nThe declaration is what makes the value exact: two runs both handing back\n``1.0`` are not the same run if one wrote f32 and the other f64, and\nnothing in the value itself says which.\n\n``fill`` is the only thing that lets a frame omit the key. A key declared\nwithout one must be supplied by every frame -- there is **no implicit\nNaN**, so a gap a producer did not declare is refused rather than\ninvented.\n\n``fill`` is **write-side only**. The value is materialized into the array\nat the omitting step and no attribute records that it was a fill, so a\nreader cannot distinguish a filled value from a written one -- both are\nsimply the value at that step -- and hands back no fill at all. The\ndeclaration does not survive the round trip, and is therefore not compared\non read-back.",
+  "properties": {
+    "dtype": {
+      "enum": [
+        "f16",
+        "f32",
+        "f64",
+        "i8",
+        "i16",
+        "i32",
+        "i64",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "bool",
+        "string",
+        "c64",
+        "c128"
+      ],
+      "title": "Dtype",
+      "type": "string"
+    },
+    "fill": {
+      "anyOf": [
+        {},
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fill"
+    },
+    "shape": {
+      "default": [],
+      "items": {
+        "type": "integer"
+      },
+      "title": "Shape",
+      "type": "array"
+    }
+  },
+  "required": [
+    "dtype"
+  ],
+  "title": "MetaSeriesModel",
+  "type": "object"
+}

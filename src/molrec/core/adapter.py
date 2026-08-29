@@ -6,8 +6,8 @@ from abc import abstractmethod
 from typing import Any, ClassVar
 
 from molrec.adapter import Adapter
-from molrec.core.model import FrameModel, RecordModel
-from molrec.core.store import FrameStore, RecordStore
+from molrec.core.model import FrameModel, RecordModel, TrajectoryModel
+from molrec.core.store import FrameStore, RecordStore, TrajectoryStore
 
 
 class FrameAdapter(Adapter):
@@ -32,6 +32,23 @@ class FrameAdapter(Adapter):
 
     @abstractmethod
     def read(self, store: FrameStore) -> Any: ...
+
+
+class TrajectoryAdapter(Adapter):
+    """Same contract for a sequence of frames.
+
+    What ``read`` hands back is the *logical* sequence -- the frames, their
+    step numbers, their cell updates. How an implementation indexed them on
+    disk is its own business and is never compared.
+    """
+
+    module: ClassVar[str] = "trajectory"
+
+    @abstractmethod
+    def write(self, model: TrajectoryModel, store: TrajectoryStore) -> None: ...
+
+    @abstractmethod
+    def read(self, store: TrajectoryStore) -> Any: ...
 
 
 class RecordAdapter(Adapter):

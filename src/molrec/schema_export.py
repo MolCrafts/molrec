@@ -19,10 +19,14 @@ from pydantic import BaseModel
 from molrec.core.model import (
     BlockModel,
     BoxModel,
+    BoxUpdateModel,
     ColumnModel,
     FrameModel,
     MetaModel,
+    MetaSeriesModel,
     RecordModel,
+    TrajectoryBoxModel,
+    TrajectoryModel,
 )
 from molrec.observables.model import (
     Array,
@@ -35,7 +39,18 @@ from molrec.report import Violation
 
 #: module -> the models it publishes.
 PUBLISHED: dict[str, tuple[type[BaseModel], ...]] = {
-    "core": (ColumnModel, BlockModel, BoxModel, FrameModel, MetaModel, RecordModel),
+    "core": (
+        ColumnModel,
+        BlockModel,
+        BoxModel,
+        FrameModel,
+        MetaSeriesModel,
+        BoxUpdateModel,
+        TrajectoryBoxModel,
+        TrajectoryModel,
+        MetaModel,
+        RecordModel,
+    ),
     "observables": (Array, Source, ObservableModel, ObservablesModel),
     "ref": (Ref,),
     "report": (Violation,),

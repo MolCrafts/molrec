@@ -19,5 +19,13 @@ class FrameStore(Store):
     """Where one frame lands."""
 
 
+class TrajectoryStore(Store):
+    """Where one sequence of frames lands.
+
+    Same array-tree semantics as a frame, one level up: the sections are
+    indexed by frame ordinal rather than written once.
+    """
+
+
 class RecordStore(Store):
     """Where a whole record root lands."""

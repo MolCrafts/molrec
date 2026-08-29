@@ -78,6 +78,30 @@ The simulation cell is the frame's `box` (see [Frame](frame.md#box)): a triclini
 cell whose `vectors` columns are lattice vectors, with an origin and per-axis
 periodic boundary flags.
 
+Only `vectors` is required. The other parts are optional, and **absence has a
+fixed meaning**: two readers that default them differently turn one store into
+two different physical systems, so the defaults are normative.
+
+| Part | Absent means |
+|------|--------------|
+| `boundary` | `[true, true, true]` — periodic on every axis |
+| `origin` | `[0, 0, 0]` — cell anchored at the coordinate origin |
+| `cell_defined` | `true` — the cell is geometrically defined |
+
+`cell_defined` is an optional boolean on the box. It is **not** periodicity:
+`boundary` says which axes wrap, `cell_defined` says whether there is a cell at
+all. A free-boundary system with a real bounding cell stays *defined*; only a box
+with no meaningful cell — the identity matrix carried so that geometry operations
+degrade to no-ops — sets the flag `false`. A writer emits it **only when it is
+`false`**, because every store written before the flag existed carries a defined
+cell and absent must keep meaning `true`.
+
+In the reference Zarr binding, `vectors` and `origin` are arrays under the `box`
+group while `boundary` and `cell_defined` are attributes of that group. A
+[trajectory](trajectory.md#the-cell)'s `box/` section is the same cell, indexed:
+`vectors`, `origin` and `boundary` become per-update arrays with a leading update
+axis, and `cell_defined` stays an attribute of the section.
+
 ## Volumetric data
 
 A volumetric field is a block with structural shape `[nx, ny, nz]` (see
@@ -85,9 +109,17 @@ A volumetric field is a block with structural shape `[nx, ny, nz]` (see
 shape `[nx][ny][nz]`. The cell is the frame's box — a volumetric block carries no
 cell of its own.
 
-## Trajectory packing
+## Trajectory sections
 
-A [trajectory](trajectory.md) may store its frames packed: per-block arrays
-with a leading time axis (e.g. `atoms/x` of shape `[nstep][count]`), plus aligned
-`step` (int) and `time` (float) index arrays. Packed storage is a convention; the
-logical meaning is still an ordered list of frames.
+A [trajectory](trajectory.md) does not repeat a frame's structure per step. The
+same block and column names above are used, one group per block, holding the rows
+that block contributed across the run: a `step_index` of the frame ordinals at
+which the block changed, an `offset` row pointer marking each update's row range,
+and the columns themselves with a leading `total_rows` axis. `step` (int) and the
+optional `time` (float) are aligned to the frame order.
+
+The naming conventions do not change with the section — an `atoms` block under
+`trajectory/` carries the same `x`/`y`/`z`, `element`, `charge` columns it
+carries under `frame/`. What changes is only how often a section is written:
+once per **change**, not once per step. Rules and resolution:
+[Trajectory](trajectory.md#reference-layout-zarr).

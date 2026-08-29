@@ -64,7 +64,10 @@ Full meta field table: [Meta](meta.md).
 Rules:
 
 1. **`meta` is always required.**
-2. A record MUST include **at least one of** `frame`, `system`, or `status`.
+2. A record MUST include **at least one of** `frame`, `system`, `trajectory`, or
+   `status`. Each of the four is a valid **sole** section beside `meta`, matching
+   the shapes table above: a trajectory-only record (`meta` + `trajectory`) is
+   conforming, and a reader MUST NOT require a `frame` beside it.
 3. A **Run**-shaped record does **not** require `frame`.
 4. Instantaneous Cartesian coordinates belong on `frame` / `trajectory`, not as
    required content of `system` (see [System](system.md)).

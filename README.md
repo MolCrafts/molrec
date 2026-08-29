@@ -61,8 +61,9 @@ codes invent different formats. MolRec provides one language-agnostic contract:
 There is **no** root `parameters/` (use `system/parameters` or `method`).
 
 `meta` is mandatory. A record must also include **at least one of** `frame`,
-`system`, or `status`. A **Run**-shaped record (`meta` + `status`) does not
-require a frame. Trajectory may omit `system/`. The cell is **Box** only; the
+`system`, `trajectory`, or `status`. A **Run**-shaped record (`meta` + `status`)
+does not require a frame; a trajectory-only record (`meta` + `trajectory`) is
+equally valid, and trajectory may omit `system/`. The cell is **Box** only; the
 sole version key is **`record_schema_version` (1)**. See
 [docs/spec/record.md](docs/spec/record.md) and
 [docs/spec/run.md](docs/spec/run.md).

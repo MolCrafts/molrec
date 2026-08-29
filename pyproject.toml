@@ -22,7 +22,17 @@ dev = [
   "pytest>=8.0",
   "ruff>=0.11",
   "zarr>=3.0",
+  # The reference implementation, so the conformance suite can actually judge
+  # it. molrec's own codec passing molrec's own suite proves very little.
+  "molcrafts-molrs",
 ]
+
+# Built from the sibling checkout because the trajectory layout the suite
+# judges is not in any published wheel yet. This flips to a plain
+# `molcrafts-molrs>=0.14` pin in the dev extra once molrs 0.14 ships, and this
+# section goes away with it.
+[tool.uv.sources]
+molcrafts-molrs = { path = "../molrs/molrs-python" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/molrec"]

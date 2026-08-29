@@ -91,9 +91,10 @@ boundary flags. See [Frame](frame.md#box).
 
 ### Trajectory
 
-A `trajectory` is an ordered sequence of frames, with optional `step` (integer)
-and `time` (float) index arrays aligned to the sequence. It is a plain carrier;
-the canonical entity remains the frame. See [Trajectory](trajectory.md).
+A `trajectory` is an ordered sequence of frames, carrying a `step` (integer)
+index array and an optional `time` (float) one, both aligned to the sequence. It
+is a plain carrier; the canonical entity remains the frame. See
+[Trajectory](trajectory.md).
 
 ## Model vs conventions
 
@@ -135,8 +136,8 @@ No record-root `parameters/`. Parameters: `system/parameters` or `method`.
 | **Run** | `meta` + `status` (+ `metrics` and/or `method`) | **No `frame` required** |
 | Full | combinations | Experiment package |
 
-A record MUST include `meta` and **at least one of** `frame`, `system`, or
-`status`.
+A record MUST include `meta` and **at least one of** `frame`, `system`,
+`trajectory`, or `status`.
 
 `system` vs `frame`: definition vs instantaneous state — see [System](system.md).
 Training / job logs: see [Run surface](run.md).
@@ -177,11 +178,12 @@ The following invariants define the current MolRec contract
    relationship.
 6. `box`, when present, is a triclinic cell whose `vectors` columns are lattice
    vectors.
-7. A trajectory is an ordered list of frames with optional aligned `step`/`time`
-   arrays.
+7. A trajectory is an ordered list of frames with an aligned `step` array and an
+   optional aligned `time` array.
 8. A reader must preserve blocks, columns, and record sections it does not
    recognize.
-9. A Record requires `meta` and at least one of `frame`, `system`, or `status`.
+9. A Record requires `meta` and at least one of `frame`, `system`, `trajectory`,
+   or `status`.
 10. Instantaneous Cartesian coordinates are not required content of `system/`.
 11. Live metrics use the JSONL text buffer when present; Zarr metrics attributes
     are summary-only.

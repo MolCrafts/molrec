@@ -8,21 +8,28 @@ everything conforms to nothing.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import ClassVar
+from typing import Any, ClassVar
 
 import numpy as np
+from pydantic import BaseModel
 
 from molrec.case import Case
+from molrec.compare import diff
 from molrec.core.model import (
     NUMPY_DTYPE,
     BlockModel,
     BoxModel,
+    BoxUpdateModel,
     ColumnModel,
     FrameModel,
     MetaModel,
+    MetaSeriesModel,
     RecordModel,
+    TrajectoryBoxModel,
+    TrajectoryModel,
 )
 from molrec.registry import REGISTRY
+from molrec.report import Violation
 from molrec.suite import Suite
 
 
@@ -242,6 +249,191 @@ class FrameSuite(Suite):
                 },
                 box=None,
                 meta={},
+            ),
+        )
+
+
+@REGISTRY.suite
+class TrajectorySuite(Suite):
+    """What a sequence of frames is pinned down by.
+
+    Every case is a whole round trip of the *logical* sequence: the frames, in
+    order, with their step numbers, their per-step meta and their cell. What
+    no case looks at is how any of it was indexed on disk. A conforming reader
+    hands these frames back whatever it wrote, and two conforming stores of
+    one trajectory are expected to differ byte for byte.
+
+    So the cases are chosen for what the indexing has to *survive*: ragged
+    frames, a section that never changes, a section that goes away and comes
+    back, a key a frame did not supply, and a producer's own step numbering.
+    """
+
+    module: ClassVar[str] = "trajectory"
+    model_type: ClassVar[type[TrajectoryModel]] = TrajectoryModel
+
+    def compare(self, expected: BaseModel, actual: Any) -> tuple[Violation, ...]:
+        """Everything is compared exactly, except a declared fill.
+
+        A fill is a **writer-side** declaration: its value is materialized
+        into the array at the omitting step and no attribute records the
+        choice (``docs/spec/trajectory.md``, per-step metadata). A reader
+        cannot distinguish a filled value from a written one and has nothing
+        to hand back, so requiring one back would fail every conforming
+        implementation. The *values* it produced are compared like any other.
+        """
+        if isinstance(expected, TrajectoryModel) and expected.meta:
+            declared = {
+                key: series.model_copy(update={"fill": None})
+                for key, series in expected.meta.items()
+            }
+            expected = expected.model_copy(update={"meta": declared})
+        return diff(expected, actual)
+
+    def cases(self) -> Iterable[Case]:
+        #: One object, presented by several frames: identical content is what
+        #: earns a section a single update instead of one per step.
+        bonds = BlockModel(
+            count=2,
+            columns={"atomi": _column("u64", [0, 1]), "atomj": _column("u64", [1, 2])},
+        )
+
+        yield Case(
+            id="ragged-frames",
+            exercises="frames of different lengths -- rows are indexed, never padded",
+            model=TrajectoryModel(
+                frames=[
+                    FrameModel(
+                        blocks={
+                            "atoms": BlockModel(
+                                count=count,
+                                columns={"x": _column("f64", [float(row) for row in range(count)])},
+                            )
+                        }
+                    )
+                    for count in (3, 5, 4)
+                ],
+                step=[0, 1, 2],
+            ),
+        )
+
+        yield Case(
+            id="constant-block",
+            exercises="a topology that never changes is stated once and resolves at every step",
+            model=TrajectoryModel(
+                frames=[
+                    FrameModel(
+                        blocks={
+                            "atoms": BlockModel(
+                                count=3,
+                                columns={"x": _column("f64", [shift, shift + 1.0, shift + 2.0])},
+                            ),
+                            "bonds": bonds,
+                        }
+                    )
+                    for shift in (0.0, 0.25, 0.5, 0.75)
+                ],
+                step=[0, 1, 2, 3],
+            ),
+        )
+
+        yield Case(
+            id="fixed-cell",
+            exercises="one cell update, however many steps resolve to it",
+            model=TrajectoryModel(
+                frames=[
+                    FrameModel(
+                        blocks={
+                            "atoms": BlockModel(count=1, columns={"x": _column("f64", [shift])})
+                        }
+                    )
+                    for shift in (0.0, 0.1, 0.2, 0.3, 0.4, 0.5)
+                ],
+                step=[0, 1, 2, 3, 4, 5],
+                box=TrajectoryBoxModel(
+                    updates=[
+                        BoxUpdateModel(
+                            step_index=0,
+                            box=BoxModel(
+                                vectors=np.diag([10.0, 10.0, 12.0]),
+                                boundary=(True, True, False),
+                            ),
+                        )
+                    ]
+                ),
+            ),
+        )
+
+        yield Case(
+            id="per-step-meta",
+            exercises="a declared fill stands in for an omitted key -- there is no implicit NaN",
+            model=TrajectoryModel(
+                frames=[
+                    FrameModel(
+                        blocks={"atoms": BlockModel(count=1, columns={"x": _column("f64", [0.0])})},
+                        meta={"temperature": 300.0, "pressure": 1.0, "ensemble": "nvt"},
+                    ),
+                    FrameModel(
+                        blocks={"atoms": BlockModel(count=1, columns={"x": _column("f64", [0.5])})},
+                        # `pressure` omitted: the declared fill is written for it.
+                        meta={"temperature": 301.5, "ensemble": "nvt"},
+                    ),
+                    FrameModel(
+                        blocks={"atoms": BlockModel(count=1, columns={"x": _column("f64", [1.0])})},
+                        meta={"temperature": 299.25, "pressure": 1.25, "ensemble": "npt"},
+                    ),
+                ],
+                step=[0, 1, 2],
+                meta={
+                    "temperature": MetaSeriesModel(dtype="f64"),
+                    "pressure": MetaSeriesModel(dtype="f64", fill=0.0),
+                    "ensemble": MetaSeriesModel(dtype="string"),
+                },
+            ),
+        )
+
+        yield Case(
+            id="block-level-sparsity",
+            exercises="a frame may omit a whole block; absence reads back absent, not empty",
+            model=TrajectoryModel(
+                frames=[
+                    FrameModel(
+                        blocks={
+                            "atoms": BlockModel(count=2, columns={"x": _column("f64", [0.0, 1.0])}),
+                            "bonds": bonds,
+                        }
+                    ),
+                    FrameModel(
+                        blocks={
+                            "atoms": BlockModel(count=2, columns={"x": _column("f64", [1.0, 2.0])})
+                        }
+                    ),
+                    FrameModel(
+                        blocks={
+                            "atoms": BlockModel(count=2, columns={"x": _column("f64", [2.0, 3.0])}),
+                            "bonds": bonds,
+                        }
+                    ),
+                ],
+                step=[0, 1, 2],
+            ),
+        )
+
+        yield Case(
+            id="step-numbers-and-times",
+            exercises="step numbers are the producer's own counter and may skip; time rides beside",
+            model=TrajectoryModel(
+                frames=[
+                    FrameModel(
+                        blocks={
+                            "atoms": BlockModel(
+                                count=2, columns={"x": _column("f64", [shift, shift + 1.0])}
+                            )
+                        }
+                    )
+                    for shift in (0.0, 5.0, 10.0)
+                ],
+                step=[0, 5, 10],
+                time=[0.0, 0.5, 1.0],
             ),
         )
 

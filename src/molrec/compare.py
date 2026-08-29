@@ -54,7 +54,33 @@ def _diff_model(expected: BaseModel, actual: Any, path: str) -> tuple[Violation,
                 found.append(Violation(kind="missing_field", path=_at(path, name), detail="absent"))
                 continue
         found.extend(diff(want, got, _at(path, name)))
+    found.extend(_diff_extras(expected, actual, path))
     return tuple(found)
+
+
+def _extras(value: Any, declared: frozenset[str]) -> dict[str, Any]:
+    """The unknown keys a value carries -- the ones ``model_fields`` misses."""
+    if isinstance(value, BaseModel):
+        return dict(value.__pydantic_extra__ or {})
+    if isinstance(value, dict):
+        return {key: item for key, item in value.items() if key not in declared}
+    return {}
+
+
+def _diff_extras(expected: BaseModel, actual: Any, path: str) -> tuple[Violation, ...]:
+    """Hold ``extra="allow"`` to what it promises.
+
+    Unknown keys live in ``__pydantic_extra__``, never in ``model_fields``, so
+    the field walk above goes straight past the very keys the contract exists
+    to protect -- ``MetaModel`` calls ``extra="allow"`` "the preserve-the-
+    unknown invariant", and without this an implementation could drop every
+    one of them and still pass.
+
+    Compared in both directions, for the reason ``_diff_mapping`` already
+    gives: a lost key and an invented key are equally a roundtrip failure.
+    """
+    declared = frozenset(type(expected).model_fields)
+    return _diff_mapping(_extras(expected, declared), _extras(actual, declared), path)
 
 
 def _diff_mapping(expected: dict, actual: Any, path: str) -> tuple[Violation, ...]:
