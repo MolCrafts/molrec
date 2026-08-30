@@ -113,10 +113,10 @@ class MolrsRecordAdapter(molrec.RecordAdapter):
             record.set_frame(_to_frame(model.frame))
         if model.system is not None:
             record.set_system(_to_frame(model.system))
-        record.write(store.uri)
+        molrs.io.mrec.write_record(store.uri, record)
 
     def read(self, store) -> Any:
-        record = molrs.Record.read(store.uri)
+        record = molrs.io.mrec.read_record(store.uri)
         return {
             "meta": dict(record.meta),
             "frame": _from_frame(record.frame),
@@ -230,12 +230,12 @@ def _meta_series(frames: list[molrs.Frame]) -> dict[str, dict[str, Any]]:
 def _record_shaped(store: molrec.TrajectoryStore) -> str:
     """The store path, with the identity document molrs's doors require.
 
-    molrs has no bare-trajectory door: ``Trajectory.read`` goes through the
-    record reader and refuses a root without ``meta/`` -- "not a MolRec
-    record: missing required 'meta' section" -- while the suite mints a store
-    holding ``trajectory/`` alone. Adding the minimal meta group is a
-    store-shape graft, hand-built the same way the absent-boundary fixture is;
-    it touches nothing in the sequence and repairs nothing molrs returns.
+    molrs has no bare-trajectory door: ``read_record`` refuses a root without
+    ``meta/`` -- "not a MolRec record: missing required 'meta' section" --
+    while the suite mints a store holding ``trajectory/`` alone. Adding the
+    minimal meta group is a store-shape graft, hand-built the same way the
+    absent-boundary fixture is; it touches nothing in the sequence and
+    repairs nothing molrs returns.
     """
     root = zarr.open_group(store=Path(store.uri), mode="a")
     if "meta" not in root:
@@ -246,12 +246,14 @@ def _record_shaped(store: molrec.TrajectoryStore) -> str:
 class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
     """A sequence of frames, through molrs's eager trajectory door.
 
-    ``Trajectory.write`` / ``Trajectory.read`` are the only public doors:
-    ``FrameSequence`` is not bound to Python this release, so the streaming
-    surface -- and with it ``declare_meta``, the only place a per-step meta
-    **fill** can be stated -- is unreachable from here. A declared fill
-    therefore does not survive either direction, and this adapter reports that
-    rather than filling it in from the store behind molrs's back.
+    ``write_trajectory`` / ``read_record`` are the public doors:
+    ``TrajectoryReader`` yields one frame at a time and does not surface
+    ``step`` / ``time``, so the adapter reads the trajectory off the record.
+    The streaming surface -- and with it ``declare_meta``, the only place a
+    per-step meta **fill** can be stated -- is unreachable from here. A
+    declared fill therefore does not survive either direction, and this
+    adapter reports that rather than filling it in from the store behind
+    molrs's back.
     """
 
     backends = ("zarr",)
@@ -264,14 +266,17 @@ class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
                 native.box = cell
             frames.append(native)
 
-        molrs.Trajectory.from_frames(
-            frames,
-            step=np.asarray(model.step, dtype="int64"),
-            time=None if model.time is None else np.asarray(model.time, dtype="float64"),
-        ).write(store.uri)
+        molrs.io.mrec.write_trajectory(
+            store.uri,
+            molrs.Trajectory.from_frames(
+                frames,
+                step=np.asarray(model.step, dtype="int64"),
+                time=None if model.time is None else np.asarray(model.time, dtype="float64"),
+            ),
+        )
 
     def read(self, store: molrec.TrajectoryStore) -> Any:
-        trajectory = molrs.Trajectory.read(_record_shaped(store))
+        trajectory = molrs.io.mrec.read_record(_record_shaped(store)).trajectory
         frames = list(trajectory.frames)
         described = []
         for frame in frames:
