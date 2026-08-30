@@ -49,16 +49,27 @@ Full root rules: [Storage](storage.md).
 
 ### Dense Zarr SoT (closed / densified)
 
-Under the record (or host run) root:
+On a **Record** root (the Zarr package):
 
 ```text
 metrics/
-  zarr/                    # Zarr V3 store (host layout) OR metrics/ group arrays
-    zarr.json
-    series/
-      <safe_name>/         # float64 values [n]
-      <safe_name>__steps/  # optional float64 [n]
-      <safe_name>__wall/   # optional float64 unix times [n]
+  zarr.json
+  series/
+    <safe_name>/         # float64 values [n]
+    <safe_name>__steps/  # optional float64 [n]
+    <safe_name>__wall/   # optional float64 unix times [n]
+```
+
+On a **host** that is not a Record (molexp Run directory), the same catalog
+lives in a filename-gated store — see [Storage](storage.md#canonical-record-root):
+
+```text
+<stem>.mlp.zarr/           # default stem: metrics
+  zarr.json
+  series/
+    <safe_name>/
+    <safe_name>__steps/
+    <safe_name>__wall/
 ```
 
 Store root attributes (catalog):
@@ -75,10 +86,9 @@ Store root attributes (catalog):
 Consumers that need the curve **MUST** read the dense Zarr arrays when the
 store exists.
 
-On a pure MolRec record root that *is* the Zarr V3 package, series arrays MAY
-live directly under the `metrics/` group (same catalog attrs on that group)
-instead of a nested `metrics/zarr/` store. Hosts that are not full Zarr roots
-(e.g. molexp Run directories) use the nested `metrics/zarr/` store.
+A Record that *is* the Zarr V3 package keeps series arrays on the `metrics/`
+group. A host Run directory uses `*.mlp.zarr/` instead of nesting
+`metrics/zarr/` — filename gating is the host discovery rule.
 
 ### Live WAL (append-only text)
 
@@ -86,7 +96,8 @@ High-frequency append is a poor fit for per-step Zarr chunk realignment. Live
 writes use a plain UTF-8 **JSONL WAL** beside the dense store:
 
 ```text
-metrics/metrics.jsonl
+metrics/metrics.jsonl          # on a Record root
+<stem>.mlp.jsonl               # on a host Run (default stem: metrics)
 ```
 
 - One JSON object per line, terminated by `\n`
@@ -117,12 +128,12 @@ Example lines:
 
 | Artifact | Authoritative for curves? | When |
 |----------|---------------------------|------|
-| `metrics/zarr/` (or `metrics/` series arrays) | **Yes** when present | After densify / close |
-| `metrics/metrics.jsonl` | Live only; fallback if no dense store | During a run; pre-flush |
-| Group attributes summary only | No — listing aid | Optional |
+| Record `metrics/` series arrays, or host `*.mlp.zarr/` | **Yes** when present | After densify / close |
+| Record `metrics/metrics.jsonl`, or host `*.mlp.jsonl` | Live only; fallback if no dense store | During a run; pre-flush |
+| Group attributes / host `*.mlp.index.json` | No — listing aid | Optional; never a UI trigger |
 
-There is **no** first-class `metrics/index.json` in the reference binding;
-hosts MAY keep a rebuildable listing cache.
+There is **no** first-class `metrics/index.json` in the Record binding.
+Hosts MAY keep a rebuildable `*.mlp.index.json` beside the WAL.
 
 ## Metric types
 

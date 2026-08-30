@@ -17,7 +17,7 @@ The logical document is one JSON object; it is not a sibling `meta.json` file.
 ```text
 meta
 +-- record_schema_version: number     # required — sole schema version (integer ≥ 1)
-+-- (format_name: string)             # reference binding id: "molrec"
++-- (format_name: string)             # record format brand: "mrec"
 +-- (creator)
 |   +-- name: string
 |   +-- (version: string)
@@ -54,10 +54,12 @@ producers inventing alternate meanings:
 | Key | Meaning |
 |-----|---------|
 | `record_schema_version` | Schema version integer (starts at 1) |
-| `format_name` | Binding id. For the reference layout: **`molrec`**. Never a product name (`molpy-zarr`, `MolStore`, …). |
+| `format_name` | Record format brand, not a binding id or storage discriminator. Optional at L2. For the reference binding **MUST** be **`mrec`**. Never a product name (`molpy-zarr`, `MolStore`, …). |
 
-When writing the Zarr reference binding, `format_name` SHOULD be set to
-`molrec`. Producers MAY add any other keys under `meta` freely.
+When writing the Zarr reference binding, `format_name` **MUST** be set to
+`mrec`. Readers of that binding **MUST** reject a missing value and any other
+string, including the retired `"molrec"`. Producers MAY add any other keys
+under `meta` freely.
 
 ## Recommended fields
 
@@ -98,7 +100,7 @@ Minimal attribute object (stored on the `meta/` Zarr group):
 ```json
 {
   "record_schema_version": 1,
-  "format_name": "molrec",
+  "format_name": "mrec",
   "creator": {
     "name": "molrec-fixtures",
     "version": "0.0.0"

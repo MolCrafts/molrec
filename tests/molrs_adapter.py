@@ -239,9 +239,7 @@ def _record_shaped(store: molrec.TrajectoryStore) -> str:
     """
     root = zarr.open_group(store=Path(store.uri), mode="a")
     if "meta" not in root:
-        root.create_group("meta").attrs.update(
-            {"record_schema_version": 1, "format_name": "molrec"}
-        )
+        root.create_group("meta").attrs.update({"record_schema_version": 1, "format_name": "mrec"})
     return store.uri
 
 

@@ -64,9 +64,9 @@ This chapter does **not** replace the field tables in status / metrics /
 method. It indexes them as one surface:
 
 1. Write lifecycle with [Status](status.md) → Zarr `status/` attributes.
-2. Append measurements with [Metrics](metrics.md) → **JSONL buffer**
-   `metrics/metrics.jsonl` WAL, densified into Zarr series on flush (not
-   per-step Zarr chunk append).
+2. Append measurements with [Metrics](metrics.md) → **JSONL WAL**
+   (`metrics/metrics.jsonl` on a Record; `<stem>.mlp.jsonl` on a host),
+   densified into Zarr series on flush (not per-step Zarr chunk append).
 3. Describe the scientific setup with [Method](method.md) → Zarr `method/`
    attributes.
 4. Place everything under one [Record](record.md) Zarr root ([Storage](storage.md)).
@@ -86,9 +86,13 @@ Still a **Zarr root** — not a loose tree of `.json` files:
     └── metrics.jsonl          # live WAL when metrics exist
 ```
 
-Producers SHOULD write this shape so experiment UIs open one Zarr package and
-prefer dense series (tail the WAL only while live). Attribute payloads and
-the WAL golden: `fixtures/run-minimal/`.
+Producers of a **Record** SHOULD write this shape so tools open one Zarr
+package and prefer dense series (tail the WAL only while live). Attribute
+payloads and the WAL golden: `fixtures/run-minimal/`.
+
+A **host** (molexp Run) is not this tree. It keeps lifecycle in host files
+and metrics on `*.mlp.*` — see [Storage](storage.md) host layout. Do not
+treat `ops/run.json` as `status/` or `run.json` as `meta/`.
 
 ## See also
 

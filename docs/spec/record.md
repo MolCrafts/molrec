@@ -42,7 +42,7 @@ Physical forms (JSON vs Zarr vs JSONL) for each section: [Storage](storage.md).
 | Key | Meaning |
 |-----|---------|
 | `record_schema_version` | **Sole** schema version integer for the whole record (layout + L1 encoding). Starts at **1**. |
-| `format_name` | Optional binding id when using the reference layout: `molrec` — never a product name like `molpy-zarr` |
+| `format_name` | Record format brand — not a binding id or storage discriminator. Optional at L2 (a backend-neutral record may omit it). The reference binding **MUST** emit `mrec` and **MUST** reject a missing value and any other string, including the retired `molrec`. Never a product name like `molpy-zarr`. |
 
 There is **no** parallel `frame_schema_version` and **no** layout version key
 named `meta.version`. New writers MUST NOT emit retired keys. Readers of the

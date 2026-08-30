@@ -260,9 +260,9 @@ def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path) -> None:
     """
     import molrs
 
-    path = tmp_path / "absent-boundary.zarr"
+    path = tmp_path / "absent-boundary.mrec"
     root = zarr.open_group(store=path, mode="w")
-    root.create_group("meta").attrs.update({"record_schema_version": 1, "format_name": "molrec"})
+    root.create_group("meta").attrs.update({"record_schema_version": 1, "format_name": "mrec"})
     frame = root.create_group("frame")
 
     atoms = frame.create_group("atoms")

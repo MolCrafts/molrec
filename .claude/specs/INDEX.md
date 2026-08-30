@@ -9,5 +9,3 @@
 Docs: `docs/spec/{overview,record,system,run,frame,trajectory,conventions,...}.md`, `README.md`, `fixtures/README.md`.
 
 ## Active
-
-_(none)_

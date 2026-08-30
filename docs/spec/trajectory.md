@@ -71,8 +71,9 @@ trajectory/                             group
     \-- <column>    <dtype>[total_rows][...trailing]
 ```
 
-The physical binding of these arrays (chunking, sharding, compression, the packed
-`.zarr.zip` at-rest form) is [Storage](storage.md).
+The physical binding of these arrays (chunking, sharding, compression; live
+directory `*.mrec/` as the Zarr V3 root; packed `*.mrec.zip`) is
+[Storage](storage.md).
 
 ### `step` and `time`
 

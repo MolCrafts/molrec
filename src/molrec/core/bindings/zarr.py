@@ -222,7 +222,7 @@ class ZarrFrameBinding(Binding):
     backend: ClassVar[str] = "zarr"
 
     def new_store(self, workdir: Path) -> ZarrFrameStore:
-        store = ZarrFrameStore(workdir.with_suffix(".zarr"))
+        store = ZarrFrameStore(workdir.with_suffix(".mrec"))
         store.clear()
         return store
 
@@ -574,7 +574,7 @@ class ZarrTrajectoryBinding(Binding):
     backend: ClassVar[str] = "zarr"
 
     def new_store(self, workdir: Path) -> ZarrTrajectoryStore:
-        store = ZarrTrajectoryStore(workdir.with_suffix(".zarr"))
+        store = ZarrTrajectoryStore(workdir.with_suffix(".mrec"))
         store.clear()
         return store
 
@@ -671,7 +671,7 @@ class ZarrRecordBinding(Binding):
     backend: ClassVar[str] = "zarr"
 
     def new_store(self, workdir: Path) -> ZarrRecordStore:
-        store = ZarrRecordStore(workdir.with_suffix(".zarr"))
+        store = ZarrRecordStore(workdir.with_suffix(".mrec"))
         store.clear()
         return store
 

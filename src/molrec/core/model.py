@@ -477,12 +477,16 @@ class MetaModel(BaseModel):
 
     ``extra="allow"`` is not convenience -- it is the preserve-the-unknown
     invariant: a reader must keep keys it does not recognize.
+
+    ``format_name`` is the record format brand, not a binding id. It may be
+    omitted at L2; when present it is ``"mrec"``. The retired string
+    ``"molrec"`` is refused.
     """
 
     model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
     record_schema_version: int = Field(ge=1)
-    format_name: Literal["molrec"] | None = None
+    format_name: Literal["mrec"] | None = None
     record_id: str | None = None
     content_hash: str | None = None
 

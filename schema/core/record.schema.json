@@ -186,7 +186,7 @@
     },
     "MetaModel": {
       "additionalProperties": true,
-      "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.",
+      "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.\n\n``format_name`` is the record format brand, not a binding id. It may be\nomitted at L2; when present it is ``\"mrec\"``. The retired string\n``\"molrec\"`` is refused.",
       "properties": {
         "content_hash": {
           "anyOf": [
@@ -203,7 +203,7 @@
         "format_name": {
           "anyOf": [
             {
-              "const": "molrec",
+              "const": "mrec",
               "type": "string"
             },
             {

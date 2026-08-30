@@ -29,7 +29,8 @@ named MolStore.
 
 - **L0–L2 (normative):** vocabulary, containers (Column / Block / Frame), Record root.
 - **L3 (conventions):** domain sections (`system`, `trajectory`, `status`, `metrics`, …).
-- **L4 (binding):** one Zarr V3 root — array groups + document sections as
+- **L4 (binding):** one Zarr V3 root — live directory `*.mrec/` *is* that
+  root; packed form is `*.mrec.zip`. Array groups + document sections as
   **group attributes**; live metrics = append-only JSONL text buffer
   (dense Zarr series + optional `metrics/metrics.jsonl` WAL). Spec:
   `docs/spec/storage.md`. molrec does not ship
@@ -42,6 +43,10 @@ do not invent parallel store names.
 ## Spec hygiene
 
 - Sole schema key: `meta.record_schema_version` (integer, starts at 1).
+- Record format brand: `meta.format_name` is `mrec` (not a binding id);
+  scientific paths are `*.mrec/` / `*.mrec.zip` — **MUST NOT** use
+  `.zarr` / `.zarr.zip`. Host metrics stay `*.mlp.zarr`
+  (`format_name=molmetrics`).
 - No `frame_schema_version`, no layout `meta.version` dual-key.
 - Cell contract name: `Box` / `box` only (not `simbox`).
 - No root `parameters/`; parameters under `system/parameters` or `method`.

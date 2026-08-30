@@ -45,11 +45,13 @@ Rules:
 
 ## Canonical record root
 
-One openable Zarr hierarchy. Optional JSONL WAL sits under the `metrics/` path
-as a plain text sibling (not a Zarr array):
+One openable Zarr hierarchy. The live scientific record is a directory
+`*.mrec/` — that directory **is** the Zarr V3 root (`zarr.json` lives at
+that root). Optional JSONL WAL sits under the `metrics/` path as a plain
+text sibling (not a Zarr array):
 
 ```text
-<record-root>/                      # Zarr V3 store root
+<record-root>/                      # *.mrec/ — this directory IS the Zarr V3 root
 ├── meta/                           # group attributes = meta document
 ├── status/                         # group attributes = status document
 ├── method/                         # group attributes = method document
@@ -82,8 +84,10 @@ Discovery: match `*.mlp.jsonl`, `*.mlp.zarr`, `*.mlp.zarr/zarr.json`. Do
 **not** match `*.mlp.index.json`.
 
 A scientific Record that lands *under* the host (typically `artifacts/`) is
-still one Zarr root, discovered by `meta/` attributes
-(`record_schema_version`, optional `format_name=molrec`) — not by `*.mlp.*`.
+still one Zarr root, named `*.mrec/` and discovered by that suffix and by
+`meta/` attributes (`record_schema_version`, `format_name=mrec`) — not by
+`*.mlp.*`. Scientific paths **MUST NOT** use `.zarr` or `.zarr.zip`. Host
+metrics remain `*.mlp.zarr/` (`format_name=molmetrics`).
 
 ### Run-shaped root (no frame)
 
@@ -132,8 +136,11 @@ be exactly the document that section chapters describe.
 | `status` | `status/` | `state` |
 | `method` | `method/` | `type`, `description`, `engine.name` |
 
-`format_name` on `meta` for this binding is **`molrec`** (never a product id
-such as `molpy-zarr`).
+`format_name` on `meta` is the **record format brand**, not a binding id
+and not a storage discriminator. For this reference binding writers
+**MUST** emit **`mrec`**; readers **MUST** reject a missing value and any
+other string, including the retired `"molrec"`. Never a product id such as
+`molpy-zarr`.
 
 ## Array groups (Zarr V3)
 
@@ -185,7 +192,7 @@ The consequence that matters to a producer: a store costs
 `total_bytes / shard_bytes + O(number of arrays)` files. **File count does not
 scale with `nstep`.**
 
-## At-rest form: `.zarr.zip`
+## At-rest form: `*.mrec.zip`
 
 A **closed** store MAY be packed into a single file: a zip of the directory store
 in which every entry is **stored** (compression method 0). The chunks arrived
@@ -194,9 +201,11 @@ entry read out of the archive is bit-identical to the file it replaced.
 
 Packing happens **after** the writer is closed. A live store is never packed: an
 append needs in-place partial writes, which a zip cannot serve — so the running
-form is a directory and the at-rest form is one file.
+form is a directory `*.mrec/` and the at-rest form is one file `*.mrec.zip`.
 
-- Name: `<store>.zarr` packs to `<store>.zarr.zip`.
+- Name: `<stem>.mrec/` packs to `<stem>.mrec.zip`.
+- Scientific paths **MUST NOT** use `.zarr` or `.zarr.zip`. Host metrics remain
+  `*.mlp.zarr/` (`format_name=molmetrics`).
 - Read path: any zip-backed Zarr store adapter — zarrs' `ZipStorageAdapter`, or
   zarr-python's `zarr.storage.ZipStore`. No bespoke archive format is involved.
 - Random access survives packing (central directory plus per-entry byte ranges),
@@ -276,10 +285,18 @@ is not taken.
 
 ## Normative invariants (L4 reference)
 
-1. The openable package is a **Zarr V3 root**.
+1. The openable package is a **Zarr V3 root**. The live scientific record
+   directory `*.mrec/` **is** that root (`zarr.json` inside); the packed
+   at-rest form is `*.mrec.zip`. Scientific paths **MUST NOT** use `.zarr`
+   or `.zarr.zip`. Host metrics remain `*.mlp.zarr/`
+   (`format_name=molmetrics`).
 2. Document sections are **group attributes**, not sibling document stores.
 3. Closed metrics use **dense Zarr series arrays**; live metrics may use an
    **append-only JSONL WAL** under `metrics/metrics.jsonl`.
 4. Dense L1 tables use Zarr array groups.
 5. Preserve unknown sections and keys.
 6. No product API name `MolStore` / `SimStore`.
+7. `meta.format_name` is the record format brand **`mrec`** — not a binding
+   id and not a storage discriminator. Writers **MUST** emit it; readers
+   **MUST** reject a missing value and any other string, including
+   `"molrec"`.

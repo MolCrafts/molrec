@@ -464,7 +464,7 @@ class RecordSuite(Suite):
         them in front of a real implementation instead of only in front of
         molrec's own codec.
         """
-        meta = MetaModel(record_schema_version=1, format_name="molrec")
+        meta = MetaModel(record_schema_version=1, format_name="mrec")
         for case in FrameSuite().cases():
             yield Case(
                 id=f"frame/{case.id}",
@@ -491,7 +491,7 @@ class RecordSuite(Suite):
             id="structure",
             exercises="the minimum interchange unit: meta plus one frame",
             model=RecordModel(
-                meta=MetaModel(record_schema_version=1, format_name="molrec"),
+                meta=MetaModel(record_schema_version=1, format_name="mrec"),
                 frame=atoms,
             ),
         )
@@ -500,7 +500,7 @@ class RecordSuite(Suite):
             id="system-and-frame",
             exercises="a system definition and a snapshot are separate sections",
             model=RecordModel(
-                meta=MetaModel(record_schema_version=1, format_name="molrec"),
+                meta=MetaModel(record_schema_version=1, format_name="mrec"),
                 system=FrameModel(
                     blocks={
                         "atoms": BlockModel(
@@ -525,7 +525,7 @@ class RecordSuite(Suite):
             model=RecordModel(
                 meta=MetaModel(
                     record_schema_version=1,
-                    format_name="molrec",
+                    format_name="mrec",
                     record_id="8f14e45f-ea8f-4b6d-9c1a-000000000001",
                     content_hash="sha256:0000000000000000000000000000000000000000000000000000000000000000",
                 ),
@@ -540,7 +540,7 @@ class RecordSuite(Suite):
                 meta=MetaModel.model_validate(
                     {
                         "record_schema_version": 1,
-                        "format_name": "molrec",
+                        "format_name": "mrec",
                         "creator": {"name": "molrec-suite", "version": "0.1.0"},
                         "x_vendor_local": {"anything": [1, 2, 3]},
                     }
@@ -553,7 +553,7 @@ class RecordSuite(Suite):
             id="record-with-box",
             exercises="the cell rides on the frame section, under the name box",
             model=RecordModel(
-                meta=MetaModel(record_schema_version=1, format_name="molrec"),
+                meta=MetaModel(record_schema_version=1, format_name="mrec"),
                 frame=FrameModel(
                     blocks={"atoms": BlockModel(count=1, columns={"x": _column("f64", [0.5])})},
                     box=BoxModel(

@@ -41,7 +41,7 @@ def _box_group_without_boundary(path: Path) -> ZarrFrameStore:
 
 
 def test_a_box_group_without_boundary_reads_all_periodic(tmp_path: Path) -> None:
-    store = _box_group_without_boundary(tmp_path / "absent-boundary.zarr")
+    store = _box_group_without_boundary(tmp_path / "absent-boundary.mrec")
     assert "boundary" not in store.root(mode="r")["box"].attrs, (
         "the store under test must not carry the attribute"
     )
