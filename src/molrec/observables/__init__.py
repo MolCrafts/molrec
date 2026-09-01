@@ -1,5 +1,9 @@
 """Observables: named quantities as functions of their coordinates.
 
+DRAFT (v2 proposal) — the v1 record ``observables/`` contract is the
+kind-based layout in ``docs/spec/observables.md``; see the note in
+:mod:`molrec.observables.model`.
+
 Importing this package registers the observables suite, bench, and bindings.
 """
 

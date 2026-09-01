@@ -77,6 +77,11 @@ from molrec.observables import (
 from molrec.ref import Ref
 from molrec.registry import REGISTRY
 from molrec.report import CaseResult, Report, Violation
+from molrec.sequence_schema import (
+    SequenceBlockModel,
+    SequenceColumnModel,
+    SequenceSchemaModel,
+)
 from molrec.store import Store
 from molrec.suite import ConformanceSuite, Suite
 
@@ -108,6 +113,9 @@ __all__ = [
     "RecordModel",
     "RecordStore",
     "Report",
+    "SequenceBlockModel",
+    "SequenceColumnModel",
+    "SequenceSchemaModel",
     "Store",
     "TrajectoryAdapter",
     "TrajectoryBoxModel",

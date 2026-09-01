@@ -1,84 +1,110 @@
-# Frame
+# Containers
 
-## Purpose
+Three containers, plus an optional box, carry every record's array data. The
+model has no special fields: coordinates, bonds, charge density, and energy
+are ordinary blocks and columns under conventional names. Domain meaning is
+supplied by [Conventions](conventions.md).
 
-`frame` is the canonical snapshot. It is a fully general container: a map of names
-to blocks, plus free-form metadata and an optional box. No block name is
-privileged.
+## Data types
 
-## Structure
+A column's element type is exactly one member of this closed set:
+
+| dtype | Meaning |
+|-------|---------|
+| `f16`, `f32`, `f64` | IEEE binary16 / binary32 / binary64 |
+| `i8`, `i16`, `i32`, `i64` | signed integer, 8–64 bit |
+| `u8`, `u16`, `u32`, `u64` | unsigned integer, 8–64 bit |
+| `bool` | boolean |
+| `string` | UTF-8 string |
+| `c64`, `c128` | complex pair of `f32` / `f64` |
+
+Every numeric width is explicit: there is no width-abstract `float` / `int` /
+`uint`. A tool that cannot represent a dtype natively must preserve it rather
+than silently narrow it: a `u64` identifier column must not be read back as
+`i64`, and an `f64` must not be narrowed to `f32`.
+
+Type does not carry unit, description, or axis meaning.
+
+## Column, block and frame
+
+A *column* is a typed N-dimensional array. Its leading axis length equals the
+owning block's count; trailing axes describe per-entity structure. For
+instance, `f64[N]` is one scalar per entity, `f64[N][3]` is one 3-vector per
+entity.
+
+A *block* is a set of named columns that share one leading length, the
+block's *count*. Every column in a block must have the same axis-0 length. A
+block may declare a *structural shape* whose product equals its count. This
+lets one container describe both a flat table (implicit shape `[N]`) and an
+N-D object (a volumetric grid `[nx][ny][nz]` with `nx·ny·nz == N`). When no
+shape is set, the block is a plain table of `N` rows.
+
+A *frame* is a snapshot: a set of named blocks, a free-form `meta` mapping,
+and an optional box. A frame enforces no relationship between its blocks —
+counts are independent, and any block name is legal.
 
 ```text
 frame
-+-- <block>
-|   \-- <column>: <dtype>[count][...]
-+-- <block>
-|   \-- ...
-+-- meta                         # free-form key -> value
-\-- (box)
-    +-- vectors: Float[ndim][ndim]     # columns are lattice vectors
-    +-- (origin: Float[ndim])
-    \-- (boundary: Bool[ndim])
+ \-- <block>
+ |    \-- <column>: <dtype>[N][...]
+ \-- <block>
+ |    \-- ...
+ \-- (meta)
+ \-- (box)
 ```
 
-## Column
-
-A column is a typed N-dimensional array. Its dtype is one of `float`, `int`,
-`uint`, `u8`, `bool`, `string` (see [Types](types.md)). Its leading axis length is
-the owning block's count; trailing axes describe per-entity structure.
-
-## Block
-
-A block is a set of named columns sharing a common count:
-
-- every column has the same axis-0 length (the count);
-- a block may carry an optional structural shape whose product equals the count,
-  letting it describe an N-D object with the same container as a flat table;
-- a block imposes no meaning on its column names — that is a convention.
-
-Examples (conventional, not required — see [Conventions](conventions.md)):
-
-- an `atoms` block: `count` = number of atoms; columns `x`/`y`/`z`, `element`, ...
-- a `bonds` block: `count` = number of bonds; columns `atomi`/`atomj`, `order`;
-- a `density` block: structural shape `[nx, ny, nz]`; one float column per field.
-
-## Frame
-
-A frame maps names to blocks. It enforces no relationship between blocks: block
-counts are independent, and any block name is legal. Free-form metadata lives in
-`frame/meta` as key -> value pairs.
-
-Which blocks exist and what their columns mean is supplied by
-[Conventions](conventions.md), not by the frame.
-
-## Box
-
-The contract name for the simulation cell is **`Box` / `box` only**. Names such
-as `simbox` / `SimBox` are **not** part of the MolRec contract. Writers MUST emit
-`box`. The reference implementation (molrs) must expose **`Box`** as the public
-type name for this cell.
-
-`box` is an optional triclinic simulation cell carried by the frame:
-
-```text
-frame/box
-+-- vectors: Float[ndim][ndim]     # cell vectors; columns are lattice vectors
-+-- (origin: Float[ndim])          # cell origin
-\-- (boundary: Bool[ndim])         # per-axis periodic boundary flags
-```
-
-The cell applies to the whole frame. For a trajectory, each frame carries its own
-box, so fixed-cell and variable-cell runs are both natural.
-
-## Volumetric data
+A `frame` section of a record is this container. A `trajectory` section
+sequences the same container over time.
 
 MolRec has no dedicated grid type. Volumetric data is an ordinary block whose
-structural shape is `[nx, ny, nz]` and whose columns are the scalar fields (each
-of shape `[nx][ny][nz]`). The spatial cell is the frame's box — a volumetric
-block carries no cell of its own.
+structural shape is `[nx][ny][nz]` and whose columns are the scalar fields.
+The spatial cell is the frame's box; a volumetric block carries no cell of
+its own.
 
-## Interpretation
+All arrays are stored in C-order (row-major). A column's leading axis is the
+block count; trailing axes are per-entity structure and are never split
+across chunks in the reference binding.
 
-Read `frame` as: a general set of named blocks describing the canonical snapshot,
-with a shared optional cell and free-form metadata. Meaning comes from
-conventions, not from privileged fields.
+## Simulation box
+
+The specification of the simulation cell is stored in the group `box`.
+Writers emit `box`. The reference implementation (molrs) exposes this cell
+as `Box` in its Python binding; the Rust core type is `SimBox`.
+
+`box` is an optional triclinic cell carried by the frame. A box may be
+absent (an open, non-periodic system).
+
+```text
+box
+ \-- vectors: f64[D][D]
+ \-- (origin: f64[D])
+ \-- (boundary: bool[D])
+ +-- (cell_defined: bool[])
+```
+
+`vectors`
+
+A `D` × `D` matrix of `f64` type. Columns are lattice vectors.
+
+`origin`
+
+An optional `D`-vector. Absent means `[0, 0, 0]` — the cell is anchored at
+the coordinate origin.
+
+`boundary`
+
+An optional per-axis periodic-boundary flag. Absent means
+`[true, true, true]` — periodic on every axis.
+
+`cell_defined`
+
+An optional boolean. `boundary` says which axes wrap; `cell_defined` says
+whether there is a cell at all. Absent means `true`. A writer emits it only
+when it is `false`.
+
+The cell applies to the whole frame. For a trajectory, each frame carries
+its own box, so fixed-cell and variable-cell runs are both natural.
+
+Absence of optional parts has a fixed meaning: two readers that default them
+differently turn one store into two different physical systems, so the
+defaults above are normative.

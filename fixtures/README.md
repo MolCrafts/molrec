@@ -5,12 +5,12 @@ payloads may be added without changing names.
 
 | Path | Shape | Expected sections |
 |------|--------|-------------------|
-| `fixtures/structure-minimal/` | Structure | `meta`, `frame` (with `box` if present — never `simbox`) |
+| `fixtures/structure-minimal/` | Structure | `meta`, `frame` (with `box` if present) |
 | `fixtures/system-frame-minimal/` | System + snapshot | `meta`, `system`, `frame` |
 | `fixtures/trajectory-coords-only/` | Trajectory without system | `meta`, `trajectory` (frames may carry coords) |
 | `fixtures/run-minimal/` | Run | `meta`, `status`, `metrics` buffer (no `frame`) |
 
-All new fixtures: `meta.record_schema_version = 1`, no root `parameters/`, cell
+All new fixtures: `meta.molrec_version = 1` (the sole version key), no root `parameters/`, cell
 key `box` only. Physical forms follow [docs/spec/storage.md](../docs/spec/storage.md):
 
 - Documents → Zarr **group attributes** (payloads under `attrs/` for text goldens)

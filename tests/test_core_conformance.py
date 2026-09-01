@@ -262,7 +262,7 @@ def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path) -> None:
 
     path = tmp_path / "absent-boundary.mrec"
     root = zarr.open_group(store=path, mode="w")
-    root.create_group("meta").attrs.update({"record_schema_version": 1, "format_name": "mrec"})
+    root.create_group("meta").attrs.update({"molrec_version": 1})
     frame = root.create_group("frame")
 
     atoms = frame.create_group("atoms")
@@ -274,5 +274,5 @@ def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path) -> None:
     box.create_array("origin", shape=(3,), dtype="float64")[...] = np.zeros(3)
     assert "boundary" not in box.attrs, "the store under test must not carry the attribute"
 
-    record = molrs.io.mrec.read_record(str(path))
-    assert [bool(flag) for flag in np.asarray(record.frame.box.pbc)] == [True, True, True]
+    frame = molrs.io.mrec.read_frame(str(path))
+    assert [bool(flag) for flag in np.asarray(frame.box.pbc)] == [True, True, True]

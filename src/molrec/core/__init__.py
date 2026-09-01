@@ -1,4 +1,4 @@
-"""L0-L2: the containers and the record root.
+"""Containers and the record root.
 
 Importing this package registers the core suite, bench, and bindings.
 """

@@ -1,6 +1,6 @@
 {
   "additionalProperties": true,
-  "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.\n\n``format_name`` is the record format brand, not a binding id. It may be\nomitted at L2; when present it is ``\"mrec\"``. The retired string\n``\"molrec\"`` is refused.",
+  "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.\n\n``molrec_version`` is the sole version key for the whole record; the\nscientific path brand is the ``*.mrec/`` suffix.",
   "properties": {
     "content_hash": {
       "anyOf": [
@@ -14,18 +14,10 @@
       "default": null,
       "title": "Content Hash"
     },
-    "format_name": {
-      "anyOf": [
-        {
-          "const": "mrec",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Format Name"
+    "molrec_version": {
+      "minimum": 1,
+      "title": "Molrec Version",
+      "type": "integer"
     },
     "record_id": {
       "anyOf": [
@@ -38,15 +30,10 @@
       ],
       "default": null,
       "title": "Record Id"
-    },
-    "record_schema_version": {
-      "minimum": 1,
-      "title": "Record Schema Version",
-      "type": "integer"
     }
   },
   "required": [
-    "record_schema_version"
+    "molrec_version"
   ],
   "title": "MetaModel",
   "type": "object"

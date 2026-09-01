@@ -1,80 +1,59 @@
-# Observables
+# Observables group
 
-## Purpose
+Named scientific result quantities — a total energy, a dipole moment, a
+per-atom charge — are stored in the `observables` group. A record need not
+carry one.
 
-`observables` is a recommended record section for named derived or reported
-quantities that are part of the interpreted scientific record — a total energy, a
-dipole moment, a per-atom charge. It is a convention layered on the general model
-(see [Overview](overview.md)); a record need not carry one.
+Observables are scientific results a reader would treat as part of the
+chemistry or physics payload. Run-local monitoring (training loss, step
+time, throughput) belongs under [metrics](metrics.md).
 
-**Not the same as metrics.** Run-local monitoring series (training loss, step
-time, throughput) belong under [Metrics](metrics.md) as part of the
-[run surface](run.md). Observables are scientific results a reader would treat as
-part of the chemistry/physics payload, not job telemetry.
-
-Each observable is a pair:
-
-- `observables/<name>` — the data, a column (see [Types](types.md));
-- `observables/meta/<name>` — its semantic metadata.
-
-When the section is present the pairing is mandatory: observable data are never
-standalone.
-
-Physical form: **Zarr array groups** with per-name semantic **attributes** —
-see [Storage](storage.md).
-
-## Structure
+Each observable is a pair: data under `observables/<name>` and semantic
+metadata under `observables/meta/<name>`. When the section is present the
+pairing is mandatory.
 
 ```text
 observables
-├── meta/
-│   └── <name>/                 # semantic metadata (JSON attrs in Zarr binding)
-│       +-- kind: string        # "scalar" | "vector"
-│       +-- description: string
-│       +-- time_dependent: bool
-│       +-- (unit: string)
-│       +-- (axes: string[])    # names of trailing axes
-│       \-- (target: string)    # e.g. "/frame/atoms"
-└── <name>: <dtype>[...]        # data column / array
+ \-- meta
+ |    \-- <name>
+ |         +-- kind: string[]
+ |         +-- description: string[]
+ |         +-- time_dependent: bool[]
+ |         +-- (unit: string[])
+ |         +-- (axes: string[...])
+ |         +-- (sampling: string[])
+ |         +-- (domain: string[])
+ |         +-- (target: string[])
+ \-- <name>: <dtype>[...]
 ```
 
-## Kinds
+`kind`
 
-MolRec defines two observable kinds:
+Either `scalar` (one value per sample) or `vector` (an ordered tuple of
+components per sample). Higher-rank data are expressed with the same two
+kinds plus `axes` naming the trailing axes.
 
-| Kind | Meaning | Typical shape |
-|------|---------|---------------|
-| `scalar` | one value per sample | `[]` or `[ntimestep]` |
-| `vector` | an ordered tuple of components per sample | `[ncomp]` or `[ntimestep][ncomp]` |
+`time_dependent`
 
-Higher-rank data (tensors), volumetric fields, and tables are expressed with the
-same two kinds plus `axes` metadata naming the trailing axes. A producer that
-needs a distinct kind declares it in a module under `meta/modules`.
+Time dependence is stated in metadata, not inferred from shape. When true,
+the leading axis is the trajectory axis.
 
-## Metadata
+`sampling`, `domain`
 
-Required for every observable:
+Optional free-text provenance: how the quantity was sampled (e.g.
+`per_frame`, `time_average`) and what domain it is defined over. The
+reference implementation (molrs `ObservableRecord`) carries both as
+first-class fields.
 
-- `kind`
-- `description`
-- `time_dependent`
+`target`
 
-Recommended when applicable:
+The block an entity-aligned observable indexes (e.g. `/frame/atoms`).
 
-- `unit` — physical unit of the values;
-- `axes` — names of the trailing axes when the rank is greater than zero;
-- `target` — the block an entity-aligned observable indexes (e.g.
-  `/frame/atoms`).
+A producer that needs a distinct kind declares it in a module under
+`meta/modules`.
 
-## Time dependence
-
-Time dependence is stated in metadata, not inferred from shape. When
-`time_dependent = true`, the leading axis is the trajectory axis (named
-`timestep` by convention).
-
-## Relationship to metrics
-
-Use `observables` for values that are part of the interpreted scientific record;
-use [metrics](metrics.md) for run-local monitoring streams. A writer may mirror a
-value into metrics for live display, but the observable remains the authoritative
-scientific value.
+A dims-based redesign of this section (named dimensions instead of `kind` /
+`time_dependent`, xarray-style shared coordinates) exists as a **draft** in
+the reference package (`schema/draft/observables/`). It is not part of
+version 1; adopting it is a normative change and requires a
+`molrec_version` bump.

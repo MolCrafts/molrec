@@ -510,21 +510,33 @@ class ZarrTrajectoryCodec(Codec):
             group.attrs[CELL_DEFINED_ATTR] = False
 
     def _read_box(self, group: zarr.Group) -> TrajectoryBoxModel:
+        # ``origin`` and ``boundary`` are optional with normative defaults
+        # (zero origin, all-periodic): the reference writer omits them when
+        # every update holds the default, so absence resolves to ``None`` and
+        # ``BoxModel`` materializes the defaults. A trivial ``step_index``
+        # (exactly one update at ordinal 0 — the fixed-cell case) may be
+        # omitted the same way.
         vectors = group["vectors"][...]
-        origin = group["origin"][...]
-        boundary = group["boundary"][...]
+        origin = group["origin"][...] if "origin" in group else None
+        boundary = group["boundary"][...] if "boundary" in group else None
+        if STEP_INDEX_ARRAY in group:
+            ordinals = [int(ordinal) for ordinal in group[STEP_INDEX_ARRAY][...]]
+        else:
+            ordinals = [0]
         defined = group.attrs.get(CELL_DEFINED_ATTR)
         return TrajectoryBoxModel(
             updates=[
                 BoxUpdateModel(
-                    step_index=int(ordinal),
+                    step_index=ordinal,
                     box=BoxModel(
                         vectors=vectors[index],
-                        origin=origin[index],
-                        boundary=tuple(bool(flag) for flag in boundary[index]),
+                        origin=None if origin is None else origin[index],
+                        boundary=None
+                        if boundary is None
+                        else tuple(bool(flag) for flag in boundary[index]),
                     ),
                 )
-                for index, ordinal in enumerate(group[STEP_INDEX_ARRAY][...])
+                for index, ordinal in enumerate(ordinals)
             ],
             cell_defined=None if defined is None else bool(defined),
         )

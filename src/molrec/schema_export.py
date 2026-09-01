@@ -36,6 +36,7 @@ from molrec.observables.model import (
 )
 from molrec.ref import Ref
 from molrec.report import Violation
+from molrec.sequence_schema import SequenceSchemaModel
 
 #: module -> the models it publishes.
 PUBLISHED: dict[str, tuple[type[BaseModel], ...]] = {
@@ -51,7 +52,12 @@ PUBLISHED: dict[str, tuple[type[BaseModel], ...]] = {
         MetaModel,
         RecordModel,
     ),
-    "observables": (Array, Source, ObservableModel, ObservablesModel),
+    # DRAFT — the dims-based observables redesign (v2 proposal). The v1
+    # record `observables/` contract is the kind-based layout in
+    # docs/spec/observables.md, implemented by molrs; adopting this model
+    # is a normative change and requires a `molrec_version` bump.
+    "draft/observables": (Array, Source, ObservableModel, ObservablesModel),
+    "binding": (SequenceSchemaModel,),
     "ref": (Ref,),
     "report": (Violation,),
 }

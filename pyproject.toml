@@ -26,6 +26,10 @@ dev = [
   # it. molrec's own codec passing molrec's own suite proves very little.
   "molcrafts-molrs",
 ]
+docs = [
+  "zensical>=0.0.53",
+  "molcrafts-zensical-theme>=0.2.5",
+]
 
 # Built from the sibling checkout because the trajectory layout the suite
 # judges is not in any published wheel yet. This flips to a plain

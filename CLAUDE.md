@@ -22,34 +22,36 @@ mol_project:
 # CLAUDE.md
 
 MolRec is the **backend-neutral record contract** for the MolCrafts ecosystem.
-This repository owns **specification prose and fixtures**, not a store product
-named MolStore.
+This repository owns **specification prose and fixtures**.
 
 ## Architecture
 
-- **L0–L2 (normative):** vocabulary, containers (Column / Block / Frame), Record root.
-- **L3 (conventions):** domain sections (`system`, `trajectory`, `status`, `metrics`, …).
-- **L4 (binding):** one Zarr V3 root — live directory `*.mrec/` *is* that
-  root; packed form is `*.mrec.zip`. Array groups + document sections as
-  **group attributes**; live metrics = append-only JSONL text buffer
-  (dense Zarr series + optional `metrics/metrics.jsonl` WAL). Spec:
-  `docs/spec/storage.md`. molrec does not ship
-  a `MolStore` class.
+- **Record:** one root. Column / Block / Frame / Box are how it holds array
+  data. A trajectory is a record section.
+- **Conventions:** domain names (`atoms`, `atomi`/`atomj`, `system`,
+  `status`, `metrics`, …) follow molpy's Frame/Block interchange scheme.
+- **Reference binding:** one Zarr V3 root — live directory `*.mrec/` *is*
+  that root; packed form is `*.mrec.zip`. Array groups + document sections
+  as **group attributes**; live metrics = append-only JSONL text buffer
+  (dense Zarr series + optional `metrics/metrics.jsonl` WAL). Trajectory
+  encoding is the ragged CSR layout (`docs/spec/ragged.md`). Binding
+  starts at `docs/spec/zarr.md`.
 
 Reference implementation of containers + Zarr I/O: `MolCrafts/molrs`.
-Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract, they
-do not invent parallel store names.
+Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract.
 
 ## Spec hygiene
 
-- Sole schema key: `meta.record_schema_version` (integer, starts at 1).
-- Record format brand: `meta.format_name` is `mrec` (not a binding id);
-  scientific paths are `*.mrec/` / `*.mrec.zip` — **MUST NOT** use
-  `.zarr` / `.zarr.zip`. Host metrics stay `*.mlp.zarr`
-  (`format_name=molmetrics`).
-- No `frame_schema_version`, no layout `meta.version` dual-key.
-- Cell contract name: `Box` / `box` only (not `simbox`).
-- No root `parameters/`; parameters under `system/parameters` or `method`.
-- Keep section chapters aligned with `docs/spec/storage.md`: documents are Zarr
-  attributes (not sibling `.json` stores); metrics JSONL is only an append
-  buffer; no nested metrics array trees or columnar `String[]` document trees.
+- Sole schema key: `meta["molrec_version"]` (integer, starts at 1).
+- Scientific paths are `*.mrec/` / `*.mrec.zip`. Host metrics stay on the
+  filename-gated `*.mlp.*` surface (live WAL `*.mlp.jsonl`; leftover
+  `*.mlp.zarr` is ignored).
+- Cell contract name: `Box` / `box`.
+- v1 `observables/` is the kind-based layout in `docs/spec/observables.md`
+  (matches molrs). The dims-based model in `src/molrec/observables/` is a
+  **v2 draft** (`schema/draft/observables/`); adopting it needs a
+  `molrec_version` bump.
+- Parameters under `system/parameters` or `method`.
+- Keep section chapters aligned with `docs/spec/storage.md` and
+  `docs/spec/zarr.md`: documents are Zarr group attributes; metrics JSONL
+  is an append buffer.

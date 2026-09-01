@@ -46,8 +46,7 @@ def _to_frame(model: molrec.FrameModel) -> molrs.Frame:
     frame = molrs.Frame()
     for name, block in model.blocks.items():
         native = molrs.Block()
-        if not block.columns:
-            native.resize(block.count)
+        native.resize(block.count)
         for column, payload in block.columns.items():
             native.insert(column, payload.values)
         if block.structural_shape is not None:
@@ -102,25 +101,33 @@ def _from_frame(frame: molrs.Frame | None) -> dict[str, Any] | None:
 
 
 class MolrsRecordAdapter(molrec.RecordAdapter):
-    """The whole record -- the shape molrs actually emits."""
+    """The whole record -- composed from the primitive doors."""
 
     backends = ("zarr",)
 
     def write(self, model: molrec.RecordModel, store) -> None:
-        record = molrs.Record()
-        record.meta = model.meta.model_dump(mode="json", exclude_none=True)
+        path = Path(store.uri)
+        meta = model.meta.model_dump(mode="json", exclude_none=True)
         if model.frame is not None:
-            record.set_frame(_to_frame(model.frame))
+            system = None if model.system is None else _to_frame(model.system)
+            molrs.io.mrec.write_frame(path, _to_frame(model.frame), system=system, meta=meta)
+            return
         if model.system is not None:
-            record.set_system(_to_frame(model.system))
-        molrs.io.mrec.write_record(store.uri, record)
+            molrs.io.mrec.write_system(path, _to_frame(model.system), meta=meta)
+            return
+        raise ValueError("record model has neither frame nor system")
 
     def read(self, store) -> Any:
-        record = molrs.io.mrec.read_record(store.uri)
+        path = Path(store.uri)
+        present = molrs.io.mrec.sections(path)
+        frame = _from_frame(molrs.io.mrec.read_frame(path)) if "frame" in present else None
+        system = _from_frame(molrs.io.mrec.read_system(path)) if "system" in present else None
+        if frame is None and system is None:
+            raise ValueError(f"{path} has neither frame nor system")
         return {
-            "meta": dict(record.meta),
-            "frame": _from_frame(record.frame),
-            "system": _from_frame(record.system),
+            "meta": molrs.io.mrec.read_meta(path),
+            "frame": frame,
+            "system": system,
         }
 
 
@@ -230,7 +237,7 @@ def _meta_series(frames: list[molrs.Frame]) -> dict[str, dict[str, Any]]:
 def _record_shaped(store: molrec.TrajectoryStore) -> str:
     """The store path, with the identity document molrs's doors require.
 
-    molrs has no bare-trajectory door: ``read_record`` refuses a root without
+    molrs has no bare-trajectory door: ``read_trajectory`` refuses a root without
     ``meta/`` -- "not a MolRec record: missing required 'meta' section" --
     while the suite mints a store holding ``trajectory/`` alone. Adding the
     minimal meta group is a store-shape graft, hand-built the same way the
@@ -239,16 +246,16 @@ def _record_shaped(store: molrec.TrajectoryStore) -> str:
     """
     root = zarr.open_group(store=Path(store.uri), mode="a")
     if "meta" not in root:
-        root.create_group("meta").attrs.update({"record_schema_version": 1, "format_name": "mrec"})
+        root.create_group("meta").attrs.update({"molrec_version": 1})
     return store.uri
 
 
 class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
     """A sequence of frames, through molrs's eager trajectory door.
 
-    ``write_trajectory`` / ``read_record`` are the public doors:
+    ``write_trajectory`` / ``read_trajectory`` are the public doors:
     ``TrajectoryReader`` yields one frame at a time and does not surface
-    ``step`` / ``time``, so the adapter reads the trajectory off the record.
+    ``step`` / ``time``, so the adapter reads the trajectory eagerly.
     The streaming surface -- and with it ``declare_meta``, the only place a
     per-step meta **fill** can be stated -- is unreachable from here. A
     declared fill therefore does not survive either direction, and this
@@ -267,7 +274,7 @@ class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
             frames.append(native)
 
         molrs.io.mrec.write_trajectory(
-            store.uri,
+            Path(store.uri),
             molrs.Trajectory.from_frames(
                 frames,
                 step=np.asarray(model.step, dtype="int64"),
@@ -276,7 +283,7 @@ class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
         )
 
     def read(self, store: molrec.TrajectoryStore) -> Any:
-        trajectory = molrs.io.mrec.read_record(_record_shaped(store)).trajectory
+        trajectory = molrs.io.mrec.read_trajectory(Path(_record_shaped(store)))
         frames = list(trajectory.frames)
         described = []
         for frame in frames:
@@ -297,8 +304,7 @@ class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
 class Molrs(molrec.Implementation):
     name = "molrs"
     version = "0.14.0"
-    # No frame adapter: molrs has no public door for a bare frame at a store
-    # root, and inventing one to satisfy a suite would test something nobody
-    # ships. The frame cases run inside records instead.
+    # Frame cases run inside records: molrs.write_frame writes Structure
+    # (meta + frame/), not a bare frame at the store root.
     record = MolrsRecordAdapter()
     trajectory = MolrsTrajectoryAdapter()

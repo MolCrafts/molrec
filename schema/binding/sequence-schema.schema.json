@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "SequenceBlockModel": {
+      "additionalProperties": true,
+      "description": "One block's declaration: its columns, each pinned by dtype and trailing shape.",
+      "properties": {
+        "columns": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SequenceColumnModel"
+          },
+          "title": "Columns",
+          "type": "object"
+        }
+      },
+      "title": "SequenceBlockModel",
+      "type": "object"
+    },
+    "SequenceColumnModel": {
+      "description": "One column's type in a sequence declaration.\n\nA column is fixed for the run by its ``dtype`` -- the same closed\nvocabulary as :class:`~molrec.core.model.ColumnModel` -- and its\n``trailing`` axes, the per-entity structure after the leading count axis. A\n``Float[count][3]`` column declares ``trailing = [3]``; a scalar column\ndeclares ``trailing = []``.",
+      "properties": {
+        "dtype": {
+          "enum": [
+            "f16",
+            "f32",
+            "f64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "bool",
+            "string",
+            "c64",
+            "c128"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "trailing": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "title": "Trailing",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dtype"
+      ],
+      "title": "SequenceColumnModel",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "The ``trajectory/`` group attribute ``molrs_sequence_schema``.\n\n``blocks`` mirrors the frame blocks; ``meta`` declares each per-step meta\nkey by its dtype tag (the ``molrs_meta_dtype`` an array carries), drawn from\nthe same closed dtype vocabulary as everywhere else.\n\nThe attribute carries no version of its own. Like the rest of the record it\nis versioned by the sole ``meta[\"molrec_version\"]`` -- MolRec has no\nparallel version key, so a change to how the sequence declares itself is a\nbump of that one integer. The literal key ``molrs_sequence_schema`` is the\nreference writer's and is not renamed here. This schema describes the\nsequence declaration only. Record identity lives in\n:class:`~molrec.core.model.MetaModel` (``molrec_version``), not in this\nattribute.",
+  "properties": {
+    "blocks": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SequenceBlockModel"
+      },
+      "title": "Blocks",
+      "type": "object"
+    },
+    "meta": {
+      "additionalProperties": {
+        "enum": [
+          "f16",
+          "f32",
+          "f64",
+          "i8",
+          "i16",
+          "i32",
+          "i64",
+          "u8",
+          "u16",
+          "u32",
+          "u64",
+          "bool",
+          "string",
+          "c64",
+          "c128"
+        ],
+        "type": "string"
+      },
+      "title": "Meta",
+      "type": "object"
+    }
+  },
+  "title": "SequenceSchemaModel",
+  "type": "object"
+}

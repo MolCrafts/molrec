@@ -22,9 +22,7 @@ import molrec
 
 def _meta(**extras: object) -> molrec.MetaModel:
     """A valid meta document plus whatever unknown keys the case needs."""
-    return molrec.MetaModel.model_validate(
-        {"record_schema_version": 1, "format_name": "mrec", **extras}
-    )
+    return molrec.MetaModel.model_validate({"molrec_version": 1, **extras})
 
 
 def test_an_extra_key_whose_value_changed_is_a_violation() -> None:

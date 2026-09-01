@@ -1,101 +1,41 @@
 # Run surface
 
-## Purpose
-
-The **run surface** is how MolRec represents training jobs, simulations in
-flight, and multi-stage workflows as Records — not as ad-hoc log files and not
-as a store product.
-
-It is the triangle:
+The run surface is how MolRec represents training jobs, simulations in
+flight, and multi-stage workflows as records.
 
 ```text
 method   →  what method / engine / model is running
-status   →  where execution is now (lifecycle + progress)
+status   →  where execution is now
 metrics  →  append-only measurements along the way
 ```
 
-Together they let molnex, molexp, molq, and analysis tools share one lifecycle
-and metrics vocabulary.
+`method`
 
-## Section roles
+Scientific or training context. See [Method](method.md). In the reference
+binding: group attributes.
 
-| Section | Role | Spec | Physical (L4) |
-|---------|------|------|----------------|
-| `method` | Scientific / training context | [Method](method.md) | Zarr group attributes |
-| `status` | Lifecycle state, stage, progress, errors | [Status](status.md) | Zarr group attributes |
-| `metrics` | Append-oriented run-local curves and counters | [Metrics](metrics.md) | JSONL text buffer (+ optional Zarr summary) |
+`status`
 
-### Observables vs metrics
+Lifecycle state, stage, progress, errors. See [Status](status.md). In the
+reference binding: group attributes.
 
-- **`observables`** — scientific quantities that are part of the *interpreted*
-  result of the record (e.g. radial distribution, spectrum).
-- **`metrics`** — run-local monitoring (loss, lr, wall time, throughput).
+`metrics`
 
-Do not put training loss series under `observables` solely because they are
-numeric. Do not put published scientific series only under `metrics`.
+Append-oriented run-local curves and counters. See [Metrics](metrics.md).
+In the reference binding: JSONL text buffer, densified to Zarr series.
 
-## Minimum Run-shaped record
+Observables are scientific quantities that are part of the interpreted
+result of the record. Metrics are run-local monitoring. Training loss
+belongs under `metrics`; a published series belongs under `observables`.
 
-A **Run**-shaped record requires:
+A run-shaped record requires `meta` and `status` (with at least
+`status.state` when the section exists). It should include at least one of
+`metrics` or `method`. `frame` and `system` are optional.
 
-- `meta` (always)
-- `status` (with at least `status.state` when the section exists)
+Typical compositions: an ML training job is `meta` + `method` + `status` +
+`metrics`; an MD production monitor may add `trajectory`; a failed job for
+resume is `meta` + `status` (+ `status.error`) + `method`.
 
-and SHOULD include at least one of:
-
-- `metrics`
-- `method`
-
-A Run-shaped record **does not require** `frame` or `system`. Attach those when
-the run also materializes structures or a defined chemical system.
-
-## Typical compositions
-
-| Scenario | Sections |
-|----------|----------|
-| ML training job | `meta` + `method` + `status` + `metrics` |
-| MD production run monitor | `meta` + `method` + `status` + `metrics` + optional `trajectory` |
-| Failed job for resume | `meta` + `status` (+ `status.error`) + `method` |
-| Eval pass | `meta` + `status` (stage=`eval`) + `metrics` + optional `observables` |
-
-## Pointers into existing chapters
-
-This chapter does **not** replace the field tables in status / metrics /
-method. It indexes them as one surface:
-
-1. Write lifecycle with [Status](status.md) → Zarr `status/` attributes.
-2. Append measurements with [Metrics](metrics.md) → **JSONL WAL**
-   (`metrics/metrics.jsonl` on a Record; `<stem>.mlp.jsonl` on a host),
-   densified into Zarr series on flush (not per-step Zarr chunk append).
-3. Describe the scientific setup with [Method](method.md) → Zarr `method/`
-   attributes.
-4. Place everything under one [Record](record.md) Zarr root ([Storage](storage.md)).
-
-## Minimal Run root (reference)
-
-Still a **Zarr root** — not a loose tree of `.json` files:
-
-```text
-<record-root>/                 # Zarr V3
-├── meta/                      # attrs: record_schema_version, creator, …
-├── status/                    # attrs: state (required), stage, …
-├── method/                    # attrs: type, engine, …  (optional)
-└── metrics/
-    ├── (attrs)                # catalog / closed summary
-    ├── series/…               # dense arrays after densify
-    └── metrics.jsonl          # live WAL when metrics exist
-```
-
-Producers of a **Record** SHOULD write this shape so tools open one Zarr
-package and prefer dense series (tail the WAL only while live). Attribute
-payloads and the WAL golden: `fixtures/run-minimal/`.
-
-A **host** (molexp Run) is not this tree. It keeps lifecycle in host files
-and metrics on `*.mlp.*` — see [Storage](storage.md) host layout. Do not
-treat `ops/run.json` as `status/` or `run.json` as `meta/`.
-
-## See also
-
-- [Record](record.md) — minimum shapes including Run
-- [Storage](storage.md) — Zarr root + metrics WAL
-- [Overview](overview.md)
+A host (a molexp run directory) keeps lifecycle in host files and metrics
+on `*.mlp.*` — see [Root layout](storage.md). `status/` and `meta/` are
+record groups.

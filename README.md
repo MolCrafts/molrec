@@ -19,8 +19,7 @@
 
 </div>
 
-MolRec defines **what a scientific record means** — not a store product, not a
-class named `MolStore` / `SimStore`, and not “Frame only.”
+MolRec defines **what a scientific record means**.
 
 Any project that shares:
 
@@ -44,7 +43,7 @@ codes invent different formats. MolRec provides one language-agnostic contract:
 - Metadata is explicit — meaning is never inferred from array shape alone.
 - The same root serves MD packages, electronic-structure results, and training runs.
 
-## Record structure
+## Root layout
 
 ```text
 /
@@ -58,47 +57,37 @@ codes invent different formats. MolRec provides one language-agnostic contract:
 +-- method                # optional — scientific / training context
 ```
 
-There is **no** root `parameters/` (use `system/parameters` or `method`).
+Parameters live under `system/parameters` or `method`.
 
-`meta` is mandatory. A record must also include **at least one of** `frame`,
-`system`, `trajectory`, or `status`. A **Run**-shaped record (`meta` + `status`)
-does not require a frame; a trajectory-only record (`meta` + `trajectory`) is
-equally valid, and trajectory may omit `system/`. The cell is **Box** only; the
-sole version key is **`record_schema_version` (1)**. See
-[docs/spec/record.md](docs/spec/record.md) and
-[docs/spec/run.md](docs/spec/run.md).
-
-## Layers
-
-| Layer | Role |
-|-------|------|
-| L0 Vocabulary | dtypes, units, hard naming rules |
-| L1 Containers | Column · Block · Frame · Box |
-| L2 Record | Root sections and minimum shapes |
-| L3 Conventions | Domain section and field names |
-| L4 Backend binding | One Zarr root (arrays + document attrs) · metrics JSONL buffer ([storage](docs/spec/storage.md)) |
+`meta` is mandatory. A record also includes **at least one of** `frame`,
+`system`, `trajectory`, or `status`. A **Run**-shaped record (`meta` +
+`status`) is valid on its own; a trajectory-only record (`meta` +
+`trajectory`) is equally valid, and trajectory may omit `system/`. The cell
+is **Box**; the sole version key is **`meta["molrec_version"]` (1)**. See
+the [format specification](docs/spec/specification.md).
 
 ## Key design principles
 
-- **Record first.** Frame is an L1 container; the unit of ecosystem interchange is the Record.
-- **Single root.** One Record is one openable root — no nested Record trees in L2.
-- **System ≠ state.** `system/` defines the system; coordinates live on `frame` / `trajectory`.
+- **Record first.** Column / Block / Frame / Box are how a record holds array data. A trajectory is a record section.
+- **Single root.** One Record is one openable root.
+- **System and state.** `system/` defines the system; coordinates live on `frame` / `trajectory`.
 - **Run surface.** Training and jobs use `status` + `metrics` + `method` as one surface.
-- **Box only.** The cell contract name is `Box` / `box` — not `simbox`.
-- **One schema version.** `meta.record_schema_version` (starts at 1); no parallel `frame_schema_version` or layout `meta.version`.
-- **Zarr + metrics WAL.** One Zarr V3 root holds arrays and document sections (group attributes). Closed metrics densify to Zarr series; live metrics use an append-only JSONL WAL (`metrics/metrics.jsonl`) — not a parallel `.json` document tree. Never a second layout named MolStore.
-- **Hard cut.** New writers do not dual-read retired keys or private layouts; migrate offline.
-- **Collections, not only atoms.** Named blocks carry any entity set.
+- **Box.** The cell contract name is `Box` / `box`.
+- **One schema version.** `meta["molrec_version"]` (starts at 1).
+- **Zarr + metrics WAL.** One Zarr V3 root holds arrays and document sections (group attributes). Closed metrics densify to Zarr series; live metrics use an append-only JSONL WAL (`metrics/metrics.jsonl`). The trajectory encoding is the [ragged CSR layout](docs/spec/ragged.md).
+- **Hard cut.** Writers emit the current keys; migrate older files offline.
+- **Collections.** Named blocks carry any entity set.
 - **Preserve the unknown.** Readers keep sections, blocks, and columns they do not interpret.
-- **Backend-neutral.** Semantics do not require Zarr; the Zarr root + JSONL buffer is the reference binding only.
+- **Backend-neutral.** Semantics are independent of the store; the Zarr root + JSONL buffer is the reference binding.
 
 ## Documentation
 
-Full specification: [docs/index.md](docs/index.md)
+Full specification: [docs/index.md](docs/index.md) ·
+[format specification](docs/spec/specification.md)
 
 ## Reference implementation
 
-[molrs](https://github.com/MolCrafts/molrs) implements L1 containers and the
+[molrs](https://github.com/MolCrafts/molrs) implements the containers and the
 reference Zarr binding. Other packages **consume** the contract; they must not
 ship a parallel store product name for the same layout.
 

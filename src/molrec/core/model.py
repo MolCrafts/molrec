@@ -1,4 +1,4 @@
-"""L0-L2 models: Column, Block, Box, Frame, Trajectory, Meta, Record.
+"""Record models: Column, Block, Box, Frame, Trajectory, Meta, Record.
 
 These models *are* the specification. The JSON Schema published for other
 languages is generated from them, and the conformance suite compares against
@@ -478,15 +478,13 @@ class MetaModel(BaseModel):
     ``extra="allow"`` is not convenience -- it is the preserve-the-unknown
     invariant: a reader must keep keys it does not recognize.
 
-    ``format_name`` is the record format brand, not a binding id. It may be
-    omitted at L2; when present it is ``"mrec"``. The retired string
-    ``"molrec"`` is refused.
+    ``molrec_version`` is the sole version key for the whole record; the
+    scientific path brand is the ``*.mrec/`` suffix.
     """
 
     model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
-    record_schema_version: int = Field(ge=1)
-    format_name: Literal["mrec"] | None = None
+    molrec_version: int = Field(ge=1)
     record_id: str | None = None
     content_hash: str | None = None
 

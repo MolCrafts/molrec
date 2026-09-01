@@ -1,70 +1,59 @@
 [project]
 site_name = "MolRec"
-site_url = "https://docs.molcrafts.org/molrec/"
-site_description = "MolRec specification for developers"
+site_description = "Backend-neutral record contract for the MolCrafts ecosystem."
 site_author = "Roy Kid"
+site_url = "https://docs.molcrafts.org/molrec/"
+copyright = "Copyright &copy; 2026 MolCrafts"
+docs_dir = "docs"
+site_dir = "site"
+repo_url = "https://github.com/MolCrafts/molrec"
+repo_name = "MolCrafts/molrec"
+edit_uri = "edit/master/docs/"
 
+nav = [
+  { "Home" = "index.md" },
+  { "Specification" = [
+    { "Objective" = "spec/specification.md" },
+    { "Overview" = "spec/overview.md" },
+    { "Containers" = "spec/frame.md" },
+    { "Trajectory" = "spec/trajectory.md" },
+    { "System" = "spec/system.md" },
+    { "Observables" = "spec/observables.md" },
+    { "Run" = [
+      { "Run surface" = "spec/run.md" },
+      { "Status" = "spec/status.md" },
+      { "Metrics" = "spec/metrics.md" },
+      { "Method" = "spec/method.md" },
+    ] },
+    { "Conventions" = "spec/conventions.md" },
+  ] },
+  { "Implementation" = [
+    { "Why Zarr V3" = "spec/zarr.md" },
+    { "Root layout" = "spec/storage.md" },
+    { "Chunking and packing" = "spec/chunking.md" },
+    { "Metrics WAL" = "spec/metrics-wal.md" },
+    { "Ragged trajectory" = "spec/ragged.md" },
+  ] },
+]
+
+# Shared MolCrafts theme (github.com/MolCrafts/molcrafts-zensical-theme): brand
+# palette, light/dark schemes, navigation features, and the home-page
+# hero/manual-home layout that docs/index.md uses. The theme already supplies
+# the features/palette/fonts — do not re-list them here. Install the theme to
+# build (see the `docs` optional-dependency group in pyproject.toml).
 [project.theme]
-name = "modern"
-features = [
-    "navigation.tabs",
-    "navigation.top",
-    "navigation.instant",
-    "navigation.tracking",
-    "navigation.footer",
-    "navigation.indexes",
-    "navigation.path",
-    "search.highlight",
-    "content.code.copy"
-]
+name = "molcrafts"
+language = "en"
 
-[[project.theme.palette]]
-scheme = "default"
-primary = "blue"
-accent = "blue"
-toggle.icon = "lucide/sun"
-toggle.name = "Switch to dark mode"
+# molrec accent (orange) for links, hovers, and hero eyebrows — the colour the
+# shared theme maps to this product.
+[project.extra.molcrafts]
+product = "molrec"
+accent = "#c2410c"                        # primary (主) — molrec signature colour
+accent_soft = "rgba(194, 65, 12, 0.14)"   # secondary (副) — soft fill behind it
 
-[[project.theme.palette]]
-scheme = "slate"
-primary = "blue"
-accent = "blue"
-toggle.icon = "lucide/moon"
-toggle.name = "Switch to light mode"
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/MolCrafts/molrec"
 
-[markdown]
-extensions = [
-    "admonition",
-    "attr_list",
-    "md_in_html"
-]
-
-[markdown.toc]
-permalink = true
-
-[markdown.highlight]
-anchor_linenums = true
-
-[markdown.superfences]
-
-[plugins]
-search = {}
-
-[nav]
-Home = "index.md"
-
-[nav.Specification]
-Overview = "spec/overview.md"
-Record = "spec/record.md"
-Storage = "spec/storage.md"
-Meta = "spec/meta.md"
-Types = "spec/types.md"
-Frame = "spec/frame.md"
-System = "spec/system.md"
-Conventions = "spec/conventions.md"
-Trajectory = "spec/trajectory.md"
-Run = "spec/run.md"
-Observables = "spec/observables.md"
-Status = "spec/status.md"
-Metrics = "spec/metrics.md"
-Method = "spec/method.md"
+[project.plugins.search]
