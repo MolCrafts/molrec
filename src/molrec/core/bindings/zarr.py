@@ -707,16 +707,16 @@ class ZarrTrajectoryCodec(Codec):
         if section.cell_defined is False:
             group.attrs[CELL_DEFINED_ATTR] = False
 
-    def _read_box(self, group: zarr.Group, nstep: int) -> TrajectoryBoxModel:
+    def _read_box(self, group: zarr.Group, nstep: int) -> TrajectoryBoxModel | None:
         defined = group.attrs.get(CELL_DEFINED_ATTR)
         if "vectors" not in group:
             # A fixed cell from ordinal 0 lives in the group attributes: no
             # arrays at all until it changes.
             vectors = group.attrs.get("vectors")
             if vectors is None or nstep == 0:
-                return TrajectoryBoxModel(
-                    updates=[], cell_defined=None if defined is None else bool(defined)
-                )
+                # No cell committed yet: the section holds no update, and a
+                # section of no updates is no section.
+                return None
             origin = group.attrs.get("origin")
             boundary = group.attrs.get("boundary")
             return TrajectoryBoxModel(
