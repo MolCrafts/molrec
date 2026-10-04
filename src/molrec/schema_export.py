@@ -22,21 +22,25 @@ from molrec.core.model import (
     BoxModel,
     BoxUpdateModel,
     CellModel,
+    CollectionMetaModel,
+    CollectionModel,
     ColumnModel,
     FrameModel,
     MetaModel,
     MetaSeriesModel,
+    MethodModel,
     ObservableMetaModel,
     ObservableModel,
     ObservablesModel,
     RecordModel,
+    SequenceSchemaModel,
+    StatusModel,
     TrajectoryBoxModel,
     TrajectoryModel,
 )
 from molrec.draft.observables import model as draft
 from molrec.ref import Ref
 from molrec.report import Violation
-from molrec.sequence_schema import SequenceSchemaModel
 
 #: module -> the models it publishes.
 PUBLISHED: dict[str, tuple[type[BaseModel], ...]] = {
@@ -51,7 +55,11 @@ PUBLISHED: dict[str, tuple[type[BaseModel], ...]] = {
         TrajectoryBoxModel,
         TrajectoryModel,
         MetaModel,
+        StatusModel,
+        MethodModel,
         RecordModel,
+        CollectionMetaModel,
+        CollectionModel,
     ),
     # The v1 `observables/` section: the kind-based layout molrs writes.
     "observables": (ArrayModel, ObservableMetaModel, ObservableModel, ObservablesModel),

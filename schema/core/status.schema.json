@@ -1,0 +1,15 @@
+{
+  "additionalProperties": true,
+  "description": "The lifecycle document (``docs/spec/status.md``). ``state`` is required\nwhenever the section exists; every other key is preserved as given.",
+  "properties": {
+    "state": {
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "state"
+  ],
+  "title": "StatusModel",
+  "type": "object"
+}

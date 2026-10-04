@@ -25,17 +25,20 @@ class FrameBench(Bench):
         yield self._grid(side=64)
 
     def _positions(self, natoms: int) -> Workload:
-        values = np.random.default_rng(0).random((natoms, 3))
+        values = np.random.default_rng(0).random((3, natoms))
         model = FrameModel(
             blocks={
                 "atoms": BlockModel(
                     count=natoms,
-                    columns={"xyz": ColumnModel(dtype="f64", shape=values.shape, values=values)},
+                    columns={
+                        axis: ColumnModel(dtype="f64", shape=(natoms,), values=values[index])
+                        for index, axis in enumerate("xyz")
+                    },
                 )
             }
         )
         return Workload(
-            id=f"positions-{natoms}x3-f64",
+            id=f"positions-{natoms}-xyz-f64",
             model=model,
             nbytes=values.nbytes,
             baseline="HDF5 / XTC",

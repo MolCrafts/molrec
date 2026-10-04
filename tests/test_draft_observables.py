@@ -245,21 +245,72 @@ def test_a_static_grid_axis_is_not_repeated_per_row(tmp_path):
     assert "data" not in coords["phi"], "phi advances with rows; it is filled in by them"
 
 
-def test_a_torn_wal_line_is_skipped_not_fatal(tmp_path):
+def _curve(values) -> draft.ObservablesModel:
+    return draft.ObservablesModel(
+        coordinates={"step": array(("point",), list(range(len(values))), dtype="i64")},
+        observables={"train/loss": draft.ObservableModel(values=array(("point",), values))},
+    )
+
+
+def test_a_torn_tail_is_skipped_and_never_glued_onto(tmp_path):
     """The WAL exists to survive a crash; a half-written tail must not be fatal."""
     store = JsonlObservableStore(tmp_path / "wal")
     codec = JsonlObservableCodec()
-    codec.write(
-        draft.ObservablesModel(
-            coordinates={"step": array(("point",), [0, 1], dtype="i64")},
-            observables={"train/loss": draft.ObservableModel(values=array(("point",), [0.9, 0.7]))},
-        ),
-        store,
-    )
-    store.append('{"$":"row","dim":"point","c":{"step":2},"v":{"train/loss":0.')
-    store.append("")
+    codec.write(_curve([0.9, 0.7]), store)
+    with store.wal.open("ab") as handle:  # a crash mid-line: no newline
+        handle.write(b'{"$":"row","dim":"point","c":{"step":2},"v":{"train/loss":0.')
 
     assert codec.read(store).observables["train/loss"].values.shape == (2,)
+
+    store.append(codec_row := '{"$":"row","dim":"point","c":{"step":2},"v":{"train/loss":0.5}}')
+    assert store.lines()[-1] == codec_row, "the torn tail was cut off, not glued onto"
+    assert codec.read(store).observables["train/loss"].values.shape == (3,)
+
+
+def test_a_corrupt_complete_line_is_refused(tmp_path):
+    store = JsonlObservableStore(tmp_path / "wal")
+    codec = JsonlObservableCodec()
+    codec.write(_curve([0.9]), store)
+    with store.wal.open("ab") as handle:
+        handle.write(b"\xff\xfe not utf-8\n")
+    with pytest.raises(ValueError, match="UTF-8"):
+        codec.read(store)
+
+
+def test_typed_values_survive_the_wal(tmp_path):
+    """NaN, complex values and a zero-row vector keep their meaning in JSON."""
+    store = JsonlObservableStore(tmp_path / "wal")
+    model = draft.ObservablesModel(
+        coordinates={"step": array(("point",), [0, 1], dtype="i64")},
+        observables={
+            "loss": draft.ObservableModel(values=array(("point",), [float("nan"), 0.5])),
+            "phase": draft.ObservableModel(
+                values=draft.Array(
+                    dims=("point",),
+                    dtype="c128",
+                    shape=(2,),
+                    data=np.array([1 + 2j, -1j], dtype="complex128"),
+                )
+            ),
+        },
+    )
+    JsonlObservableCodec().write(model, store)
+    assert JsonlObservableCodec().read(store) == model
+
+    empty = draft.ObservablesModel(
+        observables={
+            "dipole": draft.ObservableModel(
+                values=draft.Array(
+                    dims=("frame", "component"),
+                    dtype="f64",
+                    shape=(0, 3),
+                    data=np.zeros((0, 3)),
+                )
+            )
+        }
+    )
+    JsonlObservableCodec().write(empty, store)
+    assert JsonlObservableCodec().read(store).observables["dipole"].values.shape == (0, 3)
 
 
 def test_zarr_stores_dims_on_each_array(tmp_path):

@@ -34,6 +34,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 
+from molrec import jsonvalue
 from molrec.binding import Binding, Codec
 from molrec.core.model import NUMPY_DTYPE
 from molrec.draft.observables.model import Array, ObservableModel, ObservablesModel, Source
@@ -62,20 +63,38 @@ class JsonlObservableStore(ObservableStore):
     def append(self, *lines: str) -> None:
         """The only write operation. History is never touched.
 
-        Variadic because a live logger appends one line and a bulk writer
-        appends thousands; reopening the file per line turns a settle into an
-        O(n) syscall storm.
+        A torn tail -- the half-written last line a crash leaves -- is cut off
+        first (the file is truncated to its last newline), so a new line is
+        never glued onto it. Variadic because a live logger appends one line
+        and a bulk writer appends thousands; reopening the file per line turns
+        a settle into an O(n) syscall storm.
         """
         if not lines:
             return
         self._path.mkdir(parents=True, exist_ok=True)
-        with self.wal.open("a", encoding="utf-8") as handle:
-            handle.write("".join(line + "\n" for line in lines))
+        with self.wal.open("ab") as handle:
+            end = handle.seek(0, 2)
+            if end:
+                with self.wal.open("rb") as reader:
+                    content = reader.read()
+                keep = content.rfind(b"\n") + 1
+                if keep != end:
+                    handle.truncate(keep)
+            handle.write("".join(line + "\n" for line in lines).encode("utf-8"))
 
     def lines(self) -> list[str]:
+        """Every complete line, decoded strictly as UTF-8.
+
+        Only the unterminated tail is torn, and it is dropped; a complete line
+        that is not UTF-8 is corruption, not a crash artefact, and is refused.
+        """
         if not self.wal.exists():
             return []
-        return self.wal.read_text(encoding="utf-8").splitlines()
+        complete = self.wal.read_bytes().split(b"\n")[:-1]
+        try:
+            return [line.decode("utf-8") for line in complete]
+        except UnicodeDecodeError as exc:
+            raise ValueError(f"{self.wal}: a complete line is not UTF-8: {exc}") from None
 
     def clear(self) -> None:
         if self._path.exists():
@@ -141,10 +160,9 @@ class JsonlObservableCodec(Codec):
                     gathered_values.setdefault(name, []).append(value)
 
         coordinates = {
-            name: _array(
-                spec,
-                spec["data"] if "data" in spec else gathered_coordinates.get(name, []),
-            )
+            name: _array(spec, spec["data"])
+            if "data" in spec
+            else _array(spec, gathered_coordinates.get(name, []), rows=True)
             for name, spec in coordinate_specs.items()
         }
 
@@ -180,9 +198,11 @@ class JsonlObservableCodec(Codec):
         return {
             "$": "row",
             "dim": dim,
-            "c": {name: _plain(array.data[index]) for name, array in coordinates.items()},
+            "c": {
+                name: _encode(array.dtype, array.data[index]) for name, array in coordinates.items()
+            },
             "v": {
-                name: _plain(observable.values.data[index])
+                name: _encode(observable.values.dtype, observable.values.data[index])
                 for name, observable in observables.items()
             },
         }
@@ -191,7 +211,7 @@ class JsonlObservableCodec(Codec):
         values = (
             _array(declaration, declaration["data"])
             if "data" in declaration
-            else _array(declaration, payload)
+            else _array(declaration, payload, rows=True)
         )
         source = declaration.get("source")
         return ObservableModel(
@@ -208,49 +228,74 @@ def _advances_with_a_row(array: Array, rows: set[str]) -> bool:
 
 
 def _spec(array: Array, *, data: bool) -> dict[str, Any]:
-    spec: dict[str, Any] = {"dims": list(array.dims), "dtype": array.dtype}
+    """An array's declaration line: dims, dtype, unit, and its full ``shape``
+    -- the trailing axes of a row-carried array are known even when no row
+    has arrived, so a zero-row vector still reads back ``(0, 3)``."""
+    spec: dict[str, Any] = {
+        "dims": list(array.dims),
+        "dtype": array.dtype,
+        "shape": list(array.shape),
+    }
     if array.unit is not None:
         spec["unit"] = array.unit
     if data:
-        spec["data"] = array.data.tolist()
+        spec["data"] = _encode(array.dtype, array.data)
     return spec
 
 
-def _array(spec: dict, payload: Any) -> Array:
-    data = np.array(payload, dtype=NUMPY_DTYPE[spec["dtype"]])
+def _array(spec: dict, payload: Any, *, rows: bool = False) -> Array:
+    """The array a declaration (and, for a row-carried one, its rows) spells."""
+    dtype = spec["dtype"]
+    values = [_decode(dtype, item) for item in payload] if rows else _decode(dtype, payload)
+    shape = tuple(spec["shape"])
+    if rows:
+        shape = (len(payload), *shape[1:])
+    data = np.array(values, dtype=NUMPY_DTYPE[dtype]).reshape(shape)
     return Array(
-        dims=tuple(spec["dims"]),
-        dtype=spec["dtype"],
-        shape=data.shape,
-        data=data,
-        unit=spec.get("unit"),
+        dims=tuple(spec["dims"]), dtype=dtype, shape=shape, data=data, unit=spec.get("unit")
     )
 
 
-def _plain(value: Any) -> Any:
-    """numpy scalars and slices are not JSON-serializable; their Python twins are."""
+def _encode(dtype: str, value: Any) -> Any:
+    """One value (or a nested array of them) in the typed JSON form: NaN as
+    ``"NaN"``, a complex as ``[re, im]``, an integer beyond 2^53 as a string."""
     if isinstance(value, np.ndarray):
-        return value.tolist()
-    return value.item() if isinstance(value, np.generic) else value
+        return [_encode(dtype, item) for item in value]
+    return jsonvalue.encode(dtype, value)
+
+
+def _decode(dtype: str, raw: Any) -> Any:
+    """The inverse of :func:`_encode` for one value or a nested list of them."""
+    complex_pair = dtype in ("c64", "c128") and _is_pair(raw)
+    if isinstance(raw, list) and not complex_pair:
+        return [_decode(dtype, item) for item in raw]
+    return jsonvalue.decode(dtype, raw)
+
+
+def _is_pair(raw: Any) -> bool:
+    return isinstance(raw, list) and len(raw) == 2 and not any(isinstance(x, list) for x in raw)
 
 
 def _dump(record: dict) -> str:
-    return json.dumps(record, separators=(",", ":"))
+    return jsonvalue.dumps(record)
 
 
 def _parse(line: str) -> dict | None:
-    """A blank or torn line is skipped, never fatal.
+    """A blank line is skipped; any other complete line is one JSON object.
 
-    A reader tailing a file a writer is still appending to will see a
-    half-written last line; crashing on it would defeat the one job a WAL has.
+    The torn tail a crash leaves never reaches here (:meth:`lines` drops the
+    unterminated last line), so a complete line that does not parse is
+    corruption and is refused rather than skipped.
     """
     if not line.strip():
         return None
     try:
         record = json.loads(line)
-    except json.JSONDecodeError:
-        return None
-    return record if isinstance(record, dict) else None
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"a complete WAL line is not JSON: {exc}") from None
+    if not isinstance(record, dict):
+        raise ValueError("a WAL line is one JSON object")
+    return record
 
 
 @REGISTRY.binding

@@ -1,8 +1,8 @@
 """Binding -- one (module x backend) pair.
 
-L4 is no longer "the Zarr binding". Every module can land in more than one
-backend (frames in Zarr or HDF5; metrics in JSONL, Zarr, or SQLite; datasets
-in Parquet or DuckDB), so a binding is the unit that owns:
+A module can land in more than one backend (a trajectory in the Zarr record
+root or in an LMDB collection; the draft observables in Zarr or a JSONL
+WAL), so a binding is the unit that owns:
 
 * how to mint a :class:`~molrec.store.Store` for that pair, and
 * the official codec -- the arbiter that turns a model into bytes and back.

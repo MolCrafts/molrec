@@ -1,13 +1,13 @@
 """Store bases for the core module.
 
 Array-tree semantics: named groups of named arrays, each array typed and
-shaped, with attribute maps hanging off groups. Backends that can express
-that -- Zarr, HDF5, an in-memory tree -- can carry a frame.
+shaped, with attribute maps hanging off groups (Zarr), or keyed values in one
+file (LMDB).
 
 These stay abstract on purpose. The handle a codec actually needs is
-backend-specific (a Zarr group, an HDF5 file, a connection), so it belongs on
-the concrete subclass rather than being flattened into a universal ``uri``
-that a database backend could never honor.
+backend-specific (a Zarr root, an LMDB environment), so it belongs on the
+concrete subclass rather than being flattened into a universal ``uri`` that a
+database backend could never honor.
 """
 
 from __future__ import annotations

@@ -9,8 +9,9 @@ What is here:
 * **Models** (``FrameModel``, ``BlockModel``, ...) -- pydantic models that
   *are* the specification. The JSON Schema published for other languages is
   generated from them.
-* **Stores and bindings** -- one per (module x backend) pair. Zarr is one
-  backend, not the backend; metrics land in JSONL, datasets in tables.
+* **Stores and bindings** -- one per (module x backend) pair: the Zarr V3
+  record root (frames, records, trajectories, observables) and LMDB
+  (collections, trajectories).
 * **Adapters** -- the only thing an implementation author writes. Two methods
   per module, no assertions; refusals are typed (:class:`Refusal`).
 * **Suites** -- the conformance harness and the benchmark harness, side by
@@ -58,6 +59,10 @@ from molrec.core import (
     BoxModel,
     BoxUpdateModel,
     CellModel,
+    CollectionAdapter,
+    CollectionMetaModel,
+    CollectionModel,
+    CollectionStore,
     ColumnModel,
     FrameAdapter,
     FrameModel,
@@ -68,6 +73,9 @@ from molrec.core import (
     RecordAdapter,
     RecordModel,
     RecordStore,
+    SequenceBlockModel,
+    SequenceColumnModel,
+    SequenceSchemaModel,
     StatusModel,
     TrajectoryAdapter,
     TrajectoryBoxModel,
@@ -87,14 +95,11 @@ from molrec.ref import Ref
 from molrec.refusal import Refusal
 from molrec.registry import REGISTRY
 from molrec.report import CaseResult, Report, Violation
-from molrec.sequence_schema import (
-    SequenceBlockModel,
-    SequenceColumnModel,
-    SequenceSchemaModel,
-)
 from molrec.store import Store
 from molrec.suite import ConformanceSuite, Suite
 
+#: The one place the package version is written; ``pyproject.toml`` reads it
+#: from here (``[tool.hatch.version]``).
 __version__ = "0.1.0"
 
 __all__ = [
@@ -109,6 +114,10 @@ __all__ = [
     "BoxModel",
     "BoxUpdateModel",
     "CellModel",
+    "CollectionAdapter",
+    "CollectionMetaModel",
+    "CollectionModel",
+    "CollectionStore",
     "Case",
     "CaseResult",
     "Codec",
