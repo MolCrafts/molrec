@@ -522,7 +522,9 @@ class ZarrTrajectoryCodec(Codec):
         nstep = len(model.frames)
 
         declaration = SequenceSchemaModel(blocks=model.blocks or {}, meta=model.meta)
-        group.attrs[SEQUENCE_SCHEMA_ATTR] = declaration.model_dump(mode="json", exclude_none=True)
+        group.attrs[SEQUENCE_SCHEMA_ATTR] = jsonvalue.check_document(
+            declaration.model_dump(mode="json")
+        )
 
         for name, pinned in declaration.blocks.items():
             frame_rows = max(

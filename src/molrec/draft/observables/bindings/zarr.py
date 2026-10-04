@@ -28,6 +28,7 @@ import zarr
 from molrec.binding import Binding, Codec
 from molrec.chunking import plan
 from molrec.core.bindings.zarr import TO_ZARR, ZarrStore, stored_dtype
+from molrec.core.model import document
 from molrec.draft.observables.model import (
     Array,
     ObservableModel,
@@ -86,7 +87,7 @@ class ZarrObservableCodec(Codec):
         if observable.payload is not None:
             stored.attrs["payload"] = observable.payload
         if observable.source is not None:
-            stored.attrs["source"] = observable.source.model_dump(mode="json", exclude_none=True)
+            stored.attrs["source"] = document(observable.source)
 
     def _write_array(self, group: zarr.Group, name: str, array: Array) -> zarr.Array:
         chunks, shards = plan(array.shape, array.data.dtype.itemsize)

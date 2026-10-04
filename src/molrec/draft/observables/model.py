@@ -50,7 +50,7 @@ from collections.abc import Iterator
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from molrec.arrays import NDArray, arrays_equal
-from molrec.core.model import DType, values_dtype
+from molrec.core.model import DocumentModel, DType, values_dtype
 from molrec.ref import Ref
 
 
@@ -95,15 +95,13 @@ class Array(BaseModel):
     __hash__ = None  # type: ignore[assignment]
 
 
-class Source(BaseModel):
+class Source(DocumentModel):
     """Where an observable came from.
 
     Derivedness is not a property of a number -- it is a property of its
     history, and it is recursive with no fixed point. So it is recorded as
     provenance rather than used to classify anything.
     """
-
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
     refs: tuple[Ref, ...] = ()
     method_ref: Ref | None = None
@@ -118,7 +116,7 @@ class ObservableModel(BaseModel):
     from storing a hundred identical copies of it.
     """
 
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
+    model_config = ConfigDict(frozen=True, from_attributes=True, extra="forbid")
 
     values: Array
     source: Source | None = None
@@ -154,7 +152,7 @@ class ObservablesModel(BaseModel):
     disagree.
     """
 
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
+    model_config = ConfigDict(frozen=True, from_attributes=True, extra="forbid")
 
     coordinates: dict[str, Array] = Field(default_factory=dict)
     observables: dict[str, ObservableModel] = Field(default_factory=dict)

@@ -144,7 +144,7 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "description": "One quantity and where it came from.\n\nIt carries no coordinates of its own. Its domain is named by\n``values.dims``, and the arrays for those dimensions live once at the\nsection level -- which is what keeps a hundred curves sharing one ``step``\nfrom storing a hundred identical copies of it.",
   "properties": {
     "description": {

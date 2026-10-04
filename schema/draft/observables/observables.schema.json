@@ -64,7 +64,7 @@
       "type": "object"
     },
     "ObservableModel": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "description": "One quantity and where it came from.\n\nIt carries no coordinates of its own. Its domain is named by\n``values.dims``, and the arrays for those dimensions live once at the\nsection level -- which is what keeps a hundred curves sharing one ``step``\nfrom storing a hundred identical copies of it.",
       "properties": {
         "description": {
@@ -193,7 +193,7 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "description": "The section: shared coordinates plus the quantities over them.\n\nThis is xarray's ``Dataset`` -- shared dimensions, shared coordinates, and\nmany variables defined over them -- and it is shaped that way for a\nmeasured reason. With coordinates held per-observable, a hundred curves\non one ``step`` axis stored a hundred identical copies: half the bytes on\ndisk and four times the write cost, for information that was the same\nevery time.\n\nDifferent cadences need no grouping concept. They are simply different\ndimensions: a training curve over ``point`` and an evaluation curve over\n``eval_point`` coexist because the dimension name *is* the grouping.\n\n``dims`` is derived, never stored. A dimension table beside the arrays\nwould be the same fact written twice, and two copies of a fact can\ndisagree.",
   "properties": {
     "coordinates": {

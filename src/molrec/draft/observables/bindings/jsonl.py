@@ -36,7 +36,7 @@ import numpy as np
 
 from molrec import jsonvalue
 from molrec.binding import Binding, Codec
-from molrec.core.model import NUMPY_DTYPE
+from molrec.core.model import NUMPY_DTYPE, document
 from molrec.draft.observables.model import Array, ObservableModel, ObservablesModel, Source
 from molrec.draft.observables.store import ObservableStore
 from molrec.registry import REGISTRY
@@ -185,7 +185,7 @@ class JsonlObservableCodec(Codec):
         if observable.payload is not None:
             line["payload"] = observable.payload
         if observable.source is not None:
-            line["source"] = observable.source.model_dump(mode="json", exclude_none=True)
+            line["source"] = document(observable.source)
         return line
 
     def _row(

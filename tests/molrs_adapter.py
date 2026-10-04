@@ -35,7 +35,7 @@ import molrs
 import numpy as np
 
 import molrec
-from molrec.core.model import NUMPY_DTYPE
+from molrec.core.model import NUMPY_DTYPE, document
 
 #: ``Block.dtype`` names the domain scalars by role; every other column dtype
 #: is already spelled as the contract spells it.
@@ -243,7 +243,7 @@ class MolrsRecordAdapter(molrec.RecordAdapter):
 
     def write(self, model: molrec.RecordModel, store) -> None:
         path = Path(store.uri)
-        meta = model.meta.model_dump(mode="json", exclude_none=True)
+        meta = document(model.meta)
         if model.frame is not None:
             system = None if model.system is None else _to_frame(model.system)
             molrs.io.write_mrec(path, _to_frame(model.frame), system=system, meta=meta)
@@ -328,7 +328,7 @@ def _meta_series(frames: list[molrs.Frame]) -> dict[str, dict[str, Any]]:
 
     molrs carries the tag beside the value (``frame.meta.dtype(key)``), so the
     declaration is read off what molrs returns rather than guessed from the
-    Python type -- a ``1.0`` that arrived as f32 must not be declared f64. The
+    Python type -- a ``1`` that arrived as u64 must not be declared i64. The
     tag vocabulary is the contract's closed set; a tag outside it fails the
     suite. No ``fill`` is reported: molrs's reading door surfaces values, not
     the declaration, and the suite compares a fill only when it is returned.
