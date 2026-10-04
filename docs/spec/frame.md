@@ -51,15 +51,21 @@ shape is set, the block is a plain table of `N` rows.
 
 A *frame* is a snapshot: a set of named blocks, a free-form `meta` mapping,
 and an optional box. A frame enforces no relationship between its blocks —
-counts are independent, and any block name is legal.
+counts are independent, and any block name is legal except `box`, which
+names the cell. On the reference binding the frame is a
+[frame-shaped group](storage.md#frame-shaped-group): the `meta` mapping is
+the group's attributes, not a child, so `meta` is an ordinary block name.
 
 ```text
 frame
+ +-- <meta key>                          the meta document: the group's attributes
  \-- <block>
+ |    +-- count: i64[]
+ |    +-- (structural_shape: i64[k])
  |    \-- <column>: <dtype>[N][...]
+ |    \-- (_validity)
  \-- <block>
  |    \-- ...
- \-- (meta)
  \-- (box)
 ```
 

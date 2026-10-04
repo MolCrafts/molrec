@@ -87,8 +87,8 @@ differently.
 
 A reader preserves sibling sections and keys it does not recognise.
 
-Scientific and force-field parameters live under `system/parameters`. How a
-job is run lives under `method`.
+Force-field parameters: see [Force field](forcefield.md). How a job is run
+lives under `method`.
 
 Array data live in [columns, blocks, and frames](frame.md). Time-dependent
 data live in the [trajectory](trajectory.md) section. Recommended names are

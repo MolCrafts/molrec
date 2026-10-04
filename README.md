@@ -23,7 +23,7 @@ MolRec defines **what a scientific record means**.
 
 Any project that shares:
 
-- molecular **systems** (topology, types, parameters),
+- molecular **systems** (topology, types),
 - **snapshots** and **trajectories**,
 - **scientific observables**, or
 - **training / job execution logs** (status + metrics + method)
@@ -57,7 +57,7 @@ codes invent different formats. MolRec provides one language-agnostic contract:
 +-- method                # optional — scientific / training context
 ```
 
-Parameters live under `system/parameters` or `method`.
+Force-field parameters: see the [force field](docs/spec/forcefield.md) chapter; how a job was run lives under `method`.
 
 `meta` is mandatory (an empty document is valid); `system` and `frame` are
 optional. A record also includes **at least one of** `frame`, `system`,

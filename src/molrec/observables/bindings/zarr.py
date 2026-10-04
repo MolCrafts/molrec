@@ -18,11 +18,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, ClassVar
 
-import numpy as np
 import zarr
 
 from molrec.binding import Binding, Codec
-from molrec.core.bindings.zarr import ZarrStore, create_fixed
+from molrec.core.bindings.zarr import ZarrStore, create_fixed, stored_dtype
 from molrec.core.model import (
     OBSERVABLES_META_GROUP,
     ArrayModel,
@@ -30,7 +29,6 @@ from molrec.core.model import (
     ObservableModel,
     ObservablesModel,
     check_observable_name,
-    dtype_of,
     stamp_version,
 )
 from molrec.observables.store import ObservableStore
@@ -92,7 +90,7 @@ class ZarrObservablesCodec(Codec):
                 name: ObservableModel(
                     meta=ObservableMetaModel.model_validate(documents[name]),
                     data=ArrayModel(
-                        dtype=dtype_of(np.dtype(array.dtype)),
+                        dtype=stored_dtype(array),
                         shape=tuple(int(n) for n in array.shape),
                         values=array[...],
                     ),

@@ -55,7 +55,9 @@ Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract.
   dims-based model in `src/molrec/draft/observables/` is a **v2 draft**
   (`schema/draft/observables/`, conformance module `draft/observables`, never
   run unless named); adopting it needs a `molrec_version` bump.
-- Parameters under `system/parameters` or `method`.
+- `system` is strictly frame-shaped (flat blocks, no `parameters` child);
+  force-field parameters: see `docs/spec/forcefield.md`. How a job ran lives
+  under `method`.
 - Keep section chapters aligned with `docs/spec/storage.md` and
   `docs/spec/zarr.md`: documents are Zarr group attributes; metrics JSONL
   is an append buffer.

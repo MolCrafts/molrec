@@ -23,13 +23,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import ClassVar
 
-import numpy as np
 import zarr
 
 from molrec.binding import Binding, Codec
 from molrec.chunking import plan
-from molrec.core.bindings.zarr import TO_ZARR, ZarrStore
-from molrec.core.model import dtype_of
+from molrec.core.bindings.zarr import TO_ZARR, ZarrStore, stored_dtype
 from molrec.draft.observables.model import (
     Array,
     ObservableModel,
@@ -119,7 +117,7 @@ class ZarrObservableCodec(Codec):
         attrs = dict(stored.attrs)
         return Array(
             dims=tuple(attrs.get("dims", ())),
-            dtype=dtype_of(np.dtype(stored.dtype)),
+            dtype=stored_dtype(stored),
             shape=tuple(int(n) for n in stored.shape),
             data=stored[...],
             unit=attrs.get("unit"),

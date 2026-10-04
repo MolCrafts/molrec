@@ -184,6 +184,20 @@ class FrameSuite(Suite):
             )
 
         yield Case(
+            id="reject-fixed-length-string",
+            exercises="a string column is the variable-length string type; a fixed-length one "
+            "is no column dtype and is refused",
+            expect_violation="unknown_dtype",
+            backends=("zarr",),
+            tamper=_replace_array(f"{prefix}atoms/element", np.array(["H", "O"], dtype="<U4")),
+            model=FrameModel(
+                blocks={
+                    "atoms": BlockModel(count=2, columns={"element": _column("string", ["H", "O"])})
+                }
+            ),
+        )
+
+        yield Case(
             id="reject-column-named-validity",
             exercises="_validity names a block's masks; a column taking it is refused, not merged",
             expect_violation="reserved_column_name",

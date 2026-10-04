@@ -135,6 +135,66 @@ root itself. Writers **MUST** create the root group `zarr.json` and the
 in — and only then the sections. A reader treats a missing `meta/` as an
 empty document (a pre-1 store: no version check).
 
+## Frame-shaped group
+
+`frame/` and `system/` — and any producer section that declares itself
+frame-shaped — share one normative layout:
+
+```text
+<frame-shaped group>
+ +-- <meta key> ...               the group's attributes ARE the meta document
+ \-- <block>
+ |    +-- count: i64[]            required: the block's row count N (>= 0)
+ |    +-- (structural_shape: i64[k])   optional: product equals count
+ |    +-- (<other attribute>)     preserved
+ |    \-- <column>: <dtype>[N][...]
+ |    \-- (_validity)            reserved: the block's validity masks
+ |         \-- (<column>: bool[N])
+ \-- (box)                        reserved: the cell
+```
+
+- **The group's attributes are the frame's `meta` document**, exactly: every
+  key a writer puts there is a meta key, and a reader hands every key back
+  as one. The frame group carries no other attributes (no version, no
+  layout tag).
+- **A block is a child group**; its **columns are its child arrays**. Each
+  block group carries the required integer attribute `count` — a block with
+  no columns still has one, and a reader refuses a block whose columns
+  disagree with it — and, for a volumetric block, `structural_shape`, whose
+  product equals `count`. Any other attribute of a block group is a
+  producer's and is preserved.
+- **Reserved child names.** Among a frame-shaped group's children, `box` is
+  the [cell](frame.md#simulation-box) and is not a block; a block named
+  `box` is refused at write. Among a block group's children, `_validity` is
+  the subgroup of [validity masks](frame.md#nullable-columns); a column named
+  `_validity` is refused at write. Nothing else is reserved: `meta`,
+  `atoms`, `values` are ordinary block names, because the meta document is
+  attributes.
+- A reader preserves a block, a column, or a block attribute it does not
+  recognise.
+
+## Data types on Zarr V3
+
+Each [column dtype](frame.md#data-types) is stored as exactly one Zarr V3
+`data_type`; the mapping is total and exact in both directions.
+
+| dtype | Zarr V3 `data_type` | Notes |
+|-------|---------------------|-------|
+| `f64` | `float64` | `float16` / `float32` arrays are refused, never widened |
+| `i8` `i16` `i32` `i64` | `int8` `int16` `int32` `int64` | |
+| `u8` `u16` `u32` `u64` | `uint8` `uint16` `uint32` `uint64` | |
+| `bool` | `bool` | one byte per element, `0` / `1` |
+| `string` | `string` | variable-length UTF-8, serialized by the `vlen-utf8` codec |
+| `c64` `c128` | `complex64` `complex128` | interleaved (real, imaginary) |
+
+- A string column is always the variable-length `string` type. A
+  fixed-length string or raw-bytes type (`fixed_length_utf32`, `bytes`,
+  `r*`) is not a column dtype, and a reader refuses it.
+- Writers emit little-endian bytes (`bytes` codec with `endian: "little"`);
+  a reader decodes either endianness, since `bytes` is in the must-decode
+  codec set.
+- A Zarr data type outside this table is not a column; a reader refuses it.
+
 ## Array groups
 
 Reference implementation: molrs — `molrs.io.write_mrec` /
@@ -143,10 +203,9 @@ Reference implementation: molrs — `molrs.io.write_mrec` /
 `read_mrec_trajectory` / `read_mrec_meta` (and `mrec_sections`) on the way
 back.
 
-- A frame-shaped section (`frame/`, `system/`) is a group of named blocks;
-  each block is a group of named columns (arrays). Optional `box` is part of
-  the frame group ([Containers](frame.md)).
-- Column dtypes map per [Data types](frame.md#data-types).
+- A frame-shaped section (`frame/`, `system/`) is a
+  [frame-shaped group](#frame-shaped-group).
+- Column dtypes map per [Data types on Zarr V3](#data-types-on-zarr-v3).
 - A trajectory is one group per section. Full rules:
   [Ragged trajectory](ragged.md); commit protocol and reopen rule:
   [Chunking and packing](chunking.md#normative).

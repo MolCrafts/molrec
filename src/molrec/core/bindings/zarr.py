@@ -77,7 +77,6 @@ from molrec.core.model import (
     TrajectoryBoxModel,
     TrajectoryModel,
     coerce_meta_value,
-    dtype_of,
     revalidated,
     same_bits,
     stamp_version,
@@ -88,8 +87,30 @@ from molrec.store import Store
 
 BOX_GROUP = "box"
 
-#: molrec dtype -> the Zarr V3 dtype a conforming writer emits.
+#: molrec dtype -> the Zarr V3 ``data_type`` a conforming writer emits
+#: (``docs/spec/storage.md``, data types on Zarr V3).
 TO_ZARR: dict[DType, str] = {**NUMPY_DTYPE, "string": "string"}
+
+#: The inverse: the only Zarr V3 data types a column may be stored as.
+FROM_ZARR: dict[str, DType] = {name: dtype for dtype, name in TO_ZARR.items()}
+
+
+def stored_dtype(array: zarr.Array) -> DType:
+    """The column dtype a Zarr array is stored as, read off its ``data_type``.
+
+    Exact and total: a narrow float, a fixed-length string, raw bytes or any
+    other Zarr type is not a column dtype and is refused rather than mapped
+    onto the nearest one.
+    """
+    declared = array.metadata.to_dict()["data_type"]
+    name = declared if isinstance(declared, str) else declared.get("name")
+    if name not in FROM_ZARR:
+        raise ValueError(
+            f"{array.name} is stored as Zarr data type {name!r}, which is no column dtype "
+            f"(the closed set is {sorted(FROM_ZARR)})"
+        )
+    return FROM_ZARR[name]
+
 
 #: Float columns are left uncompressed by default (``docs/spec/chunking.md``,
 #: codec policy); every other array takes gzip level 1. crc32c closes every
@@ -298,7 +319,7 @@ class ZarrFrameCodec(Codec):
 
     def _read_column(self, array: zarr.Array, validity: np.ndarray | None) -> ColumnModel:
         return ColumnModel(
-            dtype=dtype_of(np.dtype(array.dtype)),
+            dtype=stored_dtype(array),
             shape=tuple(int(n) for n in array.shape),
             values=array[...],
             validity=validity,
@@ -881,7 +902,7 @@ class ZarrTrajectoryCodec(Codec):
                     count=stop - start,
                     columns={
                         name: ColumnModel(
-                            dtype=dtype_of(np.dtype(array.dtype)),
+                            dtype=stored_dtype(array),
                             shape=(stop - start, *(int(n) for n in array.shape[1:])),
                             values=array[start:stop],
                             validity=masks[name][start:stop] if name in masks else None,
@@ -987,7 +1008,7 @@ class ZarrTrajectoryCodec(Codec):
                     f"{series.dtype!r}"
                 )
             element, shape = series.element_dtype, series.shape
-            if dtype_of(np.dtype(array.dtype)) != element or tuple(array.shape[1:]) != shape:
+            if stored_dtype(array) != element or tuple(array.shape[1:]) != shape:
                 raise ValueError(
                     f"meta/{name} is stored as {array.dtype}{list(array.shape[1:])}, but its tag "
                     f"{tag!r} is {element}{list(shape)}"

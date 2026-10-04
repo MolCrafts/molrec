@@ -1,32 +1,39 @@
 # System group
 
 The `system` group answers what chemical or physical system the record is
-about. It holds identity of the particle set, connectivity, typing,
-force-field or model binding, and box policy. Instantaneous coordinates of
-a time step live on `frame` or `trajectory`.
+about: the identity of the particle set, its connectivity and its typing.
+Instantaneous coordinates of a time step live on `frame` or `trajectory`.
+
+`system` is **strictly frame-shaped**: it is a
+[frame-shaped group](storage.md#frame-shaped-group) — a `meta` document as
+its attributes, named blocks as flat children, an optional `box` — with the
+same blocks, columns and [standardized identifiers](conventions.md) a frame
+uses.
 
 ```text
-system
- \-- (meta)
+system                    attributes = the system's meta document
  \-- (atoms)
  \-- (bonds)
+ \-- (angles)
  \-- ...
- \-- (parameters)
- \-- (box_policy)
+ \-- (box)
 ```
 
-Writers may group topology under `system/topology/` or flatten blocks
-directly under `system/` (`system/atoms`, `system/bonds`) when a `topology`
-group adds no value. Field names reuse [standardized
-identifiers](conventions.md). Topology vocabulary is the same as on a frame.
+- Blocks are **flat** children of `system/` (`system/atoms`,
+  `system/bonds`). There is no `system/topology/` level: a nested group is a
+  block like any other, and a reader would take a `topology` group for a
+  block named `topology`.
+- The composition and identity keys of
+  [Conventions](conventions.md#composition-and-identity-keys)
+  (`total_charge`, `spin`, `smiles`, …) live in the meta document.
+- There is no `box_policy` and no `parameters` child. Force-field
+  parameters: see [Force field](forcefield.md).
 
-`system/parameters` holds tables, types, and styles that *define* the
-Hamiltonian or model binding for this system. `method` holds narrative
-scientific context (engine name, stage order).
-
-Instantaneous Cartesian coordinates belong on `frame` or `trajectory`. A
-conforming `system` may omit coordinate columns entirely.
+A conforming `system` may omit coordinate columns entirely; instantaneous
+Cartesian coordinates belong on `frame` or `trajectory`.
 
 Records with only `frame` (no `system`) remain valid. Records with only
 `system` (no `frame`) are valid. A trajectory may omit `system`; when
-`system` is present, `trajectory` should carry state updates only.
+`system` is present, `trajectory` should carry state updates only, aligned
+1:1 by row order with the `system` block of the same name
+([Trajectory](trajectory.md#with-and-without-system)).

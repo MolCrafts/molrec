@@ -74,9 +74,9 @@ a mesh, a k-point grid, a docking pose — pick a new section or block name
 and keep it. Reserved names keep their meaning.
 
 **Facts vs arrays.** Structured facts that fit in JSON belong on a document
-section (or `frame/meta`). N-dimensional values belong in columns. Force-field
-and model tables that *define* the system live under `system/parameters`;
-how a job was run lives under `method`.
+section (or a frame's meta document). N-dimensional values belong in
+columns. Force-field parameters: see [Force field](forcefield.md); how a
+job was run lives under `method`.
 
 **Modules name extra rules.** A shared interpretation beyond this
 specification is declared under `meta/modules/<name>` with a major/minor

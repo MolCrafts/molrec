@@ -1,8 +1,8 @@
 # Method group
 
 Scientific or training context is stored in the `method` group. Result
-arrays stay in `frame`, `trajectory`, or `observables`. System-defining
-parameter tables live under `system/parameters`.
+arrays stay in `frame`, `trajectory`, or `observables`. Force-field
+parameters: see [Force field](forcefield.md).
 
 In the reference binding the contents are group attributes (one JSON
 object).

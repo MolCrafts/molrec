@@ -89,8 +89,8 @@ statistics belong in [observables](observables.md); run-local monitoring
 belongs in [metrics](metrics.md).
 
 Time-independent data are stored as arrays or document objects without a
-leading `[nstep]` axis. A `frame` section is one snapshot. Topology, types,
-and parameters that do not change in time belong in [system](system.md).
+leading `[nstep]` axis. A `frame` section is one snapshot. Topology and
+types that do not change in time belong in [system](system.md).
 
 The reference binding stores each block as a sparse update series (an
 append-first CSR layout). That encoding is specified under
