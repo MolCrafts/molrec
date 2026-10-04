@@ -1,13 +1,13 @@
 ---
 mol_project:
   name: molrec
-  language: markdown
+  language: python
   stage: experimental
   build:
-    install: "true"
-    check: "true"
-    test: "true"
-    test_single: "true"
+    install: "uv sync --locked --extra dev"
+    check: "uvx ruff@0.16.5 format --check . && uvx ruff@0.16.5 check ."
+    test: "uv run --locked pytest -q"
+    test_single: "uv run --locked pytest -q tests/<file>.py::<test>"
   arch:
     style: docs-first
     rules_section: "## Architecture"
@@ -22,7 +22,25 @@ mol_project:
 # CLAUDE.md
 
 MolRec is the **backend-neutral record contract** for the MolCrafts ecosystem.
-This repository owns **specification prose and fixtures**.
+This repository owns the **specification prose** (`docs/spec/*.md`,
+normative), the **Python package** `molrec` that states the same contract as
+code, and the **fixtures**:
+
+- `src/molrec/core/model.py` — the pydantic models that *are* the contract
+  (record, frame, block, column, cell, trajectory, collection, observables,
+  documents). `schema/` is generated from them: `python -m
+  molrec.schema_export schema` after any model change (a test fails on
+  drift, and on any schema file no model produces).
+- `src/molrec/core/bindings/` — the reference codecs: **Zarr V3** (`zarr.py`:
+  bare frame, record, trajectory; the arbiter the conformance suite reads and
+  writes through) and **LMDB** (`lmdb.py`: a collection of records in one
+  file). `src/molrec/observables/` — the v1 observables codec.
+- `src/molrec/*suite*.py`, `core/suite.py` — the **conformance suite**:
+  cases per module (`core`, `record`, `trajectory`, `collection`,
+  `observables`; drafts only when named). An implementation writes an
+  adapter (two methods per module); `tests/molrs_adapter.py` is molrs's.
+- `fixtures/` — the run-minimal text golden and `fixtures/schema/` (a valid
+  and an invalid instance per published schema).
 
 ## Architecture
 
@@ -36,9 +54,27 @@ This repository owns **specification prose and fixtures**.
   (dense Zarr series + optional `metrics/metrics.jsonl` WAL). Trajectory
   encoding is the ragged CSR layout (`docs/spec/ragged.md`). Binding
   starts at `docs/spec/zarr.md`.
+- **Collections:** many records under one trajectory declaration
+  (`docs/spec/collection.md`), bound to one LMDB file (`docs/spec/lmdb.md`).
 
 Reference implementation of containers + Zarr I/O: `MolCrafts/molrs`.
 Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract.
+
+## Commands
+
+- Pure suite (no molrs, nothing compiles): `uv run --locked --extra test
+  pytest -q -m "not molrs"`. This is what the pre-push hook runs.
+- Lint: `uvx ruff@0.16.5 format --check . && uvx ruff@0.16.5 check .`.
+- Full suite against molrs: `uv sync --locked --extra dev` builds molrs from
+  `../molrs/molrs-python` (Rust) — **only on a build machine, never a login
+  node** — then `MOLREC_REQUIRE_MOLRS=1 uv run --locked pytest -q`. On the
+  cluster: take a compute allocation, build a wheel there with `maturin
+  build --release -o <node-local dir> --manifest-path
+  ../molrs/molrs-python/Cargo.toml` (`CARGO_TARGET_DIR` node-local), install
+  it with this package's deps into a node-local venv, and run
+  `MOLREC_REQUIRE_MOLRS=1 PYTHONPATH=src python -m pytest -q` there.
+- A Rust change in `../molrs` is not seen by `uv sync` on its own:
+  `uv sync --extra dev --reinstall-package molcrafts-molrs`.
 
 ## Spec hygiene
 

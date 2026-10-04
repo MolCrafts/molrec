@@ -40,3 +40,11 @@ def molrs_implementation(molrs):
     import molrs_adapter
 
     return molrs_adapter.Molrs()
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Every test that reaches molrs is marked ``molrs``, so ``-m "not molrs"``
+    runs the rest without building the reference implementation."""
+    for item in items:
+        if {"molrs", "molrs_implementation"} & set(getattr(item, "fixturenames", ())):
+            item.add_marker(pytest.mark.molrs)

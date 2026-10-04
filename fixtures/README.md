@@ -6,6 +6,7 @@ paths are conventional so new goldens can be added without renaming.
 | Path | Shape | Expected sections |
 |------|--------|-------------------|
 | `fixtures/run-minimal/` | Run | `meta`, `status`, `metrics` buffer (no `frame`) |
+| `fixtures/schema/` | JSON instances | one directory per published schema, `valid-*.json` / `invalid-*.json` |
 
 Binary `*.mrec/` goldens (structure, system + frame, trajectory) are
 **produced by molrs**, the reference writer, and land here from its
@@ -19,6 +20,15 @@ follow [docs/spec/storage.md](../docs/spec/storage.md):
 - Documents → Zarr **group attributes** (payloads under `attrs/` for text goldens)
 - Closed metrics → **dense Zarr series** under `metrics/`
 - Live metrics → **JSONL WAL** only (`metrics/metrics.jsonl`)
+
+### `schema`
+
+`fixtures/schema/<schema path>/` mirrors `schema/<schema path>.schema.json`:
+every published schema has at least one instance it must accept
+(`valid-*.json`) and one it must refuse (`invalid-*.json`), checked by
+`tests/test_schema_fixtures.py` with a JSON Schema validator. The valid ones
+were written from the reference models, so they are what a conforming
+writer emits.
 
 ### `run-minimal`
 

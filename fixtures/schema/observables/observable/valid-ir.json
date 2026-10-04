@@ -1,0 +1,19 @@
+{
+  "data": {
+    "dtype": "f64",
+    "shape": [
+      3
+    ],
+    "values": [
+      0.1,
+      0.2,
+      0.3
+    ]
+  },
+  "meta": {
+    "description": "ir",
+    "kind": "spectrum",
+    "time_dependent": false,
+    "x_vendor": null
+  }
+}

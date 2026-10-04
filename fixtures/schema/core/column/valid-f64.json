@@ -1,0 +1,11 @@
+{
+  "dtype": "f64",
+  "shape": [
+    2
+  ],
+  "validity": null,
+  "values": [
+    0.0,
+    1.5
+  ]
+}

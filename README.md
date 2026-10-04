@@ -88,18 +88,81 @@ root. See the [format specification](docs/spec/specification.md).
 Full specification: [docs/index.md](docs/index.md) ·
 [format specification](docs/spec/specification.md)
 
+## Install
+
+```bash
+pip install molrec          # models, reference codecs (Zarr V3), conformance suite
+pip install "molrec[lmdb]"  # + the LMDB collection binding
+```
+
+From a checkout, with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv sync --locked --extra test               # everything but the reference implementation
+uv run --locked pytest -q -m "not molrs"    # the suite judging molrec's own codecs
+```
+
+The `dev` extra adds [molrs](https://github.com/MolCrafts/molrs), built from
+the sibling checkout `../molrs` (Rust; a build machine is needed):
+
+```bash
+uv sync --locked --extra dev
+MOLREC_REQUIRE_MOLRS=1 uv run --locked pytest -q   # judges molrs too
+```
+
+## Write an adapter
+
+An implementation is judged by writing one adapter per module it claims —
+two methods, no assertions; every assertion is the suite's. `write` lays a
+model down with your library; `read` hands back anything shaped like the
+model (a dict, a dataclass, your own object). A refusal of malformed input
+is a declared exception type (or `molrec.Refusal`); anything else your code
+raises is a defect.
+
+```python
+import molrec
+
+
+class MyRecordAdapter(molrec.RecordAdapter):
+    backends = ("zarr",)
+    refusal_types = (ValueError,)
+
+    def write(self, model, store):
+        mylib.write_record(store.uri, to_native(model))
+
+    def read(self, store):
+        return from_native(mylib.read_record(store.uri))
+
+
+class MyLib(molrec.Implementation):
+    name = "mylib"
+    version = mylib.__version__
+    record = MyRecordAdapter()
+
+
+report = molrec.ConformanceSuite(MyLib()).run()
+report.report()
+assert report.ok
+```
+
+Each positive case runs in both directions (you write, the reference codec
+reads; the reference codec writes, you read). `tests/molrs_adapter.py` is
+the adapter for molrs.
+
 ## Reference implementation
 
-[molrs](https://github.com/MolCrafts/molrs) implements the containers and the
-reference Zarr binding. Other packages **consume** the contract; they must not
-ship a parallel store product name for the same layout.
+[molrs](https://github.com/MolCrafts/molrs) is the reference implementation:
+its containers and its Zarr reader and writer implement the binding this
+repository specifies. The binding itself is the specification, not molrs's
+code. Other packages **consume** the contract; they must not ship a parallel
+store product name for the same layout.
 
 ## MolCrafts ecosystem
 
 | Project | Role |
 |---------|------|
 | [molpy](https://github.com/MolCrafts/molpy) | Python toolkit & workflows |
-| [molrs](https://github.com/MolCrafts/molrs) | Rust core — containers & compute (reference MolRec binding) |
+| [molrs](https://github.com/MolCrafts/molrs) | Rust core — containers & compute (reference MolRec implementation) |
 | [molpack](https://github.com/MolCrafts/molpack) | Molecular packing |
 | [molvis](https://github.com/MolCrafts/molvis) | Visualization |
 | [molexp](https://github.com/MolCrafts/molexp) | Experiment / run management |

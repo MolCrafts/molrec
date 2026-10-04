@@ -1,0 +1,11 @@
+{
+  "method_ref": null,
+  "refs": [
+    {
+      "hash": null,
+      "kind": "section",
+      "select": {},
+      "uri": "./a.mrec"
+    }
+  ]
+}
