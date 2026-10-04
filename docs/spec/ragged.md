@@ -49,6 +49,8 @@ trajectory
       \-- (step_index: u64[n_updates])   absent while the block is regular
       \-- (offset: u64[n_updates+1])     absent while the block is regular
       \-- <column>: <dtype>[total_rows][...]
+      \-- (_validity)                      only for columns declared nullable
+           \-- (<column>: bool[total_rows])
 ```
 
 Every array under `trajectory/` is sharded; extents and codecs are
@@ -209,6 +211,30 @@ constant topology (one update at ordinal `0`) and coordinates that move
 every frame are both regular; only a block that *sometimes* changes, or
 changes size, pays for an index.
 
+### Nullable columns
+
+A column declared `nullable` in the [pinned declaration](#the-pinned-declaration)
+keeps its [validity mask](frame.md#nullable-columns) as the array
+`B/_validity/<column>`: `bool[total_rows]`, one flag per row, grown in
+lockstep with the column so update `j`'s flags are rows `offset[j] …
+offset[j+1]` of the mask, exactly the rows its values occupy.
+
+- The mask array is **dense over the section's rows**: an update that
+  carries no mask for a nullable column lands all-`true`. That is what lets
+  a column be holed in one frame and whole in the next.
+- A nullable column whose mask array is absent is fully valid at every
+  ordinal (a writer **MAY** create the array only once a row is null, and
+  then backfills the earlier rows with `true`).
+- Nullability is a union over the run: a column masked in any frame is
+  nullable for all of them. A frame that masks a column the declaration pins
+  non-nullable is **refused** at append — landing the values without the
+  mask would lose which rows hold nothing.
+- The masks count as content: two presentations whose values agree while
+  their masks differ are different updates.
+- A reader resolving a frame hands back the mask rows of the update; an
+  all-`true` slice is "no mask". A mask array shorter than the rows its
+  `offset` claims, or not `bool`, is refused.
+
 ## The three states of a block
 
 At any frame ordinal `i`, a declared block `B` is in exactly one of three
@@ -280,8 +306,10 @@ The declaration is pinned as the `trajectory/` group attribute
 [`schema/binding/sequence-schema.schema.json`](../../schema/binding/sequence-schema.schema.json):
 
 - `blocks`: a map of block name to `{columns, structural_shape?}`, each
-  column `{dtype, trailing}`. Column `dtype`s are the closed record dtype
-  set; `trailing` is the per-entity shape after the leading count axis.
+  column `{dtype, trailing, nullable?}`. Column `dtype`s are the closed record
+  dtype set; `trailing` is the per-entity shape after the leading count
+  axis; `nullable: true` declares a [nullable column](#nullable-columns) and
+  is written only when true (absent means `false`).
 - `meta`: a map of key to `{dtype, fill?}`, `dtype` drawn from the per-step
   tag set above.
 
@@ -317,11 +345,11 @@ Two small namespaces are owned by the layout:
 | Namespace | Reserved names | Owner |
 |-----------|----------------|-------|
 | Children of `trajectory/` | `step`, `time`, `meta`, `box` | the sequence itself |
-| Children of a block group | `offset`, `step_index` | that block's index |
+| Children of a block group | `offset`, `step_index`, `_validity` | that block's index and masks |
 
 A block named `step` / `time` / `meta` / `box`, or a column named `offset` /
-`step_index`, is rejected when the sequence is declared — not at the first
-write.
+`step_index` / `_validity`, is rejected when the sequence is declared — not
+at the first write.
 
 ## Cost tracks change
 

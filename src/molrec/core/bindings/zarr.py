@@ -58,6 +58,7 @@ from molrec.core.model import (
     NUMPY_DTYPE,
     RESERVED_BLOCK_NAMES,
     RESERVED_TRAJECTORY_NAMES,
+    VALIDITY_GROUP,
     BlockModel,
     BoxModel,
     BoxUpdateModel,
@@ -225,6 +226,11 @@ class ZarrFrameCodec(Codec):
         return FrameModel(blocks=blocks, box=box, meta=dict(root.attrs))
 
     def _write_block(self, parent: zarr.Group, name: str, block: BlockModel) -> None:
+        if VALIDITY_GROUP in block.columns:
+            raise ValueError(
+                f"{VALIDITY_GROUP!r} names the validity masks of block {name!r}; a column "
+                "cannot take it"
+            )
         group = parent.create_group(name)
         group.attrs["count"] = block.count
         if block.structural_shape is not None:
@@ -235,28 +241,48 @@ class ZarrFrameCodec(Codec):
             if column.values is not None:
                 array[...] = column.values
 
+        # Only a masked column writes a mask, and a block with none writes no
+        # subgroup: its bytes are what a writer that predates masks wrote.
+        masked = {
+            column_name: column.validity
+            for column_name, column in block.columns.items()
+            if column.validity is not None
+        }
+        if masked:
+            masks = group.create_group(VALIDITY_GROUP)
+            for column_name, mask in masked.items():
+                _create_fixed(masks, column_name, mask.shape, "bool")[...] = mask
+
     def _read_block(self, group: zarr.Group) -> BlockModel:
         attrs = dict(group.attrs)
         if "count" not in attrs:
             raise ValueError(f"block {group.name!r} has no count attribute")
 
+        count = int(attrs["count"])
+        masks = _read_masks(group, count)
         columns = {
-            name: self._read_column(member)
+            name: self._read_column(member, masks.pop(name, None))
             for name, member in group.members()
             if isinstance(member, zarr.Array)
         }
+        if masks:
+            raise ValueError(
+                f"{group.name}/{VALIDITY_GROUP} masks {sorted(masks)}, which are no columns of "
+                "the block"
+            )
         structural = attrs.get(STRUCTURAL_SHAPE_ATTR)
         return BlockModel(
-            count=int(attrs["count"]),
+            count=count,
             columns=columns,
             structural_shape=tuple(structural) if structural is not None else None,
         )
 
-    def _read_column(self, array: zarr.Array) -> ColumnModel:
+    def _read_column(self, array: zarr.Array, validity: np.ndarray | None) -> ColumnModel:
         return ColumnModel(
             dtype=dtype_of(np.dtype(array.dtype)),
             shape=tuple(int(n) for n in array.shape),
             values=array[...],
+            validity=validity,
         )
 
     def _write_box(self, root: zarr.Group, box: BoxModel) -> None:
@@ -283,6 +309,34 @@ class ZarrFrameCodec(Codec):
             boundary=tuple(bool(flag) for flag in boundary) if boundary is not None else None,
             cell_defined=None if defined is None else bool(defined),
         )
+
+
+def _read_masks(block: zarr.Group, rows: int | None) -> dict[str, np.ndarray]:
+    """The arrays of ``<block>/_validity``: absent means every row is valid.
+
+    A mask that is not ``bool``, or does not carry exactly ``rows`` flags, is a
+    corrupt store and is refused -- padding or truncating it would invent the
+    very answer a mask exists to give. ``rows`` of ``None`` skips the length
+    check (a trajectory section's masks are cut per update by the caller).
+    """
+    if VALIDITY_GROUP not in block:
+        return {}
+    group = block[VALIDITY_GROUP]
+    if not isinstance(group, zarr.Group):
+        raise ValueError(f"{block.name}/{VALIDITY_GROUP} must be a group of masks")
+    masks: dict[str, np.ndarray] = {}
+    for name, member in group.members():
+        if not isinstance(member, zarr.Array):
+            continue
+        if np.dtype(member.dtype) != np.bool_ or member.ndim != 1:
+            raise ValueError(
+                f"{member.name} is stored as {member.dtype}{list(member.shape)}; a validity "
+                "mask is one bool per row"
+            )
+        if rows is not None and member.shape[0] != rows:
+            raise ValueError(f"{member.name} carries {member.shape[0]} flags for {rows} rows")
+        masks[name] = member if rows is None else member[...]
+    return masks
 
 
 @REGISTRY.binding
@@ -587,6 +641,20 @@ class ZarrTrajectoryCodec(Codec):
                 if values is not None and block.count:
                     array[int(offset[index]) : int(offset[index + 1])] = values
 
+        # A nullable column's mask is dense over the section's rows, grown in
+        # lockstep with the values: an update that carries no mask lands
+        # all-true, so a frame's flags sit at exactly its values' row range.
+        nullable = [name for name, spec in pinned.columns.items() if spec.nullable]
+        if nullable:
+            masks = group.create_group(VALIDITY_GROUP)
+            for column_name in nullable:
+                mask = np.ones(int(offset[-1]), dtype="bool")
+                for index, (_, block) in enumerate(entries):
+                    validity = block.columns[column_name].validity
+                    if validity is not None:
+                        mask[int(offset[index]) : int(offset[index + 1])] = validity
+                _create_column(masks, column_name, mask.shape, "bool", frame_rows)[...] = mask
+
     def _index(self, group: zarr.Group, nstep: int) -> tuple[list[int], list[int]]:
         """A section's logical ``step_index`` and ``offset`` (L8, checked).
 
@@ -640,6 +708,12 @@ class ZarrTrajectoryCodec(Codec):
             for name, member in group.members()
             if isinstance(member, zarr.Array) and name not in RESERVED_BLOCK_NAMES
         }
+        masks = _read_masks(group, None)
+        unknown = sorted(set(masks) - set(columns))
+        if unknown:
+            raise ValueError(
+                f"{group.name}/{VALIDITY_GROUP} masks {unknown}, which are no columns of the block"
+            )
         if STEP_INDEX_ARRAY in group:
             ordinals, offset = self._index(group, nstep)
         else:
@@ -653,7 +727,7 @@ class ZarrTrajectoryCodec(Codec):
             ordinals = list(range(n_updates))
             offset = [j * int(rows) for j in range(n_updates + 1)]
         total = offset[-1]
-        for name, array in columns.items():
+        for name, array in {**columns, **masks}.items():
             if array.shape[0] < total:
                 raise ValueError(
                     f"{group.name}/{name} holds {array.shape[0]} rows, offset claims {total}"
@@ -670,6 +744,7 @@ class ZarrTrajectoryCodec(Codec):
                             dtype=dtype_of(np.dtype(array.dtype)),
                             shape=(stop - start, *(int(n) for n in array.shape[1:])),
                             values=array[start:stop],
+                            validity=masks[name][start:stop] if name in masks else None,
                         )
                         for name, array in columns.items()
                     },

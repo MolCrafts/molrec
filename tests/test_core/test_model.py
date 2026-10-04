@@ -265,3 +265,65 @@ class TestBlockStates:
                 ],
                 step=[0, 1],
             )
+
+
+class TestValidity:
+    def test_an_all_true_mask_is_no_mask(self) -> None:
+        values = np.zeros(3)
+        column = ColumnModel(dtype="f64", shape=(3,), values=values, validity=np.ones(3, bool))
+        assert column.validity is None
+        assert column == ColumnModel(dtype="f64", shape=(3,), values=values)
+
+    def test_a_mask_is_one_bool_per_row(self) -> None:
+        with pytest.raises(ValidationError, match="one flag per row"):
+            ColumnModel(dtype="f64", shape=(3,), validity=np.array([True, False]))
+        with pytest.raises(ValidationError, match="bool"):
+            ColumnModel(dtype="f64", shape=(2,), validity=np.array([1, 0]))
+
+    def test_masks_are_content(self) -> None:
+        values = np.zeros(2)
+        holed = ColumnModel(dtype="f64", shape=(2,), values=values, validity=np.array([1, 0], bool))
+        assert holed != ColumnModel(dtype="f64", shape=(2,), values=values)
+
+    def test_validity_is_a_reserved_column_name(self) -> None:
+        with pytest.raises(ValidationError, match="_validity"):
+            BlockModel(count=0, columns={"_validity": ColumnModel(dtype="bool", shape=(0,))})
+
+    def test_nullability_is_a_union_over_the_run(self) -> None:
+        def block(validity: list[bool] | None) -> BlockModel:
+            return BlockModel(
+                count=2,
+                columns={
+                    "q": ColumnModel(
+                        dtype="f64",
+                        shape=(2,),
+                        values=np.zeros(2),
+                        validity=None if validity is None else np.array(validity),
+                    )
+                },
+            )
+
+        trajectory = TrajectoryModel(
+            frames=[
+                FrameModel(blocks={"atoms": block(None)}),
+                FrameModel(blocks={"atoms": block([True, False])}),
+            ],
+            step=[0, 1],
+        )
+        assert trajectory.blocks is not None
+        assert trajectory.blocks["atoms"].columns["q"].nullable
+        with pytest.raises(ValidationError, match="non-nullable"):
+            TrajectoryModel(
+                frames=[FrameModel(blocks={"atoms": block([True, False])})],
+                step=[0],
+                blocks={
+                    "atoms": SequenceBlockModel(columns={"q": SequenceColumnModel(dtype="f64")})
+                },
+            )
+
+    def test_nullable_is_written_only_when_true(self) -> None:
+        assert SequenceColumnModel(dtype="f64").model_dump(mode="json") == {
+            "dtype": "f64",
+            "trailing": [],
+        }
+        assert SequenceColumnModel(dtype="f64", nullable=True).model_dump(mode="json")["nullable"]

@@ -198,11 +198,28 @@ def decode_meta_value(tag: str, raw: Any) -> Any:
     return [jsonvalue.decode(element, item) for item in raw]
 
 
+#: The subgroup of a block group holding its columns' validity masks
+#: (``<block>/_validity/<column>``) -- reserved in every block, on the frame
+#: path and the trajectory path alike. One underscore: Zarr V3 reserves the
+#: ``__`` prefix for node names.
+VALIDITY_GROUP = "_validity"
+
+#: A column's validity mask in the published schema: one flag per row.
+_MASK = {"type": "array", "items": {"type": "boolean"}}
+
+
 class ColumnModel(BaseModel):
-    """A typed N-dimensional array.
+    """A typed N-dimensional array, optionally nullable.
 
     The leading axis length is the owning block's count; trailing axes are
     per-entity structure, so ``Float[count][3]`` is one column, not three.
+
+    ``validity`` is the column's mask: one flag per row, ``True`` where the
+    row holds a value and ``False`` where it holds none (the value stored
+    under a null row is carried as written and means nothing). ``None`` --
+    no mask -- means every row is valid, and an all-``True`` mask *is* no
+    mask: it is normalized to ``None``, so the two spellings of "nothing is
+    null" are one model.
     """
 
     model_config = ConfigDict(frozen=True, from_attributes=True)
@@ -210,16 +227,26 @@ class ColumnModel(BaseModel):
     dtype: DType
     shape: tuple[int, ...] = Field(min_length=1)
     values: NDArray | None = None
+    validity: Annotated[NDArray, WithJsonSchema(_MASK)] | None = None
 
     @model_validator(mode="after")
     def _values_match_declaration(self) -> ColumnModel:
-        if self.values is None:
-            return self
-        if tuple(self.values.shape) != self.shape:
-            raise ValueError(f"values have shape {self.values.shape}, declared {self.shape}")
-        carried = dtype_of(self.values.dtype)
-        if carried != self.dtype:
-            raise ValueError(f"values carry dtype {carried!r}, declared {self.dtype!r}")
+        if self.values is not None:
+            if tuple(self.values.shape) != self.shape:
+                raise ValueError(f"values have shape {self.values.shape}, declared {self.shape}")
+            carried = dtype_of(self.values.dtype)
+            if carried != self.dtype:
+                raise ValueError(f"values carry dtype {carried!r}, declared {self.dtype!r}")
+        if self.validity is not None:
+            mask = np.asarray(self.validity)
+            if mask.dtype != np.bool_:
+                raise ValueError(f"a validity mask is bool, found {mask.dtype}")
+            if mask.shape != (self.count,):
+                raise ValueError(
+                    f"a validity mask carries one flag per row: shape {mask.shape} for "
+                    f"{self.count} rows"
+                )
+            object.__setattr__(self, "validity", None if mask.all() else mask)
         return self
 
     @property
@@ -231,7 +258,9 @@ class ColumnModel(BaseModel):
             return NotImplemented
         if self.dtype != other.dtype or self.shape != other.shape:
             return False
-        return arrays_equal(self.values, other.values)
+        return arrays_equal(self.values, other.values) and arrays_equal(
+            self.validity, other.validity
+        )
 
     __hash__ = None  # type: ignore[assignment]
 
@@ -254,6 +283,10 @@ class BlockModel(BaseModel):
 
     @model_validator(mode="after")
     def _columns_share_the_count(self) -> BlockModel:
+        if VALIDITY_GROUP in self.columns:
+            raise ValueError(
+                f"{VALIDITY_GROUP!r} names a block's validity masks; a column cannot take it"
+            )
         for name, column in self.columns.items():
             if column.count != self.count:
                 raise ValueError(
@@ -359,8 +392,9 @@ class FrameModel(BaseModel):
 #: section of the index.
 RESERVED_TRAJECTORY_NAMES = frozenset({"step", "time", "meta", "box"})
 
-#: Children of a block's own group. A column cannot take one of these names.
-RESERVED_BLOCK_NAMES = frozenset({"offset", "step_index"})
+#: Children of a trajectory block's own group. A column cannot take one of
+#: these names.
+RESERVED_BLOCK_NAMES = frozenset({"offset", "step_index", VALIDITY_GROUP})
 
 
 class MetaSeriesModel(BaseModel):
@@ -459,12 +493,28 @@ class SequenceColumnModel(BaseModel):
     per-entity structure after the leading count axis. A ``Float[count][3]``
     column declares ``trailing = [3]``; a scalar column declares
     ``trailing = []``.
+
+    ``nullable`` says the column may carry a validity mask. It is a union over
+    the run -- a column masked in any frame is nullable for all of them -- and
+    a frame that masks a column the declaration pins non-nullable is refused:
+    landing its values without the mask would lose which rows hold nothing.
     """
 
     model_config = ConfigDict(frozen=True, from_attributes=True)
 
     dtype: DType
     trailing: list[Annotated[int, Field(ge=0)]] = Field(default_factory=list)
+    nullable: bool = Field(
+        default=False,
+        description="Whether the column may carry a validity mask; written only when true.",
+    )
+
+    @model_serializer(mode="wrap")
+    def _nullable_only_when_true(self, handler: Any) -> dict[str, Any]:
+        data = handler(self)
+        if not self.nullable:
+            data.pop("nullable", None)
+        return data
 
 
 class SequenceBlockModel(BaseModel):
@@ -504,7 +554,11 @@ def declare_block(block: BlockModel) -> SequenceBlockModel:
     """The declaration a presented block implies."""
     return SequenceBlockModel(
         columns={
-            name: SequenceColumnModel(dtype=column.dtype, trailing=list(column.shape[1:]))
+            name: SequenceColumnModel(
+                dtype=column.dtype,
+                trailing=list(column.shape[1:]),
+                nullable=column.validity is not None,
+            )
             for name, column in block.columns.items()
         },
         structural_shape=block.structural_shape,
@@ -680,11 +734,34 @@ class TrajectoryModel(BaseModel):
                     declared[name] = presented
                     continue
                 pinned = declared[name]
-                if presented.columns != pinned.columns:
+                if _layout(presented) != _layout(pinned):
                     raise ValueError(
-                        f"block {name!r} presents {presented.columns} at ordinal {ordinal}, "
-                        f"declared {pinned.columns} -- a block presents all of its declared "
+                        f"block {name!r} presents {_layout(presented)} at ordinal {ordinal}, "
+                        f"declared {_layout(pinned)} -- a block presents all of its declared "
                         "columns or none of them, at the declared dtype and trailing shape"
+                    )
+                masked = sorted(
+                    column
+                    for column, spec in presented.columns.items()
+                    if spec.nullable and not pinned.columns[column].nullable
+                )
+                if masked and stated:
+                    raise ValueError(
+                        f"frame {ordinal} masks columns {masked} of block {name!r}, which the "
+                        "sequence declares non-nullable; landing the values without the mask "
+                        "would lose which rows hold nothing"
+                    )
+                if masked:
+                    # Derived: nullability is the union over the run.
+                    declared[name] = pinned = pinned.model_copy(
+                        update={
+                            "columns": {
+                                column: spec.model_copy(update={"nullable": True})
+                                if column in masked
+                                else spec
+                                for column, spec in pinned.columns.items()
+                            }
+                        }
                     )
                 # S4: a grid block's row count is fixed. ``BlockModel`` already
                 # holds each presentation to ``count == prod(structural_shape)``,
@@ -757,6 +834,11 @@ class TrajectoryModel(BaseModel):
             resolved.append(frame.model_copy(update={"meta": completed}))
         object.__setattr__(self, "frames", resolved)
         return self
+
+
+def _layout(block: SequenceBlockModel) -> dict[str, tuple[str, list[int]]]:
+    """A declaration's columns without their nullability: dtype and trailing shape."""
+    return {name: (spec.dtype, spec.trailing) for name, spec in block.columns.items()}
 
 
 def _refuse_reserved(name: str, columns: dict[str, Any]) -> None:

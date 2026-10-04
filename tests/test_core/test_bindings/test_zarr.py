@@ -243,3 +243,49 @@ def test_the_record_codec_stamps_the_version_and_reads_a_missing_meta_as_empty(
 
     shutil.rmtree(store.path / "meta")
     assert codec.read(store).meta == MetaModel()
+
+
+def test_a_mask_lands_in_the_block_validity_subgroup(tmp_path: Path) -> None:
+    store = ZarrFrameStore(tmp_path / "masked.mrec")
+    charge = ColumnModel(
+        dtype="f64",
+        shape=(3,),
+        values=np.array([0.5, 0.0, -0.5]),
+        validity=np.array([True, False, True]),
+    )
+    frame = FrameModel(blocks={"atoms": BlockModel(count=3, columns={"charge": charge})})
+    ZarrFrameCodec().write(frame, store)
+    root = store.root(mode="r")
+    mask = root["atoms/_validity/charge"]
+    assert isinstance(mask, zarr.Array) and mask.dtype == np.bool_
+    assert mask[...].tolist() == [True, False, True]
+    assert ZarrFrameCodec().read(store) == frame
+
+
+def test_an_unmasked_block_writes_no_validity_subgroup(tmp_path: Path) -> None:
+    store = ZarrFrameStore(tmp_path / "plain.mrec")
+    ZarrFrameCodec().write(FrameModel(blocks={"atoms": _atoms(0.0, 1.0)}), store)
+    assert "_validity" not in store.root(mode="r")["atoms"]
+
+
+def test_a_trajectory_mask_is_dense_over_the_rows(tmp_path: Path) -> None:
+    def frame(validity: list[bool] | None) -> FrameModel:
+        q = ColumnModel(
+            dtype="f64",
+            shape=(2,),
+            values=np.zeros(2),
+            validity=None if validity is None else np.array(validity),
+        )
+        return FrameModel(blocks={"atoms": BlockModel(count=2, columns={"q": q})})
+
+    store = ZarrTrajectoryStore(tmp_path / "masked.mrec")
+    model = TrajectoryModel(frames=[frame([False, True]), frame(None)], step=[0, 1])
+    ZarrTrajectoryCodec().write(model, store)
+    root = store.root(mode="r")
+    assert root["trajectory"].attrs["sequence_schema"]["blocks"]["atoms"]["columns"]["q"] == {
+        "dtype": "f64",
+        "trailing": [],
+        "nullable": True,
+    }
+    assert root["trajectory/atoms/_validity/q"][...].tolist() == [False, True, True, True]
+    assert ZarrTrajectoryCodec().read(store) == model

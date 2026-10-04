@@ -404,7 +404,7 @@ def test_a_store_the_codec_refuses_to_lay_down_is_an_error(tmp_path: Path) -> No
 
 def test_a_comparison_that_crashes_costs_one_case(tmp_path: Path) -> None:
     class Suite(_OneCaseSuite):
-        the_cases = tuple(FrameSuite().cases())[:2]
+        the_cases = tuple(c for c in FrameSuite().cases() if not c.expect_violation)[:2]
 
         def compare(self, expected: BaseModel, actual: Any) -> tuple[Violation, ...]:
             raise RuntimeError("comparison broke")

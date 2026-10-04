@@ -35,6 +35,7 @@ import molrs
 import numpy as np
 
 import molrec
+from molrec.core.model import NUMPY_DTYPE
 
 #: ``Block.dtype`` names the domain scalars by role; every other column dtype
 #: is already spelled as the contract spells it.
@@ -82,6 +83,8 @@ def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -
         native.resize(block.count)
         for column, payload in block.columns.items():
             native.insert(column, payload.values)
+            if payload.validity is not None:
+                native.set_validity(column, payload.validity)
         if block.structural_shape is not None:
             native.set_shape(list(block.structural_shape))
         frame[name] = native
@@ -103,10 +106,12 @@ def _from_frame(frame: molrs.Frame | None) -> dict[str, Any] | None:
         columns = {}
         for column in native.keys():  # noqa: SIM118
             values = native.copy_column(column)
+            validity = native.validity(column)
             columns[column] = {
                 "dtype": _dtype_of(native, column),
                 "shape": tuple(values.shape),
                 "values": values,
+                "validity": None if validity is None else np.asarray(validity, dtype=bool),
             }
         structural = native.structural_shape
         blocks[name] = {
@@ -134,6 +139,63 @@ def _tag(dtype: Any) -> str:
     return str(getattr(dtype, "value", dtype))
 
 
+def _nullable_columns(model: molrec.TrajectoryModel) -> dict[str, dict[str, Any]]:
+    """Block -> nullable column -> its declaration, as the model pins it.
+
+    Stated, the declaration's ``nullable`` flags; unstated, the union over the
+    frames of every column presented with a mask (the model's own rule).
+    """
+    found: dict[str, dict[str, Any]] = {}
+    if model.blocks:
+        for name, block in model.blocks.items():
+            for column, declared in block.columns.items():
+                if declared.nullable:
+                    found.setdefault(name, {})[column] = declared
+        return found
+    for frame in model.frames:
+        for name, block in frame.blocks.items():
+            for column, payload in block.columns.items():
+                if payload.validity is not None:
+                    found.setdefault(name, {})[column] = molrec.SequenceColumnModel(
+                        dtype=payload.dtype, trailing=list(payload.shape[1:]), nullable=True
+                    )
+    return found
+
+
+def _with_nullable(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSchema:
+    """An empty declaration that already pins the model's nullable columns.
+
+    molrs's Python ``SequenceSchema`` has no door that declares a column
+    nullable by hand; it unions nullability from masked frames in
+    ``from_frames``. So each nullable column is shown to it once, in a
+    one-row frame (``prod(structural_shape)`` rows for a grid) that masks the
+    row -- no geometry, no values that are kept -- and every other column and
+    key is then declared on top as usual.
+    """
+    frames = []
+    shapes = {name: block.structural_shape for name, block in (model.blocks or {}).items()}
+    for name, columns in _nullable_columns(model).items():
+        rows = int(np.prod(shapes.get(name) or (1,)))
+        native = molrs.Block()
+        native.resize(rows)
+        for column, declared in columns.items():
+            dtype = _tag(declared.dtype)
+            shape = (rows, *declared.trailing)
+            values = (
+                np.full(shape, "", dtype=str)
+                if dtype == "string"
+                else np.zeros(shape, dtype=NUMPY_DTYPE[dtype])
+            )
+            native.insert(column, values)
+            native.set_validity(column, np.zeros(rows, dtype=bool))
+        frame = molrs.Frame()
+        frame[name] = native
+        frames.append(frame)
+    if not frames:
+        return molrs.io.mrec.SequenceSchema()
+    return molrs.io.mrec.SequenceSchema.from_frames(frames)
+
+
 def _declared_schema(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSchema:
     """The pinned declaration molrs is asked to hold the frames to.
 
@@ -144,7 +206,7 @@ def _declared_schema(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSch
     without a declaration is the ``undeclared_meta_key`` violation, not a
     derivation.
     """
-    schema = molrs.io.mrec.SequenceSchema()
+    schema = _with_nullable(model)
     if model.blocks:
         for name, block in model.blocks.items():
             schema.declare_block(name)

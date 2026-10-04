@@ -139,6 +139,10 @@ payload := the column buffers
   `prod(shape) × itemsize`, starting at `offset` bytes into the payload.
   Every `offset` is a multiple of 8, so a reader can view the buffer without
   copying.
+* A [nullable column](frame.md#nullable-columns) that carries a mask adds
+  `"validity": <offset>` to its entry: a buffer of `shape[0]` one-byte
+  `bool`s (`0` / `1`) at that 8-aligned offset. No `validity` key means
+  every row is valid; a string column's mask is a buffer too.
 * `bool` is one byte per element (`0` / `1`). `c64` / `c128` are interleaved
   real/imaginary pairs.
 * A `string` column has no buffer: its values are the header's `values` list,

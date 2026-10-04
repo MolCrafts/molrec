@@ -39,9 +39,38 @@ from molrec.report import Violation
 from molrec.suite import Suite
 
 
-def _column(dtype: str, values: list, shape: tuple[int, ...] | None = None) -> ColumnModel:
+def _column(
+    dtype: str,
+    values: list,
+    shape: tuple[int, ...] | None = None,
+    validity: list[bool] | None = None,
+) -> ColumnModel:
     array = np.array(values, dtype=NUMPY_DTYPE[dtype])
-    return ColumnModel(dtype=dtype, shape=shape or array.shape, values=array)
+    return ColumnModel(
+        dtype=dtype,
+        shape=shape or array.shape,
+        values=array,
+        validity=None if validity is None else np.array(validity, dtype="bool"),
+    )
+
+
+def _replace_array(path: str, values: np.ndarray) -> Any:
+    """A tamper that replaces the array at ``path`` with ``values``.
+
+    How a store whose content the models cannot express -- a mask of the wrong
+    length, a mask that is not ``bool`` -- reaches the reader under test.
+    """
+
+    def tamper(store: Any) -> None:
+        import zarr
+
+        root = zarr.open_group(store=store.path, mode="r+")
+        parent, name = path.rsplit("/", 1)
+        group = root[parent]
+        del group[name]
+        group.create_array(name, shape=values.shape, dtype=values.dtype)[...] = values
+
+    return tamper
 
 
 def _atoms(*xs: float) -> BlockModel:
@@ -54,6 +83,96 @@ class FrameSuite(Suite):
     model_type: ClassVar[type[FrameModel]] = FrameModel
 
     def cases(self) -> Iterable[Case]:
+        return self.rooted("")
+
+    def rooted(self, prefix: str) -> Iterable[Case]:
+        """The cases, with every tamper addressing the frame group at ``prefix``.
+
+        A bare frame lives at the store root; a record's frame lives under
+        ``frame/``. The cases are the same claims either way, so the record
+        suite runs them again through this door rather than dropping the ones
+        that tamper.
+        """
+        yield Case(
+            id="nullable-columns",
+            exercises="a validity mask rides beside its column, for every dtype, and a column "
+            "nobody masked stays unmasked",
+            model=FrameModel(
+                blocks={
+                    "atoms": BlockModel(
+                        count=3,
+                        columns={
+                            "x": _column("f64", [0.0, 1.0, 2.0]),
+                            "charge": _column(
+                                "f64", [0.5, 0.0, -0.5], validity=[True, False, True]
+                            ),
+                            "element": _column(
+                                "string", ["", "H", "O"], validity=[False, True, True]
+                            ),
+                            "mol_id": _column("u64", [1, 1, 0], validity=[True, True, False]),
+                        },
+                    ),
+                    "bonds": BlockModel(
+                        count=2,
+                        columns={
+                            "atomi": _column("u64", [0, 1]),
+                            "atomj": _column("u64", [1, 2]),
+                            "bond_type": _column("u64", [0, 1], validity=[False, True]),
+                        },
+                    ),
+                }
+            ),
+        )
+
+        masked = FrameModel(
+            blocks={
+                "atoms": BlockModel(
+                    count=3,
+                    columns={
+                        "charge": _column("f64", [0.5, 0.0, -0.5], validity=[True, False, True])
+                    },
+                )
+            }
+        )
+        yield Case(
+            id="reject-mask-length-mismatch",
+            exercises="a mask carries exactly one flag per row; padding or truncating it would "
+            "invent the answer it exists to give",
+            expect_violation="bad_validity",
+            backends=("zarr",),
+            tamper=_replace_array(f"{prefix}atoms/_validity/charge", np.array([True, False])),
+            model=masked,
+        )
+
+        yield Case(
+            id="reject-mask-not-bool",
+            exercises="a mask is one bool per row, never an integer array",
+            expect_violation="bad_validity",
+            backends=("zarr",),
+            tamper=_replace_array(
+                f"{prefix}atoms/_validity/charge", np.array([1, 0, 1], dtype="uint8")
+            ),
+            model=masked,
+        )
+
+        yield Case(
+            id="reject-column-named-validity",
+            exercises="_validity names a block's masks; a column taking it is refused, not merged",
+            expect_violation="reserved_column_name",
+            rejects_on="write",
+            model=FrameModel.model_construct(
+                blocks={
+                    "atoms": BlockModel.model_construct(
+                        count=1,
+                        columns={"_validity": _column("bool", [True])},
+                        structural_shape=None,
+                    )
+                },
+                box=None,
+                meta={},
+            ),
+        )
+
         yield Case(
             id="empty-frame",
             exercises="a frame with no blocks is still a frame",
@@ -605,6 +724,30 @@ class TrajectorySuite(Suite):
             ),
         )
 
+        def charged(values: list[float], validity: list[bool] | None) -> BlockModel:
+            return BlockModel(
+                count=len(values),
+                columns={
+                    "x": _column("f64", [float(i) for i in range(len(values))]),
+                    "charge": _column("f64", values, validity=validity),
+                },
+            )
+
+        yield Case(
+            id="nullable-column",
+            exercises="a nullable column's mask rides its CSR rows: holed in one frame, whole in "
+            "the next, and a whole frame reads back unmasked",
+            model=TrajectoryModel(
+                frames=[
+                    FrameModel(blocks={"atoms": charged([0.5, 0.0], [True, False])}),
+                    FrameModel(blocks={"atoms": charged([0.5, -0.5, 0.25], None)}),
+                    FrameModel(blocks={"atoms": charged([0.0, 0.0, 1.0], [False, False, True])}),
+                    FrameModel(blocks={"atoms": charged([], None)}),
+                ],
+                step=[0, 1, 2, 3],
+            ),
+        )
+
         yield Case(
             id="structural-shape-block",
             exercises="a grid block has a fixed row count, the product of its structural shape",
@@ -720,6 +863,29 @@ class TrajectorySuite(Suite):
                         }
                     ),
                 ]
+            ),
+        )
+
+        yield Case(
+            id="reject-mask-on-non-nullable-column",
+            exercises="a frame that masks a column the declaration pins non-nullable is refused, "
+            "not landed without its mask",
+            expect_violation="undeclared_nullable",
+            rejects_on="write",
+            model=sequence(
+                [
+                    FrameModel(
+                        blocks={
+                            "atoms": BlockModel(
+                                count=2,
+                                columns={"q": _column("f64", [0.5, 0.0], validity=[True, False])},
+                            )
+                        }
+                    )
+                ],
+                blocks={
+                    "atoms": SequenceBlockModel(columns={"q": SequenceColumnModel(dtype="f64")})
+                },
             ),
         )
 
@@ -840,6 +1006,30 @@ class TrajectorySuite(Suite):
     def _reader_refusals(self) -> Iterable[Case]:
         """What a reader must refuse on disk."""
         yield Case(
+            id="reject-mask-not-bool",
+            exercises="a nullable column's mask is one bool per row, never an integer array",
+            expect_violation="bad_validity",
+            backends=("zarr",),
+            tamper=_replace_array(
+                "trajectory/atoms/_validity/q", np.array([1, 0, 1, 1], dtype="uint8")
+            ),
+            model=TrajectoryModel(
+                frames=[
+                    FrameModel(
+                        blocks={
+                            "atoms": BlockModel(
+                                count=2,
+                                columns={"q": _column("f64", [q, 0.0], validity=[True, False])},
+                            )
+                        }
+                    )
+                    for q in (0.5, 0.25)
+                ],
+                step=[0, 1],
+            ),
+        )
+
+        yield Case(
             id="reject-narrow-float-column",
             exercises="floats are f64 only; a column stored as binary32 is refused, not widened",
             expect_violation="narrow_float",
@@ -923,11 +1113,7 @@ class RecordSuite(Suite):
         molrec's own codec.
         """
         meta = MetaModel(molrec_version=MOLREC_VERSION)
-        for case in FrameSuite().cases():
-            if case.tamper is not None:
-                # A frame case's tamper addresses a bare frame root, not the
-                # frame section of a record; it cannot be carried over blind.
-                continue
+        for case in FrameSuite().rooted("frame/"):
             yield Case(
                 id=f"frame/{case.id}",
                 exercises=case.exercises,
@@ -935,6 +1121,7 @@ class RecordSuite(Suite):
                 rejects_on=case.rejects_on,
                 backends=case.backends,
                 directions=case.directions,
+                tamper=case.tamper,
                 model=RecordModel.model_construct(meta=meta, frame=case.model, system=None),
             )
 

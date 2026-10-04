@@ -116,6 +116,18 @@ def encode_frame(
     header_blocks: dict[str, Any] = {}
     buffers: list[bytes] = []
     offset = 0
+
+    def land(raw: bytes) -> int:
+        """Append one buffer, padded to the next multiple of 8; its offset."""
+        nonlocal offset
+        at = offset
+        buffers.append(raw)
+        pad = (-len(raw)) % ALIGN
+        if pad:
+            buffers.append(b"\0" * pad)
+        offset += len(raw) + pad
+        return at
+
     for name, block in blocks.items():
         columns: dict[str, Any] = {}
         for column_name, column in block.columns.items():
@@ -132,13 +144,9 @@ def encode_frame(
                     else values,
                     dtype=np.dtype(NUMPY_DTYPE[column.dtype]).newbyteorder("<"),
                 )
-                raw = array.tobytes()
-                entry["offset"] = offset
-                buffers.append(raw)
-                pad = (-len(raw)) % ALIGN
-                if pad:
-                    buffers.append(b"\0" * pad)
-                offset += len(raw) + pad
+                entry["offset"] = land(array.tobytes())
+            if column.validity is not None:
+                entry["validity"] = land(np.ascontiguousarray(column.validity, "bool").tobytes())
             columns[column_name] = entry
         header_blocks[name] = {
             "count": block.count,
@@ -163,6 +171,24 @@ def encode_frame(
     head = _HEADER.pack(MAGIC, len(text)) + text
     head += b"\0" * ((-len(head)) % ALIGN)
     return head + b"".join(buffers)
+
+
+def _buffer(
+    view: memoryview, payload: int, at: int, dtype: str, shape: tuple[int, ...]
+) -> np.ndarray:
+    """One column buffer at ``at`` bytes into the payload, viewed in place."""
+    if at % ALIGN:
+        raise ValueError(f"offset {at} is not a multiple of 8")
+    numpy_dtype = np.dtype(NUMPY_DTYPE[dtype]).newbyteorder("<")
+    count = int(np.prod(shape))
+    begin = payload + at
+    if begin + count * numpy_dtype.itemsize > len(view):
+        raise ValueError("buffer runs past the value")
+    return (
+        np.frombuffer(view, dtype=numpy_dtype, count=count, offset=begin)
+        .reshape(shape)
+        .astype(NUMPY_DTYPE[dtype], copy=False)
+    )
 
 
 def decode_frame(value: bytes | memoryview) -> FrameBytes:
@@ -193,20 +219,16 @@ def decode_frame(value: bytes | memoryview) -> FrameBytes:
             if dtype == "string":
                 values = np.asarray(spec["values"], dtype=str).reshape(shape)
             else:
-                at = int(spec["offset"])
-                if at % ALIGN:
-                    raise ValueError(f"{name}/{column_name}: offset {at} is not a multiple of 8")
-                numpy_dtype = np.dtype(NUMPY_DTYPE[dtype]).newbyteorder("<")
-                size = int(np.prod(shape)) * numpy_dtype.itemsize
-                begin = payload + at
-                if begin + size > len(view):
-                    raise ValueError(f"{name}/{column_name}: buffer runs past the value")
-                values = (
-                    np.frombuffer(view, dtype=numpy_dtype, count=int(np.prod(shape)), offset=begin)
-                    .reshape(shape)
-                    .astype(NUMPY_DTYPE[dtype], copy=False)
-                )
-            columns[column_name] = ColumnModel(dtype=dtype, shape=shape, values=values)
+                try:
+                    values = _buffer(view, payload, int(spec["offset"]), dtype, shape)
+                except ValueError as exc:
+                    raise ValueError(f"{name}/{column_name}: {exc}") from None
+            validity = None
+            if "validity" in spec:
+                validity = _buffer(view, payload, int(spec["validity"]), "bool", (shape[0],))
+            columns[column_name] = ColumnModel(
+                dtype=dtype, shape=shape, values=values, validity=validity
+            )
         grid = entry.get("structural_shape")
         blocks[name] = BlockModel(
             count=int(entry["count"]),

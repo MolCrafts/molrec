@@ -66,6 +66,38 @@ frame
 A `frame` section of a record is this container. A `trajectory` section
 sequences the same container over time.
 
+## Nullable columns
+
+A column may be **nullable**: beside its values it carries a *validity
+mask*, one `bool` per row, `true` where the row holds a value and `false`
+where it holds none. The value stored under a null row is carried as written
+and means nothing; a reader must not interpret it.
+
+```text
+<block>
+ \-- <column>: <dtype>[N][...]
+ \-- (_validity)
+      \-- (<column>: bool[N])
+```
+
+- The mask of column `c` of block `B` is the array `B/_validity/c`: exactly
+  one flag per row of the block (shape `[N]`, no trailing axes — a mask
+  marks a *row* null, whatever shape the row has), stored as `bool`.
+- An absent `_validity` subgroup, or an absent mask array in it, means every
+  row of that column is valid. An all-`true` mask means the same thing, and
+  the two spellings are one value: a writer **MAY** omit an all-`true` mask,
+  and a reader hands back "no mask" for either.
+- `_validity` is a **reserved** block-child name: a column named
+  `_validity` is refused at write. A reader skips the subgroup when it lists
+  a block's columns (it is a group, and columns are arrays).
+- A reader **MUST** refuse a mask that is not `bool`, that does not carry
+  exactly one flag per row, or that names no column of its block.
+- A block no column of which is masked writes no subgroup, so its bytes are
+  those of a writer that predates masks.
+
+On a [trajectory](ragged.md#nullable-columns) the mask rides the block's CSR
+rows the way its values do.
+
 MolRec has no dedicated grid type. Volumetric data is an ordinary block whose
 structural shape is `[nx][ny][nz]` and whose columns are the scalar fields.
 The spatial cell is the frame's box; a volumetric block carries no cell of

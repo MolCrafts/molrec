@@ -67,7 +67,7 @@
       "type": "object"
     },
     "SequenceColumnModel": {
-      "description": "One column's type in a sequence declaration.\n\nA column is fixed for the run by its ``dtype`` -- the same closed\nvocabulary as :class:`ColumnModel` -- and its ``trailing`` axes, the\nper-entity structure after the leading count axis. A ``Float[count][3]``\ncolumn declares ``trailing = [3]``; a scalar column declares\n``trailing = []``.",
+      "description": "One column's type in a sequence declaration.\n\nA column is fixed for the run by its ``dtype`` -- the same closed\nvocabulary as :class:`ColumnModel` -- and its ``trailing`` axes, the\nper-entity structure after the leading count axis. A ``Float[count][3]``\ncolumn declares ``trailing = [3]``; a scalar column declares\n``trailing = []``.\n\n``nullable`` says the column may carry a validity mask. It is a union over\nthe run -- a column masked in any frame is nullable for all of them -- and\na frame that masks a column the declaration pins non-nullable is refused:\nlanding its values without the mask would lose which rows hold nothing.",
       "properties": {
         "dtype": {
           "enum": [
@@ -87,6 +87,12 @@
           ],
           "title": "Dtype",
           "type": "string"
+        },
+        "nullable": {
+          "default": false,
+          "description": "Whether the column may carry a validity mask; written only when true.",
+          "title": "Nullable",
+          "type": "boolean"
         },
         "trailing": {
           "items": {
