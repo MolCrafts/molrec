@@ -26,6 +26,7 @@ from molrec.core.model import (
     CollectionMetaModel,
     CollectionModel,
     ColumnModel,
+    ForceFieldModel,
     FrameModel,
     MetaModel,
     MetaSeriesModel,
@@ -61,6 +62,9 @@ PUBLISHED: dict[str, tuple[type[BaseModel], ...]] = {
         RecordModel,
         CollectionMetaModel,
         CollectionModel,
+        # The section, its document parts as $defs (units, source, special
+        # bonds, styles) and the style tables as blocks.
+        ForceFieldModel,
     ),
     # The v1 `observables/` section: the kind-based layout molrs writes.
     "observables": (ArrayModel, ObservableMetaModel, ObservableModel, ObservablesModel),
@@ -84,7 +88,13 @@ PUBLISHED: dict[str, tuple[type[BaseModel], ...]] = {
 VOCABULARY = "core/vocabulary.json"
 
 
+#: A schema whose file is named for its section rather than its class.
+_SECTION_NAMES: dict[type[BaseModel], str] = {ForceFieldModel: "forcefield"}
+
+
 def filename(model: type[BaseModel]) -> str:
+    if model in _SECTION_NAMES:
+        return f"{_SECTION_NAMES[model]}.schema.json"
     name = model.__name__.removesuffix("Model")
     return "".join(f"-{c.lower()}" if c.isupper() else c for c in name).lstrip("-") + ".schema.json"
 

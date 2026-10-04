@@ -24,7 +24,7 @@ from molrec.refusal import as_refusal
 from molrec.registry import REGISTRY
 from molrec.report import Violation
 
-MODULES = ["core", "record", "trajectory", "collection", "observables"]
+MODULES = ["core", "record", "trajectory", "collection", "forcefield", "observables"]
 
 
 def _codec(module: str, store: molrec.Store) -> molrec.Codec:

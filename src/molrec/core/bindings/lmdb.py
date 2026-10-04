@@ -8,6 +8,7 @@ Layout::
 
     meta                      JSON: layout tag, collection meta, sequence_schema, counts
     index                     frame bytes: block ``records`` (first_frame, n_frames, n_atoms, ...)
+    ff                        frame bytes: the collection's force field (absent = none)
     r <u64be>                 JSON: record r's meta document
     s <u64be>                 frame bytes: record r's system (absent = no system)
     f <u64be>                 frame bytes: the trajectory update at global ordinal j
@@ -46,6 +47,7 @@ from molrec.core.model import (
     CollectionMetaModel,
     CollectionModel,
     ColumnModel,
+    ForceFieldModel,
     FrameModel,
     MetaModel,
     RecordModel,
@@ -70,6 +72,9 @@ LAYOUT = "mrec-lmdb"
 LAYOUT_VERSION = 1
 META_KEY = b"meta"
 INDEX_KEY = b"index"
+#: The collection's one force field: frame bytes whose ``meta`` is the
+#: force-field document and whose blocks are its style tables.
+FF_KEY = b"ff"
 INDEX_BLOCK = "records"
 RECORD_META_PREFIX = b"r"
 SYSTEM_PREFIX = b"s"
@@ -400,6 +405,9 @@ class LmdbCollectionCodec(Codec):
                         {INDEX_BLOCK: BlockModel(count=len(model.records), columns=columns)}, {}
                     ),
                 )
+                if model.forcefield is not None:
+                    ff = model.forcefield
+                    txn.put(FF_KEY, encode_frame(ff.tables, ff.document()))
                 txn.put(
                     META_KEY,
                     jsonvalue.dumps(
@@ -481,6 +489,13 @@ class LmdbCollectionCodec(Codec):
                     self._record(txn, r, int(first[r]), int(counts[r]), bool(carries[r]), schema)
                     for r in range(n_records)
                 ]
+                raw = txn.get(FF_KEY)
+                forcefield = None
+                if raw is not None:
+                    decoded = decode_frame(raw)
+                    forcefield = ForceFieldModel.model_validate(
+                        {**decoded.meta, "tables": decoded.blocks}
+                    )
         finally:
             env.close()
         own = {
@@ -493,6 +508,7 @@ class LmdbCollectionCodec(Codec):
                 "meta": CollectionMetaModel.model_validate(meta["collection"]),
                 "sequence_schema": schema if (schema.blocks or schema.meta) else None,
                 "index": BlockModel(count=n_records, columns=own),
+                "forcefield": forcefield,
                 "records": records,
             },
             context=STORED,

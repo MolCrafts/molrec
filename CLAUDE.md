@@ -32,12 +32,12 @@ code, and the **fixtures**:
   molrec.schema_export schema` after any model change (a test fails on
   drift, and on any schema file no model produces).
 - `src/molrec/core/bindings/` — the reference codecs: **Zarr V3** (`zarr.py`:
-  bare frame, record, trajectory; the arbiter the conformance suite reads and
-  writes through) and **LMDB** (`lmdb.py`: a collection of records in one
-  file). `src/molrec/observables/` — the v1 observables codec.
+  bare frame, record, trajectory, force field; the arbiter the conformance
+  suite reads and writes through) and **LMDB** (`lmdb.py`: a collection of
+  records in one file). `src/molrec/observables/` — the v1 observables codec.
 - `src/molrec/*suite*.py`, `core/suite.py` — the **conformance suite**:
   cases per module (`core`, `record`, `trajectory`, `collection`,
-  `observables`; drafts only when named). An implementation writes an
+  `forcefield`, `observables`; drafts only when named). An implementation writes an
   adapter (two methods per module); `tests/molrs_adapter.py` is molrs's.
 - `fixtures/` — the run-minimal text golden and `fixtures/schema/` (a valid
   and an invalid instance per published schema).
@@ -91,9 +91,10 @@ Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract.
   dims-based model in `src/molrec/draft/observables/` is a **v2 draft**
   (`schema/draft/observables/`, conformance module `draft/observables`, never
   run unless named); adopting it needs a `molrec_version` bump.
-- `system` is strictly frame-shaped (flat blocks, no `parameters` child);
-  force-field parameters: see `docs/spec/forcefield.md`. How a job ran lives
-  under `method`.
+- `system` is strictly frame-shaped (flat blocks, no `parameters` child).
+  Force-field parameters in the `forcefield` section
+  (`docs/spec/forcefield.md`, frame-shaped: document attrs + one block per
+  style; LMDB key `ff`); how a job ran in `method`.
 - Keep section chapters aligned with `docs/spec/storage.md` and
   `docs/spec/zarr.md`: documents are Zarr group attributes; metrics JSONL
   is an append buffer.

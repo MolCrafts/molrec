@@ -11,6 +11,7 @@ root
  \-- (system)
  \-- (frame)
  \-- (trajectory)
+ \-- (forcefield)
  \-- (observables)
  \-- (method)
  \-- (status)
@@ -18,7 +19,7 @@ root
 ```
 
 A package includes `meta` and at least one of `frame`, `system`,
-`trajectory`, or `status`. Inside a section, every group or array is again
+`trajectory`, `forcefield`, or `status`. Inside a section, every group or array is again
 optional unless that section's chapter says otherwise.
 
 Typical compositions:
@@ -27,6 +28,7 @@ Typical compositions:
 |-------------|----------|-------------|
 | Structure | `meta`, `frame` | one conformation |
 | System def | `meta`, `system` | topology without coordinates |
+| Force field | `meta`, `forcefield` | a parameter set, distributed on its own |
 | Trajectory | `meta`, `trajectory` | MD time series (`system` optional) |
 | Run | `meta`, `status` | training job / workflow (`metrics` and/or `method` recommended) |
 
@@ -40,8 +42,8 @@ facts: identity, lifecycle, scientific context. `meta`, `status`, and
 
 **Frame-shaped.** Named [blocks](frame.md) of columns, a `meta` document
 (the group's attributes), optional `box`. Instantaneous or definitional
-tables. `frame` and `system` are frame-shaped
-([Frame-shaped group](storage.md#frame-shaped-group)).
+tables. `frame`, `system` and [`forcefield`](forcefield.md) are
+frame-shaped ([Frame-shaped group](storage.md#frame-shaped-group)).
 
 **Array.** Named arrays, each beside a metadata document. `observables` is
 an array section: one data array of any shape per name, with its `kind` and
@@ -75,8 +77,9 @@ and keep it. Reserved names keep their meaning.
 
 **Facts vs arrays.** Structured facts that fit in JSON belong on a document
 section (or a frame's meta document). N-dimensional values belong in
-columns. Force-field parameters: see [Force field](forcefield.md); how a
-job was run lives under `method`.
+columns. The parameters that *define* the energy model live in the
+[`forcefield`](forcefield.md) section; how a job was run lives under
+`method`.
 
 **Modules name extra rules.** A shared interpretation beyond this
 specification is declared under `meta/modules/<name>` with a major/minor

@@ -522,6 +522,240 @@
       "title": "ErrorModel",
       "type": "object"
     },
+    "ForceFieldModel": {
+      "additionalProperties": true,
+      "description": "The ``forcefield`` section: the document and one table per style.\n\nEvery field but ``tables`` is the document -- the group's attribute map,\nunknown keys preserved (``extra=\"allow\"``). ``tables`` maps a block name to\nits style table; a table no style names is kept as unknown content.\nLinking a system's types to these rows is by name and is never refused\nhere (``docs/spec/forcefield.md``, linking a system).",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ForceFieldSourceModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "special_bonds": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpecialBondsModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "styles": {
+          "items": {
+            "$ref": "#/$defs/StyleModel"
+          },
+          "title": "Styles",
+          "type": "array"
+        },
+        "tables": {
+          "additionalProperties": {
+            "$ref": "#/$defs/BlockModel"
+          },
+          "title": "Tables",
+          "type": "object"
+        },
+        "units": {
+          "$ref": "#/$defs/ForceFieldUnitsModel"
+        }
+      },
+      "required": [
+        "name",
+        "units"
+      ],
+      "title": "ForceFieldModel",
+      "type": "object"
+    },
+    "ForceFieldSourceModel": {
+      "additionalProperties": true,
+      "description": "``forcefield.source``: where the parameters came from.",
+      "properties": {
+        "format": {
+          "title": "Format",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "uri": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uri"
+        }
+      },
+      "required": [
+        "format"
+      ],
+      "title": "ForceFieldSourceModel",
+      "type": "object"
+    },
+    "ForceFieldUnitsModel": {
+      "additionalProperties": true,
+      "anyOf": [
+        {
+          "required": [
+            "preset"
+          ]
+        },
+        {
+          "required": [
+            "length"
+          ]
+        },
+        {
+          "required": [
+            "energy"
+          ]
+        },
+        {
+          "required": [
+            "angle"
+          ]
+        },
+        {
+          "required": [
+            "charge"
+          ]
+        },
+        {
+          "required": [
+            "mass"
+          ]
+        },
+        {
+          "required": [
+            "time"
+          ]
+        }
+      ],
+      "description": "``forcefield.units``: a preset, the unit of each quantity, or both.\n\nThe numbers of the section are in these units and a reader never\nconverts them. A quantity stated beside a preset is the preset's own\nunit (pint-equivalent).",
+      "properties": {
+        "angle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Angle"
+        },
+        "charge": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Charge"
+        },
+        "energy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Energy"
+        },
+        "length": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Length"
+        },
+        "mass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mass"
+        },
+        "preset": {
+          "anyOf": [
+            {
+              "enum": [
+                "real",
+                "metal",
+                "si",
+                "cgs",
+                "electron",
+                "micro",
+                "nano",
+                "lj"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preset"
+        },
+        "time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time"
+        }
+      },
+      "title": "ForceFieldUnitsModel",
+      "type": "object"
+    },
     "FrameModel": {
       "additionalProperties": false,
       "description": "A map of names to blocks, plus a typed meta document and an optional box.\n\nA frame enforces no relationship between its blocks: block counts are\nindependent and any block name is legal.\n\nEvery ``meta`` value is typed by one of the per-step tags\n(:data:`META_TAGS`), held in ``meta_types``: a key the producer did not\ntag gets the tag it would read back as (:func:`infer_meta_tag`), and\nevery value is coerced to its tag (:func:`coerce_meta_value`), so a\nvalidated frame carries one tag per key -- what a writer stores as the\ngroup's ``_meta_types`` and a reader hands back.",
@@ -1073,6 +1307,52 @@
       "title": "SequenceColumnModel",
       "type": "object"
     },
+    "SpecialBondsModel": {
+      "additionalProperties": false,
+      "description": "``forcefield.special_bonds``: the 1-2 / 1-3 / 1-4 weights of the\nvan-der-Waals (``lj``) and electrostatic (``coul``) pair styles.",
+      "properties": {
+        "coul": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Coul",
+          "type": "array"
+        },
+        "lj": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Lj",
+          "type": "array"
+        }
+      },
+      "required": [
+        "lj",
+        "coul"
+      ],
+      "title": "SpecialBondsModel",
+      "type": "object"
+    },
     "StatusModel": {
       "additionalProperties": true,
       "description": "The lifecycle document (``docs/spec/status.md``). ``state`` is required\nwhenever the section exists; the other named keys are typed, and every key\na producer adds is preserved as given.",
@@ -1208,6 +1488,64 @@
         "state"
       ],
       "title": "StatusModel",
+      "type": "object"
+    },
+    "StyleModel": {
+      "additionalProperties": true,
+      "description": "One entry of ``forcefield.styles``: a functional form and its table.\n\nThe table is the block :attr:`block` -- a function of ``(category,\nstyle)``, so the two can never disagree. ``params`` and ``endpoint_key``\nare written only when they say something (non-empty, not ``\"type\"``).",
+      "properties": {
+        "category": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Category",
+          "type": "string"
+        },
+        "endpoint_key": {
+          "default": "type",
+          "enum": [
+            "type",
+            "class",
+            "smirks"
+          ],
+          "title": "Endpoint Key",
+          "type": "string"
+        },
+        "expression": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expression"
+        },
+        "params": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Params",
+          "type": "object"
+        },
+        "style": {
+          "minLength": 1,
+          "title": "Style",
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "style"
+      ],
+      "title": "StyleModel",
       "type": "object"
     },
     "TrajectoryBoxModel": {
@@ -1348,6 +1686,16 @@
     },
     {
       "properties": {
+        "forcefield": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "forcefield"
+      ]
+    },
+    {
+      "properties": {
         "status": {
           "type": "object"
         }
@@ -1357,8 +1705,19 @@
       ]
     }
   ],
-  "description": "The record root.\n\n``meta`` is always present (an empty document is a valid one), plus at\nleast one of ``frame``, ``system``, ``trajectory`` or ``status``. Each of\nthose is a valid **sole** section beside ``meta``: a trajectory-only\nrecord is conforming and a reader must not require a frame beside it,\nbecause frames may embed full blocks including topology.\n\n``observables`` is the v1 section (:class:`ObservablesModel`). ``metrics``\n-- the catalog document, the dense series and the live WAL of\n``docs/spec/metrics.md`` -- is carried verbatim as a :class:`NodeModel`:\nmolrec does not interpret run-local monitoring, it only never loses it.",
+  "description": "The record root.\n\n``meta`` is always present (an empty document is a valid one), plus at\nleast one of ``frame``, ``system``, ``trajectory``, ``forcefield`` or\n``status`` -- a record of ``meta`` and ``forcefield`` alone is a\nforce-field package. Each of\nthose is a valid **sole** section beside ``meta``: a trajectory-only\nrecord is conforming and a reader must not require a frame beside it,\nbecause frames may embed full blocks including topology.\n\n``observables`` is the v1 section (:class:`ObservablesModel`). ``metrics``\n-- the catalog document, the dense series and the live WAL of\n``docs/spec/metrics.md`` -- is carried verbatim as a :class:`NodeModel`:\nmolrec does not interpret run-local monitoring, it only never loses it.",
   "properties": {
+    "forcefield": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ForceFieldModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "frame": {
       "anyOf": [
         {

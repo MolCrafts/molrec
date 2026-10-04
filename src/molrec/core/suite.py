@@ -16,6 +16,10 @@ from pydantic import BaseModel
 
 from molrec.case import Case
 from molrec.compare import diff, lookup
+from molrec.core.ffsuite import forcefield as ff_forcefield
+from molrec.core.ffsuite import round_trip_forcefield
+from molrec.core.ffsuite import style as ff_style
+from molrec.core.ffsuite import table as ff_table
 from molrec.core.model import (
     META_TAGS,
     META_TYPES_ATTR,
@@ -29,6 +33,7 @@ from molrec.core.model import (
     CollectionMetaModel,
     CollectionModel,
     ColumnModel,
+    ForceFieldModel,
     FrameModel,
     MetaModel,
     MetaSeriesModel,
@@ -2222,6 +2227,19 @@ class RecordSuite(Suite):
         )
 
         yield Case(
+            id="record-with-forcefield",
+            exercises="a system whose atoms.type and bonds.type (with a hybrid bonds.style) "
+            "name rows of the record's force field",
+            model=RecordModel(meta=meta, system=_typed_topology(), forcefield=_linked_forcefield()),
+        )
+
+        yield Case(
+            id="forcefield-only-record",
+            exercises="meta and a forcefield alone are a record: a force-field package",
+            model=RecordModel(meta=meta, forcefield=round_trip_forcefield()),
+        )
+
+        yield Case(
             id="record-with-box",
             exercises="the cell rides on the frame section, under the name box",
             model=RecordModel(
@@ -2239,6 +2257,44 @@ class RecordSuite(Suite):
                 ),
             ),
         )
+
+
+def _linked_forcefield() -> ForceFieldModel:
+    """A force field the :func:`_typed_topology` system links into by name."""
+    return ff_forcefield(
+        [
+            (ff_style("atom", "full"), ff_table(["OW", "HW"], mass=[15.999, 1.008])),
+            (
+                ff_style("bond", "harmonic"),
+                ff_table(["OW-HW"], itom=["OW"], jtom=["HW"], k=[1059.162], r0=[0.9572]),
+            ),
+            (
+                ff_style("bond", "morse"),
+                ff_table(
+                    ["OW-HW"], itom=["OW"], jtom=["HW"], D=[101.9], alpha=[2.567], r0=[0.9572]
+                ),
+            ),
+        ]
+    )
+
+
+def _typed_topology() -> FrameModel:
+    """A water whose rows link into :func:`_linked_forcefield`: atoms by type,
+    bonds by type and style (one bond each style)."""
+    return FrameModel(
+        blocks={
+            "atoms": BlockModel(count=3, columns={"type": _column("string", ["OW", "HW", "HW"])}),
+            "bonds": BlockModel(
+                count=2,
+                columns={
+                    "atomi": _column("u64", [0, 0]),
+                    "atomj": _column("u64", [1, 2]),
+                    "type": _column("string", ["OW-HW", "OW-HW"]),
+                    "style": _column("string", ["harmonic", "morse"]),
+                },
+            ),
+        }
+    )
 
 
 def _typed_system() -> FrameModel:
@@ -2561,6 +2617,20 @@ class CollectionSuite(Suite):
                         system=precise_system,
                         trajectory=TrajectoryModel.model_validate(precise.model_dump()),
                     )
+                ],
+            ),
+        )
+
+        yield Case(
+            id="collection-forcefield",
+            exercises="the collection's one force field round-trips under the LMDB key ff; "
+            "every record links into it",
+            model=CollectionModel(
+                meta=meta,
+                forcefield=_linked_forcefield(),
+                records=[
+                    RecordModel(meta=MetaModel(), system=_typed_topology()),
+                    RecordModel(meta=MetaModel(record_id="b"), system=_typed_topology()),
                 ],
             ),
         )

@@ -81,14 +81,15 @@ or data structures, leaving scope for future extensions. Only the `meta`
 group is mandatory at the root, and it may be an empty document. All other
 root groups — `system` and `frame` included — are optional, allowing the
 user to store only relevant data. A record must nevertheless contain at
-least one of `frame`, `system`, `trajectory`, or `status` besides `meta`.
+least one of `frame`, `system`, `trajectory`, `forcefield`, or `status`
+besides `meta`.
 Inside each group, every group or array is again optional, unless specified
 differently.
 
 A reader preserves sibling sections and keys it does not recognise.
 
-Force-field parameters: see [Force field](forcefield.md). How a job is run
-lives under `method`.
+Force-field parameters live in the [`forcefield`](forcefield.md) section. How
+a job is run lives under `method`.
 
 Array data live in [columns, blocks, and frames](frame.md). Time-dependent
 data live in the [trajectory](trajectory.md) section. Recommended names are

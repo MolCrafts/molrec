@@ -17,6 +17,7 @@ collection
  \-- meta            the collection's document: units, provenance
  \-- sequence_schema the one trajectory declaration every record uses
  \-- index           per-record columns the writer derives from each record
+ \-- (forcefield)    the one force field every record links into
  \-- records[r]      record r: meta, system, trajectory
 ```
 
@@ -67,6 +68,12 @@ recompute them. Four column names are reserved for the binding
 (`first_frame`, `n_frames`, `n_atoms`, `has_trajectory`) and are not part of
 the model.
 
+`forcefield`
+
+Optional. The [force field](forcefield.md#collections) every record's
+`atoms.type` and relation `type` columns link into. A record of a collection
+carries no `forcefield` of its own.
+
 `records[r]`
 
 An ordinary record restricted to `meta`, `system` and `trajectory`. Either of
@@ -101,6 +108,7 @@ The collection suite (`module = "collection"`) pins down:
 * refusal of a trajectory block whose row count differs from the system block
   it shares a name with;
 * refusal of a collection without `units`;
+* a collection-wide force field round-trips;
 * an aligned block that carries forward while its target moves, and one
   restated on growth;
 * refusal of an aligned block that shares a name with a `system` block, and

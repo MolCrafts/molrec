@@ -19,6 +19,7 @@ nav = [
     { "Trajectory" = "spec/trajectory.md" },
     { "Collection" = "spec/collection.md" },
     { "System" = "spec/system.md" },
+    { "Force field" = "spec/forcefield.md" },
     { "Observables" = "spec/observables.md" },
     { "Run" = [
       { "Run surface" = "spec/run.md" },

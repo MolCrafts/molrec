@@ -1,0 +1,14 @@
+{
+  "name": "bad key",
+  "styles": [
+    {
+      "category": "bond",
+      "endpoint_key": "residue",
+      "style": "harmonic"
+    }
+  ],
+  "tables": {},
+  "units": {
+    "preset": "real"
+  }
+}

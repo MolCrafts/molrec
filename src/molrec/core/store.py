@@ -33,3 +33,7 @@ class RecordStore(Store):
 
 class CollectionStore(Store):
     """Where a collection of records lands (``docs/spec/collection.md``)."""
+
+
+class ForceFieldStore(Store):
+    """Where one force field lands (``docs/spec/forcefield.md``)."""

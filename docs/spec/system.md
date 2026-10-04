@@ -26,8 +26,7 @@ system                    attributes = the system's meta document
 - The composition and identity keys of
   [Conventions](conventions.md#composition-and-identity-keys)
   (`total_charge`, `spin`, `smiles`, …) live in the meta document.
-- There is no `box_policy` and no `parameters` child. Force-field
-  parameters: see [Force field](forcefield.md).
+- There is no `box_policy` and no `parameters` child.
 
 A conforming `system` may omit coordinate columns entirely; instantaneous
 Cartesian coordinates belong on `frame` or `trajectory`.
@@ -37,3 +36,9 @@ Records with only `frame` (no `system`) remain valid. Records with only
 `system` is present, `trajectory` should carry state updates only, aligned
 1:1 by row order with the `system` block of the same name
 ([Trajectory](trajectory.md#with-and-without-system)).
+
+Types are linked, not embedded: `atoms.type` and each relation block's
+`type` name rows of the record's [`forcefield`](forcefield.md) section (or
+its collection's), and a relation block's `style` column picks among styles
+of one category. Per-instance parameters (MMFF, UFF) stay columns of the
+relation blocks.

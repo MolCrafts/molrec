@@ -61,6 +61,17 @@ _HAS_TARGETS = hasattr(molrs.Block, "set_target") and hasattr(molrs.Block, "targ
 
 _PENDING: tuple[tuple[str, bool, dict[str, tuple[str, ...]]], ...] = (
     (
+        # Not a hasattr probe: the doors alone are not enough -- this adapter
+        # also needs the ForceFieldModel <-> molrs.ForceField mapping, which
+        # is being settled with molrs (ForceField.to_section / from_section).
+        # The `forcefield` module itself is skipped by declaring no adapter
+        # for it (see Molrs below).
+        "molrs.io.write_mrec(..., forcefield=) / read_mrec_forcefield and the "
+        "ForceField <-> forcefield-section mapping (molrec F2)",
+        False,
+        {"record": ("record-with-forcefield", "forcefield-only-record")},
+    ),
+    (
         "molrs.Block.set_target / Block.targets (row references, molrec F4)",
         _HAS_TARGETS,
         {
@@ -509,3 +520,7 @@ class Molrs(molrec.Implementation):
     # (meta + frame/), not a bare frame at the store root.
     record = MolrsRecordAdapter()
     trajectory = MolrsTrajectoryAdapter()
+    # No `forcefield` adapter (so that module is skipped, by name, as "no
+    # adapter declared") and no `collection` adapter: molrs has no
+    # ForceField <-> forcefield-section mapping yet (molrec F2, see _PENDING)
+    # and no collection door.

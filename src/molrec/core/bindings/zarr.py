@@ -69,6 +69,7 @@ from molrec.core.model import (
     CellModel,
     ColumnModel,
     DType,
+    ForceFieldModel,
     FrameModel,
     MetaModel,
     MetaSeriesModel,
@@ -89,7 +90,7 @@ from molrec.core.model import (
     same_bits,
     stamp_version,
 )
-from molrec.core.store import FrameStore, RecordStore, TrajectoryStore
+from molrec.core.store import ForceFieldStore, FrameStore, RecordStore, TrajectoryStore
 from molrec.precision import check_precision, quantize
 from molrec.registry import REGISTRY
 from molrec.store import Store
@@ -285,14 +286,14 @@ class ZarrFrameCodec(Codec):
                 raise ValueError(
                     f"{BOX_GROUP!r} names the cell in a frame group; a block cannot take it"
                 )
-            self._write_block(root, name, block)
+            write_block(root, name, block)
 
         if model.box is not None:
             self._write_box(root, model.box)
 
     def read_from(self, root: zarr.Group) -> FrameModel:
         blocks = {
-            name: self._read_block(member)
+            name: read_block(member)
             for name, member in root.members()
             if isinstance(member, zarr.Group) and name != BOX_GROUP
         }
@@ -300,92 +301,6 @@ class ZarrFrameCodec(Codec):
         box = self._read_box(root[BOX_GROUP]) if BOX_GROUP in root else None
         meta, meta_types = decode_typed_meta(dict(root.attrs), root.name)
         return FrameModel(blocks=blocks, box=box, meta=meta, meta_types=meta_types)
-
-    def _write_block(self, parent: zarr.Group, name: str, block: BlockModel) -> None:
-        if VALIDITY_GROUP in block.columns:
-            raise ValueError(
-                f"{VALIDITY_GROUP!r} names the validity masks of block {name!r}; a column "
-                "cannot take it"
-            )
-        group = parent.create_group(name)
-        # A producer's own block attributes ride beside the two the layout names.
-        attrs = jsonvalue.check_document(dict(block.model_extra or {}))
-        attrs["count"] = block.count
-        if block.structural_shape is not None:
-            attrs[STRUCTURAL_SHAPE_ATTR] = list(block.structural_shape)
-        if block.targets is not None:
-            for column_name, target in block.targets.items():
-                check_target(column_name, target)
-            attrs[TARGETS_ATTR] = dict(block.targets)
-        group.attrs.update(attrs)
-
-        for column_name, column in block.columns.items():
-            precision = _declared_precision(name, column_name, column)
-            array = create_fixed(group, column_name, column.shape, column.dtype, precision)
-            if column.values is not None:
-                # The writer stores exactly the rounded values -- whatever
-                # values the model it was handed holds.
-                array[...] = (
-                    column.values if precision is None else quantize(column.values, precision)
-                )
-
-        # Only a masked column writes a mask, and a block with none writes no
-        # subgroup: its bytes are what a writer that predates masks wrote.
-        masked = {
-            column_name: column.validity
-            for column_name, column in block.columns.items()
-            if column.validity is not None
-        }
-        if masked:
-            masks = group.create_group(VALIDITY_GROUP)
-            for column_name, mask in masked.items():
-                create_fixed(masks, column_name, mask.shape, "bool")[...] = mask
-
-    def _read_block(self, group: zarr.Group) -> BlockModel:
-        attrs = dict(group.attrs)
-        if "count" not in attrs:
-            raise ValueError(f"block {group.name!r} has no count attribute")
-
-        count = attrs["count"]
-        if type(count) is not int or count < 0:
-            raise ValueError(
-                f"block {group.name!r}: count is a non-negative integer, found {count!r}"
-            )
-        masks = _read_masks(group, count)
-        columns = {
-            name: self._read_column(member, masks.pop(name, None))
-            for name, member in group.members()
-            if isinstance(member, zarr.Array)
-        }
-        if masks:
-            raise ValueError(
-                f"{group.name}/{VALIDITY_GROUP} masks {sorted(masks)}, which are no columns of "
-                "the block"
-            )
-        structural = attrs.pop(STRUCTURAL_SHAPE_ATTR, None)
-        targets = attrs.pop(TARGETS_ATTR, None)
-        del attrs["count"]
-        return BlockModel(
-            count=count,
-            columns=columns,
-            structural_shape=tuple(structural) if structural is not None else None,
-            targets=targets,
-            **attrs,
-        )
-
-    def _read_column(self, array: zarr.Array, validity: np.ndarray | None) -> ColumnModel:
-        # The values are handed back exactly as stored: a reader never
-        # re-rounds a declared precision.
-        return ColumnModel.model_validate(
-            {
-                "dtype": stored_dtype(array),
-                "shape": tuple(int(n) for n in array.shape),
-                "values": array[...],
-                "validity": validity,
-                "precision": array.attrs.get(PRECISION_ATTR),
-            },
-            context=STORED,
-        )
 
     def _write_box(self, root: zarr.Group, box: BoxModel) -> None:
         """``vectors`` always; ``origin`` / ``boundary`` as arrays, omitted at their
@@ -412,6 +327,95 @@ class ZarrFrameCodec(Codec):
             boundary=tuple(bool(flag) for flag in boundary) if boundary is not None else None,
             cell_defined=defined,
         )
+
+
+def write_block(parent: zarr.Group, name: str, block: BlockModel) -> None:
+    """One block as a child group of ``parent``: the one description of a block
+    on the frame path, shared by every frame-shaped section (``frame``,
+    ``system``, the ``forcefield`` tables)."""
+    if VALIDITY_GROUP in block.columns:
+        raise ValueError(
+            f"{VALIDITY_GROUP!r} names the validity masks of block {name!r}; a column "
+            "cannot take it"
+        )
+    group = parent.create_group(name)
+    # A producer's own block attributes ride beside the two the layout names.
+    attrs = jsonvalue.check_document(dict(block.model_extra or {}))
+    attrs["count"] = block.count
+    if block.structural_shape is not None:
+        attrs[STRUCTURAL_SHAPE_ATTR] = list(block.structural_shape)
+    if block.targets is not None:
+        for column_name, target in block.targets.items():
+            check_target(column_name, target)
+        attrs[TARGETS_ATTR] = dict(block.targets)
+    group.attrs.update(attrs)
+
+    for column_name, column in block.columns.items():
+        precision = _declared_precision(name, column_name, column)
+        array = create_fixed(group, column_name, column.shape, column.dtype, precision)
+        if column.values is not None:
+            # The writer stores exactly the rounded values -- whatever
+            # values the model it was handed holds.
+            array[...] = column.values if precision is None else quantize(column.values, precision)
+
+    # Only a masked column writes a mask, and a block with none writes no
+    # subgroup: its bytes are what a writer that predates masks wrote.
+    masked = {
+        column_name: column.validity
+        for column_name, column in block.columns.items()
+        if column.validity is not None
+    }
+    if masked:
+        masks = group.create_group(VALIDITY_GROUP)
+        for column_name, mask in masked.items():
+            create_fixed(masks, column_name, mask.shape, "bool")[...] = mask
+
+
+def read_block(group: zarr.Group) -> BlockModel:
+    """The inverse of :func:`write_block`."""
+    attrs = dict(group.attrs)
+    if "count" not in attrs:
+        raise ValueError(f"block {group.name!r} has no count attribute")
+
+    count = attrs["count"]
+    if type(count) is not int or count < 0:
+        raise ValueError(f"block {group.name!r}: count is a non-negative integer, found {count!r}")
+    masks = _read_masks(group, count)
+    columns = {
+        name: _read_column(member, masks.pop(name, None))
+        for name, member in group.members()
+        if isinstance(member, zarr.Array)
+    }
+    if masks:
+        raise ValueError(
+            f"{group.name}/{VALIDITY_GROUP} masks {sorted(masks)}, which are no columns of "
+            "the block"
+        )
+    structural = attrs.pop(STRUCTURAL_SHAPE_ATTR, None)
+    targets = attrs.pop(TARGETS_ATTR, None)
+    del attrs["count"]
+    return BlockModel(
+        count=count,
+        columns=columns,
+        structural_shape=tuple(structural) if structural is not None else None,
+        targets=targets,
+        **attrs,
+    )
+
+
+def _read_column(array: zarr.Array, validity: np.ndarray | None) -> ColumnModel:
+    # The values are handed back exactly as stored: a reader never
+    # re-rounds a declared precision.
+    return ColumnModel.model_validate(
+        {
+            "dtype": stored_dtype(array),
+            "shape": tuple(int(n) for n in array.shape),
+            "values": array[...],
+            "validity": validity,
+            "precision": array.attrs.get(PRECISION_ATTR),
+        },
+        context=STORED,
+    )
 
 
 def _declared_precision(block: str, name: str, column: ColumnModel) -> float | None:
@@ -1175,6 +1179,67 @@ class ZarrTrajectoryBinding(Binding):
         return ZarrTrajectoryCodec()
 
 
+FORCEFIELD_GROUP = "forcefield"
+
+
+class ZarrForceFieldStore(ZarrStore, ForceFieldStore):
+    """A Zarr V3 root holding one force field under ``forcefield/``, beside a
+    stamped ``meta/`` -- the same bytes as a record's section, and a valid
+    record on its own (a force-field package)."""
+
+
+class ZarrForceFieldCodec(Codec):
+    """The official translation of a force field (``docs/spec/forcefield.md``).
+
+    Layout::
+
+        forcefield/                 group attributes = the force-field document
+        └── <category>.<style>/     one block group per style table
+            ├── <column>            array
+            └── _validity/<column>  bool[T]   absent parameters
+
+    Frame-shaped: the tables are blocks written by the frame path's one
+    description of a block (:func:`write_block` / :func:`read_block`). The
+    document is plain JSON and carries no ``_meta_types``.
+    """
+
+    def write(self, model: ForceFieldModel, store: ZarrForceFieldStore) -> None:
+        store.clear()
+        root = store.root(mode="w")
+        root.create_group(RECORD_META).attrs.update(stamp_version({}))
+        self.write_into(root.create_group(FORCEFIELD_GROUP), model)
+
+    def read(self, store: ZarrForceFieldStore) -> ForceFieldModel:
+        return self.read_from(store.root(mode="r")[FORCEFIELD_GROUP])
+
+    def write_into(self, group: zarr.Group, model: ForceFieldModel) -> None:
+        group.attrs.update(model.document())
+        for name, table in model.tables.items():
+            write_block(group, name, table)
+
+    def read_from(self, group: zarr.Group) -> ForceFieldModel:
+        tables = {
+            name: read_block(member)
+            for name, member in group.members()
+            if isinstance(member, zarr.Group)
+        }
+        return ForceFieldModel.model_validate({**dict(group.attrs), "tables": tables})
+
+
+@REGISTRY.binding
+class ZarrForceFieldBinding(Binding):
+    module: ClassVar[str] = "forcefield"
+    backend: ClassVar[str] = "zarr"
+
+    def new_store(self, workdir: Path) -> ZarrForceFieldStore:
+        store = ZarrForceFieldStore(workdir.with_suffix(".mrec"))
+        store.clear()
+        return store
+
+    def codec(self) -> ZarrForceFieldCodec:
+        return ZarrForceFieldCodec()
+
+
 RECORD_META = "meta"
 RECORD_FRAME = "frame"
 RECORD_SYSTEM = "system"
@@ -1191,6 +1256,7 @@ RECORD_SECTIONS = frozenset(
         RECORD_FRAME,
         RECORD_SYSTEM,
         TRAJECTORY_GROUP,
+        FORCEFIELD_GROUP,
         RECORD_STATUS,
         RECORD_METHOD,
         RECORD_OBSERVABLES,
@@ -1258,6 +1324,7 @@ class ZarrRecordCodec(Codec):
     def __init__(self) -> None:
         self._frames = ZarrFrameCodec()
         self._trajectories = ZarrTrajectoryCodec()
+        self._forcefields = ZarrForceFieldCodec()
 
     def write(self, model: RecordModel, store: ZarrRecordStore) -> None:
         store.clear()
@@ -1285,6 +1352,8 @@ class ZarrRecordCodec(Codec):
         # cannot drift apart.
         if model.trajectory is not None:
             self._trajectories.write_into(root.create_group(TRAJECTORY_GROUP), model.trajectory)
+        if model.forcefield is not None:
+            self._forcefields.write_into(root.create_group(FORCEFIELD_GROUP), model.forcefield)
 
     def read(self, store: ZarrRecordStore) -> RecordModel:
         root = store.root(mode="r")
@@ -1295,6 +1364,9 @@ class ZarrRecordCodec(Codec):
             system=self._section(root, RECORD_SYSTEM),
             trajectory=self._trajectories.read_from(root[TRAJECTORY_GROUP])
             if TRAJECTORY_GROUP in root
+            else None,
+            forcefield=self._forcefields.read_from(root[FORCEFIELD_GROUP])
+            if FORCEFIELD_GROUP in root
             else None,
             status=StatusModel.model_validate(dict(root[RECORD_STATUS].attrs))
             if RECORD_STATUS in root

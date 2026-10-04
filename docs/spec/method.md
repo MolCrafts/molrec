@@ -2,7 +2,7 @@
 
 Scientific or training context is stored in the `method` group. Result
 arrays stay in `frame`, `trajectory`, or `observables`. Force-field
-parameters: see [Force field](forcefield.md).
+parameters live in the [`forcefield`](forcefield.md) section.
 
 In the reference binding the contents are group attributes (one JSON
 object).

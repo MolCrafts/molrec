@@ -56,6 +56,7 @@ that root):
  \-- (system)
  \-- (frame)
  \-- (trajectory)                   # step, time, meta, box, <block> (CSR)
+ \-- (forcefield)                   # document attrs + one block per style
  \-- (observables)
 ```
 
@@ -112,6 +113,7 @@ No pure-JSON filesystem package is part of the reference binding.
 | `system` | Definition (topology, types) | a [frame-shaped group](#frame-shaped-group) |
 | `frame` | Instantaneous snapshot | a [frame-shaped group](#frame-shaped-group) |
 | `trajectory` | Ordered frames | Zarr array groups; [CSR + `step_index`, elided while regular](ragged.md) |
+| `forcefield` | Force-field document + style tables | Zarr group attributes + one block group per style ([Force field](forcefield.md)) |
 | `observables` | Named scientific results | Zarr arrays + per-name attribute metadata |
 
 ## Document sections
@@ -228,6 +230,9 @@ back.
 
 - A frame-shaped section (`frame/`, `system/`) is a
   [frame-shaped group](#frame-shaped-group).
+- `forcefield/` is laid out as a frame-shaped section whose attribute map is
+  the force-field document and whose blocks are its style tables
+  ([Force field](forcefield.md)).
 - Column dtypes map per [Data types on Zarr V3](#data-types-on-zarr-v3).
 - A trajectory is one group per section. Full rules:
   [Ragged trajectory](ragged.md); commit protocol and reopen rule:

@@ -1838,15 +1838,369 @@ class NodeModel(BaseModel):
     groups: dict[str, NodeModel] = Field(default_factory=dict)
 
 
+# ---------------------------------------------------------------------------
+# The forcefield section (docs/spec/forcefield.md)
+#
+# A JSON document -- the group's attributes -- plus one style table per
+# style, each an ordinary block. Frame-shaped: a reader that knows nothing of
+# force fields reads it with the frame codec and loses nothing. Units are
+# stated, never converted; linking a system to it is by name and is not a
+# format rule.
+# ---------------------------------------------------------------------------
+
+#: Endpoint columns of a style table, in position order.
+ENDPOINT_COLUMNS: tuple[str, ...] = ("itom", "jtom", "ktom", "ltom")
+
+#: Arity of each known category (``docs/spec/forcefield.md``, categories).
+CATEGORY_ARITY: dict[str, int] = {
+    "atom": 0,
+    "bond": 2,
+    "angle": 3,
+    "dihedral": 4,
+    "improper": 4,
+    "pair": 2,
+    "pair14": 2,
+    "constraint": 2,
+    "virtual_site": 0,
+    "drude": 2,
+}
+
+#: Annotation columns of a style table: ``string``, nullable.
+ANNOTATION_COLUMNS: frozenset[str] = frozenset(
+    {"class", "element", "smarts", "smirks", "overrides", "desc", "doi"}
+)
+
+#: Bytes of a style name kept verbatim in its table's block name.
+_UNRESERVED = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+
+#: The combining rules a van-der-Waals pair style may name.
+MIXING_RULES: tuple[str, ...] = ("arithmetic", "geometric", "sixthpower")
+
+#: The unit presets and the unit of each quantity in them; ``None`` is a
+#: quantity the preset gives no unit (reduced ``lj``). The angle is a radian
+#: in every preset.
+UNIT_QUANTITIES: tuple[str, ...] = ("length", "energy", "angle", "charge", "mass", "time")
+UNIT_PRESETS: dict[str, dict[str, str | None]] = {
+    "real": dict(
+        zip(UNIT_QUANTITIES, ("angstrom", "kcal/mol", "radian", "e", "dalton", "fs"), strict=True)
+    ),
+    "metal": dict(
+        zip(UNIT_QUANTITIES, ("angstrom", "eV", "radian", "e", "dalton", "ps"), strict=True)
+    ),
+    "si": dict(zip(UNIT_QUANTITIES, ("m", "J", "radian", "C", "kg", "s"), strict=True)),
+    "cgs": dict(
+        zip(UNIT_QUANTITIES, ("cm", "erg", "radian", "statcoulomb", "g", "s"), strict=True)
+    ),
+    "electron": dict(
+        zip(UNIT_QUANTITIES, ("bohr", "hartree", "radian", "e", "dalton", "fs"), strict=True)
+    ),
+    "micro": dict(
+        zip(
+            UNIT_QUANTITIES,
+            (
+                "micrometer",
+                "picogram * micrometer**2 / microsecond**2",
+                "radian",
+                "picocoulomb",
+                "picogram",
+                "microsecond",
+            ),
+            strict=True,
+        )
+    ),
+    "nano": dict(
+        zip(
+            UNIT_QUANTITIES,
+            ("nm", "attogram * nm**2 / ns**2", "radian", "e", "attogram", "ns"),
+            strict=True,
+        )
+    ),
+    "lj": {**dict.fromkeys(UNIT_QUANTITIES), "angle": "radian"},
+}
+
+
+def style_block_name(category: str, style: str) -> str:
+    """The block a style's table lives at: ``<category>.<encoded style>``, every
+    byte of the UTF-8 style outside ``A-Z a-z 0-9 - _`` written ``%XX``."""
+    encoded = "".join(
+        chr(byte) if byte in _UNRESERVED else f"%{byte:02X}" for byte in style.encode("utf-8")
+    )
+    return f"{category}.{encoded}"
+
+
+def parse_style_block_name(name: str) -> tuple[str, str]:
+    """``(category, style)`` of a style table's block name; the inverse of
+    :func:`style_block_name`, refusing any other spelling."""
+    category, dot, encoded = name.partition(".")
+    if not dot or not category:
+        raise ValueError(f"{name!r} is no style table name (<category>.<style>)")
+    raw = bytearray()
+    i = 0
+    while i < len(encoded):
+        char = encoded[i]
+        if char == "%":
+            digits = encoded[i + 1 : i + 3]
+            if len(digits) != 2 or not all(c in "0123456789ABCDEF" for c in digits):
+                raise ValueError(f"{name!r}: {encoded[i : i + 3]!r} is no %XX escape")
+            raw.append(int(digits, 16))
+            i += 3
+            continue
+        if ord(char) not in _UNRESERVED:
+            raise ValueError(f"{name!r}: {char!r} is written as a %XX escape")
+        raw.append(ord(char))
+        i += 1
+    style = raw.decode("utf-8")
+    if style_block_name(category, style) != name:
+        raise ValueError(f"{name!r} escapes a byte it keeps verbatim")
+    return category, style
+
+
+def _same_unit(left: str, right: str) -> bool:
+    """Whether two unit strings name one unit: pint-equivalent when pint is
+    installed (an optional dependency), the same string otherwise."""
+    if left == right:
+        return True
+    try:
+        import pint
+    except ImportError:
+        return False
+    registry = _unit_registry(pint)
+    try:
+        a, b = registry.Quantity(1.0, left), registry.Quantity(1.0, right)
+        return a.dimensionality == b.dimensionality and math.isclose(
+            a.to(b.units).magnitude, 1.0, rel_tol=1e-12
+        )
+    except Exception:  # an unparseable unit is not equivalent to anything
+        return False
+
+
+_REGISTRY: list[Any] = []
+
+
+def _unit_registry(pint: Any) -> Any:
+    if not _REGISTRY:
+        _REGISTRY.append(pint.UnitRegistry())
+    return _REGISTRY[0]
+
+
+Category = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
+EndpointKey = Literal["type", "class", "smirks"]
+ParamValue = Annotated[float, Field(allow_inf_nan=False)] | str
+Weight = Annotated[float, Field(allow_inf_nan=False)]
+
+
+class ForceFieldUnitsModel(DocumentModel):
+    """``forcefield.units``: a preset, the unit of each quantity, or both.
+
+    The numbers of the section are in these units and a reader never
+    converts them. A quantity stated beside a preset is the preset's own
+    unit (pint-equivalent).
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "anyOf": [{"required": [key]} for key in ("preset", *UNIT_QUANTITIES)],
+        }
+    )
+
+    preset: Literal["real", "metal", "si", "cgs", "electron", "micro", "nano", "lj"] | None = None
+    length: str | None = None
+    energy: str | None = None
+    angle: str | None = None
+    charge: str | None = None
+    mass: str | None = None
+    time: str | None = None
+
+    @model_validator(mode="after")
+    def _stated_and_consistent(self) -> ForceFieldUnitsModel:
+        stated = {q: getattr(self, q) for q in UNIT_QUANTITIES if getattr(self, q) is not None}
+        if self.preset is None and not stated:
+            raise ValueError("units states a preset or at least one quantity")
+        if self.preset is not None:
+            table = UNIT_PRESETS[self.preset]
+            for quantity, unit in stated.items():
+                expected = table[quantity]
+                if expected is None or not _same_unit(unit, expected):
+                    raise ValueError(
+                        f"units: {quantity} {unit!r} disagrees with preset {self.preset!r} "
+                        f"({expected or 'no unit'})"
+                    )
+        return self
+
+
+class ForceFieldSourceModel(DocumentModel):
+    """``forcefield.source``: where the parameters came from."""
+
+    format: str
+    uri: str | None = None
+    sha256: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
+
+
+class SpecialBondsModel(BaseModel):
+    """``forcefield.special_bonds``: the 1-2 / 1-3 / 1-4 weights of the
+    van-der-Waals (``lj``) and electrostatic (``coul``) pair styles."""
+
+    model_config = ConfigDict(frozen=True, from_attributes=True, extra="forbid")
+
+    lj: tuple[Weight, Weight, Weight]
+    coul: tuple[Weight, Weight, Weight]
+
+
+class StyleModel(DocumentModel):
+    """One entry of ``forcefield.styles``: a functional form and its table.
+
+    The table is the block :attr:`block` -- a function of ``(category,
+    style)``, so the two can never disagree. ``params`` and ``endpoint_key``
+    are written only when they say something (non-empty, not ``"type"``).
+    """
+
+    category: Category
+    style: Annotated[str, Field(min_length=1)]
+    params: dict[str, ParamValue] = Field(default_factory=dict)
+    expression: str | None = None
+    endpoint_key: EndpointKey = "type"
+
+    @model_validator(mode="after")
+    def _reserved_params(self) -> StyleModel:
+        special = self.params.get("special")
+        if special is not None and special not in ("lj", "coul"):
+            raise ValueError(f"params.special is 'lj' or 'coul', found {special!r}")
+        mixing = self.params.get("mixing")
+        if mixing is not None and mixing not in MIXING_RULES:
+            raise ValueError(f"params.mixing is one of {MIXING_RULES}, found {mixing!r}")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _only_what_it_says(self, handler: Any) -> dict[str, Any]:
+        data = handler(self)
+        for name in type(self).model_fields:
+            if getattr(self, name) is None:
+                data.pop(name, None)
+        if not self.params:
+            data.pop("params", None)
+        if self.endpoint_key == "type":
+            data.pop("endpoint_key", None)
+        return data
+
+    @property
+    def block(self) -> str:
+        """The block name of this style's table."""
+        return style_block_name(self.category, self.style)
+
+    @property
+    def arity(self) -> int | None:
+        """How many endpoints a row names, for a known category."""
+        return CATEGORY_ARITY.get(self.category)
+
+
+def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) -> None:
+    """A style's table holds the rows the chapter says it does."""
+    where = f"table {style.block!r}"
+    if table.structural_shape is not None:
+        raise ValueError(f"{where} is a table of types; it declares no structural shape")
+    name = table.columns.get("name")
+    if name is None:
+        raise ValueError(f"{where} has no name column")
+    if name.dtype != "string" or name.validity is not None:
+        raise ValueError(f"{where}: name is a string never null, found {name.dtype}")
+    names = [] if name.values is None else [str(value) for value in name.values.tolist()]
+    if len(set(names)) != len(names):
+        raise ValueError(f"{where}: type names are unique, found {sorted(names)}")
+
+    present = [column for column in ENDPOINT_COLUMNS if column in table.columns]
+    if style.endpoint_key == "smirks":
+        smirks = table.columns.get("smirks")
+        if present or smirks is None or smirks.dtype != "string" or smirks.validity is not None:
+            raise ValueError(
+                f"{where} is smirks-keyed: no endpoint columns, and a smirks column never null"
+            )
+    elif style.arity is not None:
+        expected = list(ENDPOINT_COLUMNS[: style.arity])
+        if present != expected:
+            raise ValueError(
+                f"{where}: a {style.category} row names endpoints {expected}, found {present}"
+            )
+    elif present != list(ENDPOINT_COLUMNS[: len(present)]):
+        raise ValueError(f"{where}: endpoint columns {present} are no prefix of itom..ltom")
+    for endpoint in present:
+        column = table.columns[endpoint]
+        if column.dtype != "string" or column.validity is not None:
+            raise ValueError(f"{where}: endpoint {endpoint} is a string never null")
+
+    for column_name, column in table.columns.items():
+        if column_name == "name" or column_name in ENDPOINT_COLUMNS:
+            continue
+        canonical = CANONICAL_COLUMNS.get(column_name)
+        if column_name in ANNOTATION_COLUMNS:
+            allowed: tuple[str, ...] = ("string",)
+        elif canonical is not None:
+            allowed = (canonical,)
+        else:
+            allowed = ("f64", "string")
+        if column.dtype not in allowed or column.shape[1:] or column.precision is not None:
+            raise ValueError(
+                f"{where}: parameter {column_name!r} is {' or '.join(allowed)}[T], exact, found "
+                f"{column.dtype}{list(column.shape[1:]) or ''}"
+                + (" with a declared precision" if column.precision is not None else "")
+            )
+    if class_keyed and style.category == "atom" and "class" not in table.columns:
+        raise ValueError(
+            f"{where}: a class-keyed style links through atom classes; no class column"
+        )
+
+
+class ForceFieldModel(DocumentModel):
+    """The ``forcefield`` section: the document and one table per style.
+
+    Every field but ``tables`` is the document -- the group's attribute map,
+    unknown keys preserved (``extra="allow"``). ``tables`` maps a block name to
+    its style table; a table no style names is kept as unknown content.
+    Linking a system's types to these rows is by name and is never refused
+    here (``docs/spec/forcefield.md``, linking a system).
+    """
+
+    name: str
+    units: ForceFieldUnitsModel
+    source: ForceFieldSourceModel | None = None
+    special_bonds: SpecialBondsModel | None = None
+    styles: list[StyleModel] = Field(default_factory=list)
+    tables: dict[str, BlockModel] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _one_table_per_style(self) -> ForceFieldModel:
+        seen: set[tuple[str, str]] = set()
+        for style in self.styles:
+            key = (style.category, style.style)
+            if key in seen:
+                raise ValueError(f"style {style.category}/{style.style} is listed twice")
+            seen.add(key)
+        class_keyed = any(style.endpoint_key == "class" for style in self.styles)
+        for style in self.styles:
+            table = self.tables.get(style.block)
+            if table is None:
+                raise ValueError(
+                    f"style {style.category}/{style.style} has no table {style.block!r}"
+                )
+            _check_style_table(style, table, class_keyed)
+        return self
+
+    def document(self) -> dict[str, Any]:
+        """The document as the group attribute map stores it: every field but
+        ``tables``, extra keys included, plain and finite."""
+        return jsonvalue.check_document(self.model_dump(mode="json", exclude={"tables"}))
+
+
 #: The root sections of which a record must carry at least one beside ``meta``.
-SUBSTANTIVE_SECTIONS: tuple[str, ...] = ("frame", "system", "trajectory", "status")
+SUBSTANTIVE_SECTIONS: tuple[str, ...] = ("frame", "system", "trajectory", "forcefield", "status")
 
 
 class RecordModel(BaseModel):
     """The record root.
 
     ``meta`` is always present (an empty document is a valid one), plus at
-    least one of ``frame``, ``system``, ``trajectory`` or ``status``. Each of
+    least one of ``frame``, ``system``, ``trajectory``, ``forcefield`` or
+    ``status`` -- a record of ``meta`` and ``forcefield`` alone is a
+    force-field package. Each of
     those is a valid **sole** section beside ``meta``: a trajectory-only
     record is conforming and a reader must not require a frame beside it,
     because frames may embed full blocks including topology.
@@ -1873,6 +2227,7 @@ class RecordModel(BaseModel):
     frame: FrameModel | None = None
     system: FrameModel | None = None
     trajectory: TrajectoryModel | None = None
+    forcefield: ForceFieldModel | None = None
     status: StatusModel | None = None
     method: MethodModel | None = None
     metrics: NodeModel | None = None
@@ -1997,6 +2352,7 @@ class CollectionModel(BaseModel):
     ``sequence_schema`` -- stated, or derived from the first record that has a
     trajectory. ``index`` is a block of one row per record whose columns the
     writer derived from the records; it is handed back, never recomputed.
+    ``forcefield`` is the one force field every record links into.
     """
 
     model_config = ConfigDict(frozen=True, from_attributes=True, extra="forbid")
@@ -2004,6 +2360,7 @@ class CollectionModel(BaseModel):
     meta: CollectionMetaModel
     sequence_schema: SequenceSchemaModel | None = None
     index: BlockModel | None = None
+    forcefield: ForceFieldModel | None = None
     records: list[RecordModel] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -2011,13 +2368,13 @@ class CollectionModel(BaseModel):
         for r, record in enumerate(self.records):
             extra = [
                 section
-                for section in ("frame", "status", "method", "metrics", "observables")
+                for section in ("frame", "forcefield", "status", "method", "metrics", "observables")
                 if getattr(record, section) is not None
             ]
             if extra:
                 raise ValueError(
                     f"record {r} carries {extra}; a collection record holds meta, system and "
-                    "trajectory only"
+                    "trajectory only (its force field is the collection's)"
                 )
             if record.system is None and record.trajectory is None:
                 raise ValueError(f"record {r} has neither system nor trajectory")

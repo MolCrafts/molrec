@@ -1,0 +1,42 @@
+{
+  "forcefield": {
+    "name": "package",
+    "styles": [
+      {
+        "category": "atom",
+        "style": "full"
+      }
+    ],
+    "tables": {
+      "atom.full": {
+        "columns": {
+          "mass": {
+            "dtype": "f64",
+            "shape": [
+              1
+            ],
+            "values": [
+              1.0
+            ]
+          },
+          "name": {
+            "dtype": "string",
+            "shape": [
+              1
+            ],
+            "values": [
+              "A"
+            ]
+          }
+        },
+        "count": 1
+      }
+    },
+    "units": {
+      "preset": "real"
+    }
+  },
+  "meta": {
+    "molrec_version": 1
+  }
+}

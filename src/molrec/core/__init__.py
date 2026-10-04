@@ -5,8 +5,15 @@ Importing this package registers the core suite, bench, and bindings.
 
 from molrec.core import bench as _bench  # noqa: F401
 from molrec.core import bindings as _bindings  # noqa: F401
+from molrec.core import ffsuite as _ffsuite  # noqa: F401
 from molrec.core import suite as _suite  # noqa: F401
-from molrec.core.adapter import CollectionAdapter, FrameAdapter, RecordAdapter, TrajectoryAdapter
+from molrec.core.adapter import (
+    CollectionAdapter,
+    ForceFieldAdapter,
+    FrameAdapter,
+    RecordAdapter,
+    TrajectoryAdapter,
+)
 from molrec.core.model import (
     DTYPES,
     META_TAGS,
@@ -19,6 +26,9 @@ from molrec.core.model import (
     CollectionModel,
     ColumnModel,
     DType,
+    ForceFieldModel,
+    ForceFieldSourceModel,
+    ForceFieldUnitsModel,
     FrameModel,
     MetaModel,
     MetaSeriesModel,
@@ -28,11 +38,19 @@ from molrec.core.model import (
     SequenceBlockModel,
     SequenceColumnModel,
     SequenceSchemaModel,
+    SpecialBondsModel,
     StatusModel,
+    StyleModel,
     TrajectoryBoxModel,
     TrajectoryModel,
 )
-from molrec.core.store import CollectionStore, FrameStore, RecordStore, TrajectoryStore
+from molrec.core.store import (
+    CollectionStore,
+    ForceFieldStore,
+    FrameStore,
+    RecordStore,
+    TrajectoryStore,
+)
 
 __all__ = [
     "DTYPES",
@@ -48,6 +66,11 @@ __all__ = [
     "CollectionStore",
     "ColumnModel",
     "DType",
+    "ForceFieldAdapter",
+    "ForceFieldModel",
+    "ForceFieldSourceModel",
+    "ForceFieldStore",
+    "ForceFieldUnitsModel",
     "FrameAdapter",
     "FrameModel",
     "FrameStore",
@@ -61,7 +84,9 @@ __all__ = [
     "SequenceBlockModel",
     "SequenceColumnModel",
     "SequenceSchemaModel",
+    "SpecialBondsModel",
     "StatusModel",
+    "StyleModel",
     "TrajectoryAdapter",
     "TrajectoryBoxModel",
     "TrajectoryModel",

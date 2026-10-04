@@ -210,7 +210,7 @@ def _assert_clean(report: molrec.Report, module: str, implementation: str) -> No
     assert report.ok, report.table()
 
 
-CODEC_MATRIX = ["core", "record", TRAJECTORY_MODULE, "collection"]
+CODEC_MATRIX = ["core", "record", TRAJECTORY_MODULE, "collection", "forcefield"]
 
 #: ``core`` is deliberately absent: molrs ships no door for a bare frame at a
 #: store root, and `tests/molrs_adapter.py` says so in as many words. The

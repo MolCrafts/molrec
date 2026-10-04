@@ -27,6 +27,7 @@ everywhere else.
 |-----|-------|-------|
 | `meta` | JSON | layout tag, collection `meta`, `sequence_schema`, counts |
 | `index` | frame bytes | one block `records`, `R` rows |
+| `ff` | frame bytes | the collection's [force field](forcefield.md): `meta` = the document, `blocks` = the style tables; absent key = none |
 | `r` ‖ u64be(`r`) | JSON | record `r`'s `meta` document |
 | `s` ‖ u64be(`r`) | frame bytes | record `r`'s `system`; absent key = no system |
 | `f` ‖ u64be(`j`) | frame bytes | the trajectory update at global frame ordinal `j` |

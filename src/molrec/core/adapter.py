@@ -6,8 +6,20 @@ from abc import abstractmethod
 from typing import Any, ClassVar
 
 from molrec.adapter import Adapter
-from molrec.core.model import CollectionModel, FrameModel, RecordModel, TrajectoryModel
-from molrec.core.store import CollectionStore, FrameStore, RecordStore, TrajectoryStore
+from molrec.core.model import (
+    CollectionModel,
+    ForceFieldModel,
+    FrameModel,
+    RecordModel,
+    TrajectoryModel,
+)
+from molrec.core.store import (
+    CollectionStore,
+    ForceFieldStore,
+    FrameStore,
+    RecordStore,
+    TrajectoryStore,
+)
 
 
 class FrameAdapter(Adapter):
@@ -78,3 +90,16 @@ class CollectionAdapter(Adapter):
 
     @abstractmethod
     def read(self, store: CollectionStore) -> Any: ...
+
+
+class ForceFieldAdapter(Adapter):
+    """Same contract for a force field: the ``forcefield`` section beside a
+    stamped ``meta`` (``docs/spec/forcefield.md``)."""
+
+    module: ClassVar[str] = "forcefield"
+
+    @abstractmethod
+    def write(self, model: ForceFieldModel, store: ForceFieldStore) -> None: ...
+
+    @abstractmethod
+    def read(self, store: ForceFieldStore) -> Any: ...

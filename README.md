@@ -51,17 +51,18 @@ codes invent different formats. MolRec provides one language-agnostic contract:
 +-- system                # optional — system definition (no required xyz)
 +-- frame                 # optional — instantaneous snapshot
 +-- trajectory            # optional — frame sequence
++-- forcefield            # optional — force-field parameters (document + style tables)
 +-- observables           # optional — scientific results
 +-- status                # optional — lifecycle / progress (run surface)
 +-- metrics               # optional — append-only run measurements
 +-- method                # optional — scientific / training context
 ```
 
-Force-field parameters: see the [force field](docs/spec/forcefield.md) chapter; how a job was run lives under `method`.
+Force-field parameters live in the [`forcefield`](docs/spec/forcefield.md) section; how a job was run lives under `method`.
 
 `meta` is mandatory (an empty document is valid); `system` and `frame` are
 optional. A record also includes **at least one of** `frame`, `system`,
-`trajectory`, or `status`. A **Run**-shaped record (`meta` + `status`) is
+`trajectory`, `forcefield`, or `status`. A **Run**-shaped record (`meta` + `status`) is
 valid on its own; a trajectory-only record (`meta` + `trajectory`) is
 equally valid, and trajectory may omit `system/`. The cell is **Box**.
 Every writer stamps `meta["molrec_version"]` (currently `1`); readers
