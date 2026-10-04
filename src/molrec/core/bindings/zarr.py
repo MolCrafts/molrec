@@ -44,6 +44,7 @@ import numpy as np
 import zarr
 from zarr.codecs import Crc32cCodec, GzipCodec
 
+from molrec import jsonvalue
 from molrec.binding import Binding, Codec
 from molrec.chunking import (
     DENSE_CHUNKS_PER_SHARD,
@@ -72,8 +73,8 @@ from molrec.core.model import (
     StatusModel,
     TrajectoryBoxModel,
     TrajectoryModel,
+    coerce_meta_value,
     dtype_of,
-    meta_tag,
     revalidated,
     stamp_version,
 )
@@ -784,9 +785,11 @@ class ZarrTrajectoryCodec(Codec):
             # a fill is the ``sequence_schema`` attribute's.
             values = [frame.meta[key] for frame in model.frames]
             if series.dtype == "json":
-                array[...] = np.asarray([json.dumps(value) for value in values], dtype="str")
+                array[...] = np.asarray([jsonvalue.dumps(value) for value in values], dtype="str")
             else:
-                array[...] = np.asarray(values, dtype=NUMPY_DTYPE[series.element_dtype])
+                array[...] = np.asarray(values, dtype=NUMPY_DTYPE[series.element_dtype]).reshape(
+                    (len(values), *series.shape)
+                )
 
     def _read_meta(
         self, group: zarr.Group, nstep: int, declaration: SequenceSchemaModel | None
@@ -800,9 +803,19 @@ class ZarrTrajectoryCodec(Codec):
         for name, array in group[META_GROUP].members():
             if not isinstance(array, zarr.Array):
                 continue
-            fallback = meta_tag(dtype_of(np.dtype(array.dtype)), tuple(array.shape[1:]))
-            tag = array.attrs.get(META_DTYPE_ATTR, fallback)
+            tag = array.attrs.get(META_DTYPE_ATTR)
+            if tag is None:
+                raise ValueError(
+                    f"meta/{name} carries no {META_DTYPE_ATTR} attribute; its per-step values "
+                    "cannot be read back exactly"
+                )
             series = pinned.get(name, MetaSeriesModel(dtype=tag))
+            element, shape = series.element_dtype, series.shape
+            if dtype_of(np.dtype(array.dtype)) != element or tuple(array.shape[1:]) != shape:
+                raise ValueError(
+                    f"meta/{name} is stored as {array.dtype}{list(array.shape[1:])}, but its tag "
+                    f"{tag!r} is {element}{list(shape)}"
+                )
             if series.dtype != tag:
                 raise ValueError(
                     f"meta/{name}: {META_DTYPE_ATTR} is {tag!r} but the pinned declaration says "
@@ -812,8 +825,8 @@ class ZarrTrajectoryCodec(Codec):
             rows = _logical(array, nstep, f"{META_GROUP}/{name}")
             for ordinal in range(nstep):
                 value = rows[ordinal]
-                values[ordinal][name] = (
-                    json.loads(str(value)) if tag == "json" else np.asarray(value).tolist()
+                values[ordinal][name] = coerce_meta_value(
+                    tag, json.loads(str(value)) if tag == "json" else value
                 )
         return declared, values
 

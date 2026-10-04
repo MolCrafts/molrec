@@ -21,7 +21,6 @@ from molrec.core.model import (
     SequenceBlockModel,
     SequenceColumnModel,
     SequenceSchemaModel,
-    meta_tag,
     meta_tag_parts,
 )
 
@@ -32,6 +31,5 @@ __all__ = [
     "SequenceBlockModel",
     "SequenceColumnModel",
     "SequenceSchemaModel",
-    "meta_tag",
     "meta_tag_parts",
 ]

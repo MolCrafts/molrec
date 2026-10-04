@@ -95,19 +95,35 @@ below holds **frame ordinals** `0 .. nstep-1`, not those counters. See
 
 Frame metadata that varies per step lands as one typed array per key under
 `trajectory/meta/`, of shape `[nstep]` for a scalar or `[nstep][3|6|9]` for a
-fixed vector. Each array carries the attribute `meta_dtype`, whose value is
-the exact tag of the values it holds.
+fixed vector. Each array **MUST** carry the attribute `meta_dtype`, whose
+value is the exact tag of the values it holds; a reader refuses an array
+without one, and an array whose stored dtype or trailing shape is not the
+one its tag names.
 
-The tag set is closed:
+The tag set is closed — exactly these sixteen:
 
-| Tag | Value per step |
-|-----|----------------|
-| one of the 15 column [dtypes](frame.md#data-types) | a scalar |
-| `<t>x3`, `<t>x6`, `<t>x9` for numeric `t` (`f64x3`, `i64x6`, `u32x9`, …) | a fixed vector of `t` |
-| `bool3` | three booleans |
-| `json` | one UTF-8 JSON document; physically a `string` array |
+| Tag | Stored as, per step | Value |
+|-----|---------------------|-------|
+| `bool` | `bool` | a boolean |
+| `i32`, `i64` | `i32`, `i64` | a signed integer |
+| `u32`, `u64` | `u32`, `u64` | an unsigned integer |
+| `f64` | `f64` | a binary64 real |
+| `string` | `string` | a UTF-8 string |
+| `json` | `string` | one UTF-8 JSON document |
+| `bool3` | `bool[3]` | three booleans |
+| `i32x3`, `i64x3` | `i32[3]`, `i64[3]` | three signed integers |
+| `u32x3`, `u64x3` | `u32[3]`, `u64[3]` | three unsigned integers |
+| `f64x3`, `f64x6`, `f64x9` | `f64[3]`, `f64[6]`, `f64[9]` | a vector, a Voigt tensor, a 3×3 matrix (row-major) |
 
-`json` is a **meta** tag only: a block column never carries it. The
+There is no `f32` tag, no complex tag, and no other width: a value that
+needs one belongs in a block column. `json` is a **meta** tag only: a block
+column never carries it.
+
+A value is held **exactly** to its tag. A writer coerces what a producer
+hands it only where that is exact — an integer given for an `f64` key is
+that real — and refuses everything else: a real for an integer tag, an
+integer out of the tag's range, a boolean for a number, a vector of the
+wrong width, a `json` value that is not finite JSON. The
 standard per-step scalar keys (`pe`, `ke`, `etotal`, `temp`, `press`,
 `volume`, all `f64`) are [Standardized identifiers](conventions.md#per-step-scalars).
 
@@ -118,6 +134,12 @@ that key was declared with an explicit fill value. **There is no implicit
 the declaration — tag and fill — is recorded in the pinned
 [`sequence_schema`](#the-pinned-declaration). The array itself does not
 mark which steps were filled.
+
+A fill is a value of its tag, held to the same rules, and written in the
+[typed JSON form](conventions.md#typed-json-values) (`"NaN"` for a NaN
+`f64`, a decimal string for an integer beyond ±2⁵³). `fill` **absent**
+declares no fill; `fill: null` declares the JSON document `null` and is
+valid only for a `json` key.
 
 ### The cell
 

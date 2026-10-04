@@ -182,3 +182,35 @@ preserves others.
 `molecule_id` is what keeps two records of one molecule on the same side of
 a train/test split. Two records carry equal `molecule_id` exactly when they
 describe the same molecule.
+
+## Typed JSON values
+
+JSON has no NaN, no infinity, no complex number, and a reader whose numbers
+are binary64 (JavaScript, a wasm viewer) silently rounds an integer beyond
+2⁵³. Wherever a JSON value has a declared dtype — a per-step `fill` in
+`sequence_schema`, a per-step value in an [LMDB](lmdb.md) frame header, a
+value in a live observables WAL row — it is written in exactly one form:
+
+| Element dtype | JSON form |
+|---------------|-----------|
+| `f64` | a JSON number when finite; the strings `"NaN"`, `"Infinity"`, `"-Infinity"` otherwise |
+| `c64`, `c128` | a two-element array `[re, im]`, each part an `f64` as above |
+| an integer dtype | a JSON number when `|v| ≤ 2⁵³`; its decimal string (`"18446744073709551615"`) beyond |
+| `bool`, `string` | itself |
+| `json` (meta tag) | the document itself, which must be finite JSON |
+
+A vector tag (`f64x3`, `u64x3`, …) is a JSON array of its elements, each in
+the form above.
+
+- A writer serializes every document with NaN and infinity forbidden
+  (`allow_nan=False` or its equivalent) and hands numbers over as plain
+  JSON numbers, never as a language's native scalar type.
+- A reader accepts exactly these forms, plus an exact JSON integer beyond
+  2⁵³ (what a writer with 64-bit integers may emit), and refuses everything
+  else: `null` where a number is declared is a broken value, not a NaN, and
+  a real where an integer is declared is not rounded.
+- A value is held to its dtype's range: an `i32` fill of `2³¹` is refused.
+
+An untyped document — `meta`, `status`, `method`, a frame's `meta` — has no
+declared dtype; its numbers are plain JSON and a producer that needs NaN in
+one stores it as data, not as a document key.

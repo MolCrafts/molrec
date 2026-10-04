@@ -24,7 +24,7 @@ from molrec.core.model import (
     SequenceColumnModel,
     StatusModel,
     TrajectoryModel,
-    meta_tag,
+    coerce_meta_value,
     meta_tag_parts,
     stamp_version,
 )
@@ -98,18 +98,86 @@ class TestRecordModel:
 
 
 class TestMetaTags:
-    def test_the_set_is_the_ruled_one(self) -> None:
-        # 13 column dtypes + 11 numeric dtypes x {3, 6, 9} + bool3 + json
-        assert len(META_TAGS) == 13 + 11 * 3 + 1 + 1
-        assert {"f64x3", "i64x6", "u8x9", "c128x3", "bool3", "json"} <= set(META_TAGS)
-        assert "boolx3" not in META_TAGS and "stringx3" not in META_TAGS
+    def test_the_set_is_the_reference_implementations_sixteen(self) -> None:
+        assert META_TAGS == (
+            "bool", "i32", "i64", "u32", "u64", "f64", "string", "json",
+            "bool3", "i32x3", "i64x3", "u32x3", "u64x3", "f64x3", "f64x6", "f64x9",
+        )  # fmt: skip
 
-    def test_parts_and_back(self) -> None:
+    def test_parts(self) -> None:
         assert meta_tag_parts("f64x3") == ("f64", (3,))
         assert meta_tag_parts("bool3") == ("bool", (3,))
         assert meta_tag_parts("json") == ("string", ())
-        assert meta_tag("bool", (3,)) == "bool3"
-        assert meta_tag("f64", (9,)) == "f64x9"
+        with pytest.raises(ValueError, match="closed set"):
+            meta_tag_parts("i64x6")
+
+    @pytest.mark.parametrize(
+        ("tag", "value", "coerced"),
+        [
+            ("f64", 1, 1.0),
+            ("f64", np.float64(0.5), 0.5),
+            ("i32", np.int64(-3), -3),
+            ("u64", 2**64 - 1, 2**64 - 1),
+            ("f64x3", (1, 2, 3), [1.0, 2.0, 3.0]),
+            ("bool3", np.array([True, False, True]), [True, False, True]),
+            ("json", {"a": [1, None]}, {"a": [1, None]}),
+        ],
+    )
+    def test_a_value_is_coerced_to_its_tag(self, tag: str, value: object, coerced: object) -> None:
+        result = coerce_meta_value(tag, value)
+        assert result == coerced and type(result) is type(coerced)
+
+    @pytest.mark.parametrize(
+        ("tag", "value"),
+        [
+            ("i64", 1.0),
+            ("i32", 2**31),
+            ("u32", -1),
+            ("bool", 1),
+            ("f64", True),
+            ("f64x3", [1.0, 2.0]),
+            ("i32x3", [1, 2, 3, 4]),
+            ("string", 3),
+            ("json", float("nan")),
+        ],
+    )
+    def test_a_value_that_is_not_one_of_its_tag_is_refused(self, tag: str, value: object) -> None:
+        with pytest.raises(ValueError):
+            coerce_meta_value(tag, value)
+
+    def test_a_fill_is_declared_by_stating_it(self) -> None:
+        assert MetaSeriesModel(dtype="json", fill=None).has_fill
+        assert not MetaSeriesModel(dtype="json").has_fill
+        assert MetaSeriesModel(dtype="json", fill=None) != MetaSeriesModel(dtype="json")
+        assert MetaSeriesModel(dtype="json", fill=None).model_dump(mode="json") == {
+            "dtype": "json",
+            "fill": None,
+        }
+        with pytest.raises(ValidationError):
+            MetaSeriesModel(dtype="f64", fill=None)
+
+    def test_a_fill_round_trips_through_its_json_form(self) -> None:
+        nan = MetaSeriesModel(dtype="f64", fill=float("nan"))
+        assert nan.model_dump(mode="json") == {"dtype": "f64", "fill": "NaN"}
+        assert MetaSeriesModel.model_validate(nan.model_dump(mode="json")) == nan
+        big = MetaSeriesModel(dtype="u64x3", fill=[2**64 - 1, 0, 1])
+        assert big.model_dump(mode="json")["fill"] == ["18446744073709551615", 0, 1]
+        assert MetaSeriesModel.model_validate(big.model_dump(mode="json")) == big
+
+    def test_frame_values_are_coerced_on_the_way_in(self) -> None:
+        trajectory = TrajectoryModel(
+            frames=[FrameModel(meta={"pe": 1, "com": (0, 0, 1)})],
+            step=[0],
+            meta={"pe": MetaSeriesModel(dtype="f64"), "com": MetaSeriesModel(dtype="f64x3")},
+        )
+        assert trajectory.frames[0].meta == {"pe": 1.0, "com": [0.0, 0.0, 1.0]}
+        assert type(trajectory.frames[0].meta["pe"]) is float
+        with pytest.raises(ValidationError, match="declared"):
+            TrajectoryModel(
+                frames=[FrameModel(meta={"pe": 1.5})],
+                step=[0],
+                meta={"pe": MetaSeriesModel(dtype="i64")},
+            )
 
     def test_json_is_a_meta_tag_not_a_column_dtype(self) -> None:
         assert MetaSeriesModel(dtype="json").element_dtype == "string"

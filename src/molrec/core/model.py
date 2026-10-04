@@ -20,8 +20,17 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, WithJsonSchema, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    WithJsonSchema,
+    model_serializer,
+    model_validator,
+)
 
+from molrec import jsonvalue
 from molrec.arrays import NDArray, arrays_equal
 
 DType = Literal[
@@ -66,9 +75,6 @@ DTYPES: tuple[DType, ...] = (
     "c128",
 )
 
-#: The dtypes a fixed-width per-step vector may hold: everything numeric.
-NUMERIC_DTYPES: tuple[DType, ...] = tuple(d for d in DTYPES if d not in ("bool", "string"))
-
 #: The in-memory equivalent of each spec dtype.
 NUMPY_DTYPE: dict[DType, str] = {
     "f64": "float64",
@@ -111,53 +117,85 @@ def dtype_of(dtype: np.dtype) -> DType:
 # Per-step meta tags
 # ---------------------------------------------------------------------------
 
-#: The widths a per-step vector may have. Anything ragged belongs in a block,
-#: which is what blocks are.
-META_VECTOR_WIDTHS: tuple[int, ...] = (3, 6, 9)
-
 #: The closed tag set a per-step ``meta`` key is declared with
-#: (``docs/spec/ragged.md``, per-step metadata): the fifteen column dtypes, a
-#: fixed-width vector of any numeric dtype (``f64x3``, ``i64x6``, ``u32x9``),
-#: the one boolean vector ``bool3``, and ``json`` -- one UTF-8 JSON document
-#: per step, physically a ``string`` array. ``json`` is a **meta** tag only; a
-#: column never carries it.
-META_TAGS: tuple[str, ...] = (
-    *DTYPES,
-    *(f"{dtype}x{width}" for dtype in NUMERIC_DTYPES for width in META_VECTOR_WIDTHS),
-    "bool3",
-    "json",
-)
+#: (``docs/spec/ragged.md``, per-step metadata) -- exactly the reference
+#: implementation's sixteen, each the element dtype and trailing shape one
+#: step's value is stored as. ``json`` is one UTF-8 JSON document per step,
+#: physically a ``string`` array, and a **meta** tag only: a column never
+#: carries it.
+META_LAYOUT: dict[str, tuple[DType, tuple[int, ...]]] = {
+    "bool": ("bool", ()),
+    "i32": ("i32", ()),
+    "i64": ("i64", ()),
+    "u32": ("u32", ()),
+    "u64": ("u64", ()),
+    "f64": ("f64", ()),
+    "string": ("string", ()),
+    "json": ("string", ()),
+    "bool3": ("bool", (3,)),
+    "i32x3": ("i32", (3,)),
+    "i64x3": ("i64", (3,)),
+    "u32x3": ("u32", (3,)),
+    "u64x3": ("u64", (3,)),
+    "f64x3": ("f64", (3,)),
+    "f64x6": ("f64", (6,)),
+    "f64x9": ("f64", (9,)),
+}
+
+META_TAGS: tuple[str, ...] = tuple(META_LAYOUT)
 
 MetaTag = Literal[*META_TAGS]
 
 
 def meta_tag_parts(tag: str) -> tuple[DType, tuple[int, ...]]:
-    """The element dtype and trailing shape a per-step tag stands for.
-
-    ``json`` is stored as ``string``; ``bool3`` is the only vector spelled
-    without an ``x``, the reference implementation's spelling included.
-    """
-    if tag not in META_TAGS:
+    """The element dtype and trailing shape a per-step tag stands for."""
+    if tag not in META_LAYOUT:
         raise ValueError(f"per-step meta tag {tag!r} is not one of the closed set {META_TAGS}")
+    return META_LAYOUT[tag]
+
+
+def coerce_meta_value(tag: str, value: Any) -> Any:
+    """One step's value exactly as ``tag`` declares it, or a ``ValueError``.
+
+    A scalar becomes the Python value of its element dtype (an ``f64`` given
+    as ``1`` is ``1.0``; an integer given as ``1.0`` is refused, not
+    rounded), a vector a list of exactly its width, a ``json`` value a plain
+    finite JSON document. What a writer stores is what this returns, so two
+    implementations that were handed the same Python value store the same
+    thing.
+    """
     if tag == "json":
-        return "string", ()
-    if tag == "bool3":
-        return "bool", (3,)
-    if "x" in tag:
-        dtype, width = tag.split("x")
-        return dtype, (int(width),)  # type: ignore[return-value]
-    return tag, ()  # type: ignore[return-value]
-
-
-def meta_tag(dtype: DType, shape: tuple[int, ...] = ()) -> str:
-    """The inverse of :func:`meta_tag_parts` for a dtype plus trailing shape."""
+        return jsonvalue.check_document(value)
+    element, shape = meta_tag_parts(tag)
     if not shape:
-        return dtype
-    width = shape[0]
-    tag = f"{dtype}{width}" if dtype == "bool" else f"{dtype}x{width}"
-    if tag not in META_TAGS:
-        raise ValueError(f"no per-step meta tag for {dtype!r} with trailing shape {shape}")
-    return tag
+        return jsonvalue.coerce(element, value)
+    items = jsonvalue.plain(value)
+    if not isinstance(items, list) or len(items) != shape[0]:
+        raise ValueError(f"a {tag} value is {shape[0]} elements, found {value!r}")
+    return [jsonvalue.coerce(element, item) for item in items]
+
+
+def encode_meta_value(tag: str, value: Any) -> Any:
+    """One step's value in its typed JSON form (:mod:`molrec.jsonvalue`)."""
+    if tag == "json":
+        return jsonvalue.check_document(value)
+    element, shape = meta_tag_parts(tag)
+    value = coerce_meta_value(tag, value)
+    if not shape:
+        return jsonvalue.encode(element, value)
+    return [jsonvalue.encode(element, item) for item in value]
+
+
+def decode_meta_value(tag: str, raw: Any) -> Any:
+    """The inverse of :func:`encode_meta_value`; refuses any other form."""
+    if tag == "json":
+        return jsonvalue.check_document(raw)
+    element, shape = meta_tag_parts(tag)
+    if not shape:
+        return jsonvalue.decode(element, raw)
+    if not isinstance(raw, list) or len(raw) != shape[0]:
+        raise ValueError(f"a {tag} value is {shape[0]} elements, found {raw!r}")
+    return [jsonvalue.decode(element, item) for item in raw]
 
 
 class ColumnModel(BaseModel):
@@ -329,24 +367,39 @@ class MetaSeriesModel(BaseModel):
     """One per-step meta key, declared once for the whole sequence.
 
     ``dtype`` is a tag from the closed per-step set (:data:`META_TAGS`): a
-    column dtype for a scalar, ``f64x3`` / ``bool3`` / ... for a fixed-width
-    vector, ``json`` for one JSON document per step. The tag is what makes
-    the value exact: two runs both handing back ``1`` are not the same run if
-    one wrote i32 and the other u64, and nothing in the value says which.
+    scalar dtype, ``f64x3`` / ``bool3`` / ... for a fixed-width vector,
+    ``json`` for one JSON document per step. The tag is what makes the value
+    exact: two runs both handing back ``1`` are not the same run if one wrote
+    i32 and the other u64, and nothing in the value says which.
 
     ``fill`` is the only thing that lets a frame omit the key. A key declared
     without one must be supplied by every frame -- there is **no implicit
     NaN**, so a gap a producer did not declare is refused rather than
-    invented. The fill is materialized into the array at the omitting step
-    *and* recorded in the pinned sequence declaration
-    (``trajectory`` attribute ``sequence_schema``), so a reader that opens the
-    declaration can hand it back.
+    invented. The fill is coerced to the tag (:func:`coerce_meta_value`),
+    materialized into the array at the omitting step *and* recorded in the
+    pinned sequence declaration (``trajectory`` attribute
+    ``sequence_schema``), so a reader that opens the declaration can hand it
+    back.
+
+    A fill is declared by **stating** it: ``fill=None`` on a ``json`` key
+    declares the JSON document ``null``, while leaving ``fill`` out declares
+    no fill (:attr:`has_fill`). ``null`` is a fill for ``json`` only.
     """
 
     model_config = ConfigDict(frozen=True, from_attributes=True)
 
     dtype: MetaTag
-    fill: Any | None = None
+    fill: Any = Field(
+        default=None,
+        description="The value an omitting frame is completed with, in the typed JSON form "
+        "of its tag. Absent means no fill; null is a fill only for json.",
+        json_schema_extra=lambda schema: schema.pop("default", None),
+    )
+
+    @property
+    def has_fill(self) -> bool:
+        """Whether a fill was declared -- ``fill is None`` alone cannot say."""
+        return "fill" in self.model_fields_set
 
     @property
     def element_dtype(self) -> DType:
@@ -357,6 +410,45 @@ class MetaSeriesModel(BaseModel):
     def shape(self) -> tuple[int, ...]:
         """The trailing shape of one step's value: ``()`` or ``(3|6|9,)``."""
         return meta_tag_parts(self.dtype)[1]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _fill_arrives_in_its_json_form(cls, data: Any) -> Any:
+        """A fill read from a store is in the typed JSON form; one built in
+        Python is already a value. Both reach the same coerced value."""
+        if isinstance(data, dict) and "fill" in data and isinstance(data.get("dtype"), str):
+            tag, fill = data["dtype"], data["fill"]
+            typed = tag in META_LAYOUT and tag not in ("json", "string")
+            if typed and isinstance(fill, (str, list)):
+                return {**data, "fill": decode_meta_value(tag, fill)}
+        return data
+
+    @model_validator(mode="after")
+    def _fill_is_a_value_of_the_tag(self) -> MetaSeriesModel:
+        if self.has_fill:
+            object.__setattr__(self, "fill", coerce_meta_value(self.dtype, self.fill))
+        return self
+
+    @model_serializer(mode="wrap")
+    def _fill_only_when_declared(self, handler: Any, info: Any) -> dict[str, Any]:
+        data = handler(self)
+        data.pop("fill", None)
+        if self.has_fill:
+            data["fill"] = (
+                encode_meta_value(self.dtype, self.fill) if info.mode == "json" else self.fill
+            )
+        return data
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, MetaSeriesModel):
+            return NotImplemented
+        return (
+            self.dtype == other.dtype
+            and self.has_fill == other.has_fill
+            and (not self.has_fill or jsonvalue.same(self.fill, other.fill))
+        )
+
+    __hash__ = None  # type: ignore[assignment]
 
 
 class SequenceColumnModel(BaseModel):
@@ -645,19 +737,24 @@ class TrajectoryModel(BaseModel):
                     f"frame {ordinal} carries per-step meta {undeclared} that the sequence never "
                     "declared; a meta key is declared once, when the sequence is created"
                 )
-            fills = {}
+            completed: dict[str, Any] = {}
             for key, series in self.meta.items():
                 if key in frame.meta:
+                    try:
+                        completed[key] = coerce_meta_value(series.dtype, frame.meta[key])
+                    except ValueError as exc:
+                        raise ValueError(
+                            f"frame {ordinal}: meta key {key!r} is declared {series.dtype!r}, "
+                            f"and its value is not one: {exc}"
+                        ) from None
                     continue
-                if series.fill is None:
+                if not series.has_fill:
                     raise ValueError(
                         f"frame {ordinal} omits declared meta key {key!r}, which was declared "
                         "without a fill value -- there is no implicit NaN"
                     )
-                fills[key] = series.fill
-            resolved.append(
-                frame.model_copy(update={"meta": {**frame.meta, **fills}}) if fills else frame
-            )
+                completed[key] = series.fill
+            resolved.append(frame.model_copy(update={"meta": completed}))
         object.__setattr__(self, "frames", resolved)
         return self
 

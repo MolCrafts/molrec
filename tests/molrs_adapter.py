@@ -166,7 +166,7 @@ def _declared_schema(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSch
                 if block.structural_shape is not None:
                     schema.declare_structural_shape(name, list(block.structural_shape))
     for key, series in model.meta.items():
-        if series.fill is not None:
+        if series.has_fill:
             schema.declare_meta_with_fill(key, series.fill, dtype=_tag(series.dtype))
         else:
             schema.declare_meta(key, _tag(series.dtype))

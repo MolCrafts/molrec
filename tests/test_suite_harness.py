@@ -166,7 +166,7 @@ class DropsFills(CodecAdapter):
                 meta={
                     key: value
                     for key, value in frame.meta.items()
-                    if model.meta[key].fill is None or value != model.meta[key].fill
+                    if not model.meta[key].has_fill or value != model.meta[key].fill
                 },
             )
             for frame in model.frames

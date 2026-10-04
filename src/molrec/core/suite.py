@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from molrec.case import Case
 from molrec.compare import diff, lookup
 from molrec.core.model import (
+    META_TAGS,
     MOLREC_VERSION,
     NUMPY_DTYPE,
     BlockModel,
@@ -301,6 +302,15 @@ def _narrow(path: str, dtype: str = "float32") -> Any:
     return tamper
 
 
+def _carries(value: Any, name: str) -> bool:
+    """Whether a returned duck states ``name`` at all (``fill`` may be ``null``)."""
+    if isinstance(value, MetaSeriesModel):
+        return value.has_fill if name == "fill" else True
+    if isinstance(value, dict):
+        return name in value
+    return hasattr(value, name)
+
+
 def _undeclared_as_returned(expected: TrajectoryModel, actual: Any) -> TrajectoryModel:
     """``expected`` without the parts of the declaration ``actual`` does not surface."""
     update: dict[str, Any] = {}
@@ -310,8 +320,8 @@ def _undeclared_as_returned(expected: TrajectoryModel, actual: Any) -> Trajector
     declared = {}
     for key, series in expected.meta.items():
         returned = lookup(returned_meta, key)
-        surfaced = returned is None or lookup(returned, "fill") is not None
-        declared[key] = series if surfaced else series.model_copy(update={"fill": None})
+        surfaced = returned is None or _carries(returned, "fill")
+        declared[key] = series if surfaced else MetaSeriesModel(dtype=series.dtype)
     if declared != expected.meta:
         update["meta"] = declared
     return expected.model_copy(update=update) if update else expected
@@ -475,6 +485,52 @@ class TrajectorySuite(Suite):
                     "stress": MetaSeriesModel(dtype="f64x6"),
                     "flags": MetaSeriesModel(dtype="bool3"),
                 },
+            ),
+        )
+
+        every_tag = {
+            "flag": True,
+            "count": -7,
+            "big": -(2**40),
+            "small": 7,
+            "id": 2**64 - 1,
+            "pe": -1.25,
+            "phase": "nvt",
+            "note": {"restarts": [1, 2]},
+            "pbc": [True, False, True],
+            "image": [-1, 0, 1],
+            "shift": [-(2**40), 0, 2**40],
+            "grid": [1, 2, 3],
+            "ids": [0, 2**63, 2**64 - 1],
+            "com": [0.0, 0.5, 1.0],
+            "stress": [1.0, 2.0, 3.0, 0.1, 0.2, 0.3],
+            "cell": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        }
+        tags = dict(zip(every_tag, META_TAGS, strict=True))
+        yield Case(
+            id="every-meta-tag",
+            exercises="each of the sixteen per-step tags keeps its exact element type and width",
+            model=TrajectoryModel(
+                frames=[
+                    FrameModel(blocks={"atoms": _atoms(0.0)}, meta=every_tag),
+                    FrameModel(blocks={"atoms": _atoms(0.5)}, meta=every_tag),
+                ],
+                step=[0, 1],
+                meta={key: MetaSeriesModel(dtype=tag) for key, tag in tags.items()},
+            ),
+        )
+
+        yield Case(
+            id="json-null-fill",
+            exercises="a json key may declare the document null as its fill; stating null is "
+            "not the same as declaring no fill",
+            model=TrajectoryModel(
+                frames=[
+                    FrameModel(blocks={"atoms": _atoms(0.0)}, meta={"note": {"ok": True}}),
+                    FrameModel(blocks={"atoms": _atoms(0.5)}, meta={}),
+                ],
+                step=[0, 1],
+                meta={"note": MetaSeriesModel(dtype="json", fill=None)},
             ),
         )
 

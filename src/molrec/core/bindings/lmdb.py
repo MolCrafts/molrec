@@ -43,11 +43,12 @@ from molrec.core.model import (
     ColumnModel,
     FrameModel,
     MetaModel,
-    MetaSeriesModel,
     RecordModel,
     SequenceSchemaModel,
     TrajectoryBoxModel,
     TrajectoryModel,
+    decode_meta_value,
+    encode_meta_value,
     revalidated,
     stamp_version,
 )
@@ -229,27 +230,6 @@ def decode_frame(value: bytes | memoryview) -> FrameBytes:
     )
 
 
-def _step_meta_out(value: Any, series: MetaSeriesModel) -> Any:
-    """A per-step value as JSON, at its declared exact type."""
-    if series.dtype == "json":
-        return value
-    array = np.asarray(value, dtype=NUMPY_DTYPE[series.element_dtype])
-    if np.iscomplexobj(array):
-        return np.stack([array.real, array.imag], axis=-1).tolist()
-    return array.tolist()
-
-
-def _step_meta_in(value: Any, series: MetaSeriesModel) -> Any:
-    if series.dtype == "json":
-        return value
-    if series.element_dtype in ("c64", "c128"):
-        pairs = np.asarray(value, dtype="float64")
-        return (
-            (pairs[..., 0] + 1j * pairs[..., 1]).astype(NUMPY_DTYPE[series.element_dtype]).tolist()
-        )
-    return np.asarray(value, dtype=NUMPY_DTYPE[series.element_dtype]).tolist()
-
-
 # ---------------------------------------------------------------------------
 # Stores
 # ---------------------------------------------------------------------------
@@ -391,7 +371,7 @@ class LmdbCollectionCodec(Codec):
                 name: block for name, block in frame.blocks.items() if carried.get(name) != block
             }
             carried.update(frame.blocks)
-            meta = {k: _step_meta_out(v, schema.meta[k]) for k, v in frame.meta.items()}
+            meta = {k: encode_meta_value(schema.meta[k].dtype, v) for k, v in frame.meta.items()}
             values.append(
                 encode_frame(
                     changed,
@@ -466,7 +446,10 @@ class LmdbCollectionCodec(Codec):
                 frames.append(
                     FrameModel(
                         blocks=decoded.blocks,
-                        meta={k: _step_meta_in(v, schema.meta[k]) for k, v in decoded.meta.items()},
+                        meta={
+                            k: decode_meta_value(schema.meta[k].dtype, v)
+                            for k, v in decoded.meta.items()
+                        },
                     )
                 )
                 steps.append(int(decoded.step))
