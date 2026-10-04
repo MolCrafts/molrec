@@ -8,7 +8,7 @@ Layout::
 
     <frame root>/               group attributes = the frame's meta document, each value
     │                           in its typed JSON form, plus _meta_types {key: tag}
-    ├── <block>/                group attributes: count, structural_shape
+    ├── <block>/                group attributes: count, structural_shape, targets
     │   └── <column>            array (attribute precision, when declared)
     └── box/                    group attribute cell_defined, only when false
         ├── vectors             f64[3][3]
@@ -80,6 +80,7 @@ from molrec.core.model import (
     StatusModel,
     TrajectoryBoxModel,
     TrajectoryModel,
+    check_target,
     coerce_meta_value,
     decode_typed_meta,
     document,
@@ -127,6 +128,9 @@ FLOAT_DTYPES: frozenset[str] = frozenset({"f64", "c64", "c128"})
 
 STRUCTURAL_SHAPE_ATTR = "structural_shape"
 CELL_DEFINED_ATTR = "cell_defined"
+#: A frame-path block group's row references (``docs/spec/frame.md``). A
+#: trajectory block states them in ``sequence_schema`` only.
+TARGETS_ATTR = "targets"
 #: A frame-path column array's declared precision (``docs/spec/frame.md``).
 #: A trajectory column states it in ``sequence_schema`` only.
 PRECISION_ATTR = "precision"
@@ -309,6 +313,10 @@ class ZarrFrameCodec(Codec):
         attrs["count"] = block.count
         if block.structural_shape is not None:
             attrs[STRUCTURAL_SHAPE_ATTR] = list(block.structural_shape)
+        if block.targets is not None:
+            for column_name, target in block.targets.items():
+                check_target(column_name, target)
+            attrs[TARGETS_ATTR] = dict(block.targets)
         group.attrs.update(attrs)
 
         for column_name, column in block.columns.items():
@@ -355,11 +363,13 @@ class ZarrFrameCodec(Codec):
                 "the block"
             )
         structural = attrs.pop(STRUCTURAL_SHAPE_ATTR, None)
+        targets = attrs.pop(TARGETS_ATTR, None)
         del attrs["count"]
         return BlockModel(
             count=count,
             columns=columns,
             structural_shape=tuple(structural) if structural is not None else None,
+            targets=targets,
             **attrs,
         )
 

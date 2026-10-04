@@ -52,6 +52,7 @@ from molrec.core.model import (
     SequenceSchemaModel,
     TrajectoryBoxModel,
     TrajectoryModel,
+    check_target,
     decode_meta_value,
     decode_typed_meta,
     document,
@@ -175,6 +176,10 @@ def encode_frame(
             else list(block.structural_shape),
             "columns": columns,
         }
+        if block.targets is not None:
+            for column_name, target in block.targets.items():
+                check_target(column_name, target)
+            header_blocks[name]["targets"] = dict(block.targets)
         if block.model_extra:
             header_blocks[name]["attributes"] = jsonvalue.check_document(block.model_extra)
     if meta_types is None:
@@ -269,6 +274,7 @@ def decode_frame(value: bytes | memoryview) -> FrameBytes:
             count=int(entry["count"]),
             columns=columns,
             structural_shape=None if grid is None else tuple(grid),
+            targets=entry.get("targets"),
             **entry.get("attributes", {}),
         )
     box = header.get("box")

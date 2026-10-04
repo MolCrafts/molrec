@@ -17,6 +17,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from molrec.core.model import (
+    CANONICAL_COLUMNS,
     ArrayModel,
     BlockModel,
     BoxModel,
@@ -77,6 +78,12 @@ PUBLISHED: dict[str, tuple[type[BaseModel], ...]] = {
 }
 
 
+#: The canonical column vocabulary (``docs/spec/conventions.md``, canonical
+#: dtypes) as ``{key: dtype}`` -- the table another implementation's own
+#: vocabulary is gated against. Generated from the models, like the schemas.
+VOCABULARY = "core/vocabulary.json"
+
+
 def filename(model: type[BaseModel]) -> str:
     name = model.__name__.removesuffix("Model")
     return "".join(f"-{c.lower()}" if c.isupper() else c for c in name).lstrip("-") + ".schema.json"
@@ -92,6 +99,9 @@ def export(root: Path) -> list[Path]:
             schema = model.model_json_schema()
             target.write_text(json.dumps(schema, indent=2, sort_keys=True) + "\n")
             written.append(target)
+    vocabulary = root / VOCABULARY
+    vocabulary.write_text(json.dumps(CANONICAL_COLUMNS, indent=2, sort_keys=True) + "\n")
+    written.append(vocabulary)
     return written
 
 

@@ -16,6 +16,7 @@ deliberately malformed negative case has to be built with
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
@@ -459,6 +460,7 @@ CANONICAL_U64: frozenset[str] = frozenset(
         "atomj",
         "atomk",
         "atoml",
+        "ibead",
         "bond_type",
         "bond_number",
     }
@@ -466,14 +468,82 @@ CANONICAL_U64: frozenset[str] = frozenset(
 
 #: Every canonical column key and the one dtype it has wherever it appears,
 #: in any block of any section, always one value per row (no trailing axes).
+#: Published as ``schema/core/vocabulary.json``, the table another
+#: implementation's vocabulary is gated against.
 CANONICAL_COLUMNS: dict[str, DType] = {
     **dict.fromkeys(("x", "y", "z", "vx", "vy", "vz", "fx", "fy", "fz"), "f64"),
     **dict.fromkeys(("charge", "mass"), "f64"),
+    **dict.fromkeys(("quatw", "quati", "quatj", "quatk", "mux", "muy", "muz"), "f64"),
+    **dict.fromkeys(("axis_x", "axis_y", "axis_z", "occupancy", "b_factor"), "f64"),
     **dict.fromkeys(CANONICAL_U64, "u64"),
     "atom_map": "u64",
     "formal_charge": "i64",
+    **dict.fromkeys(("ix", "iy", "iz"), "i32"),
+    **dict.fromkeys(("free", "is_14", "exclude_14"), "bool"),
     **dict.fromkeys(("element", "type", "name", "res_name", "bead_type"), "string"),
+    **dict.fromkeys(("chain", "icode", "altloc", "style"), "string"),
 }
+
+#: The relation endpoint columns, and the block they reference unless the
+#: block's ``targets`` says otherwise (``docs/spec/frame.md``, row references).
+ENDPOINTS: tuple[str, ...] = ("atomi", "atomj", "atomk", "atoml")
+DEFAULT_TARGET = "atoms"
+
+#: The section a row reference may never point into: a trajectory block's row
+#: count is not fixed.
+_TRAJECTORY_PREFIX = "/trajectory/"
+
+
+def _target(value: str) -> str:
+    """A row-reference target: ``<block>`` (same container) or
+    ``/<section>/<block>`` (a frame-shaped section of the same record), never
+    into the trajectory."""
+    if value.startswith(_TRAJECTORY_PREFIX):
+        raise ValueError(
+            f"target {value!r} points into the trajectory; a trajectory block is never a "
+            "target (its row count is not fixed)"
+        )
+    return value
+
+
+#: A row-reference target (``docs/spec/frame.md``, row references).
+Target = Annotated[
+    str,
+    Field(pattern=r"^(/[^/]+/[^/]+|[^/]+)$"),
+    AfterValidator(_target),
+    WithJsonSchema({"type": "string", "pattern": r"^(?!/trajectory/)(/[^/]+/[^/]+|[^/]+)$"}),
+]
+
+
+def check_target(column: str, target: Any) -> None:
+    """``target`` is a well-formed row-reference target -- what a writer checks
+    before it stores one."""
+    if not isinstance(target, str) or not re.fullmatch(r"(/[^/]+/[^/]+|[^/]+)", target):
+        raise ValueError(f"column {column!r}: {target!r} is not a row-reference target")
+    _target(target)
+
+
+def check_references(
+    block: str, column: ColumnModel, name: str, target: str, rows: int | None
+) -> None:
+    """Every non-null value of the referencing ``column`` is a row of ``target``
+    (``rows`` of them; ``None`` when the target is missing)."""
+    if column.values is None or column.count == 0:
+        return
+    if rows is None:
+        raise ValueError(
+            f"{block}.{name} references {target!r}, which is not there; a target exists "
+            "wherever its referencing block has rows"
+        )
+    values = np.asarray(column.values)
+    if column.validity is not None:
+        values = values[np.asarray(column.validity)]
+    if values.size and int(values.max()) >= rows:
+        raise ValueError(
+            f"{block}.{name} references row {int(values.max())} of {target!r}, which has "
+            f"{rows} rows"
+        )
+
 
 #: The per-step meta keys with a canonical tag (``docs/spec/conventions.md``).
 CANONICAL_META: dict[str, str] = dict.fromkeys(
@@ -503,6 +573,12 @@ class BlockModel(BaseModel):
     A block imposes no meaning on its column names beyond one: a
     :data:`canonical <CANONICAL_COLUMNS>` key has one dtype and shape wherever
     it appears.
+
+    ``targets`` declares the block's row references beyond the conventional
+    one (``atomi`` ... ``atoml`` into ``atoms``): column -> target, each
+    column ``u64``. Whether the values are in range is the container's to
+    check (:class:`FrameModel`, :class:`TrajectoryModel`,
+    :class:`RecordModel`), which knows the target's row count.
     """
 
     model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
@@ -510,6 +586,7 @@ class BlockModel(BaseModel):
     count: int = Field(ge=0)
     columns: dict[str, ColumnModel] = Field(default_factory=dict)
     structural_shape: tuple[int, ...] | None = None
+    targets: dict[str, Target] | None = None
 
     @model_validator(mode="after")
     def _columns_share_the_count(self) -> BlockModel:
@@ -523,6 +600,10 @@ class BlockModel(BaseModel):
                     f"column {name!r} has {column.count} rows, block count is {self.count}"
                 )
             check_canonical(name, column.dtype, column.shape[1:])
+        _targets_are_u64_columns(
+            self.targets,
+            {name: (column.dtype, column.shape[1:]) for name, column in self.columns.items()},
+        )
         if self.structural_shape is not None:
             product = math.prod(self.structural_shape)
             if product != self.count:
@@ -531,6 +612,21 @@ class BlockModel(BaseModel):
                     f"block count is {self.count}"
                 )
         return self
+
+
+def _targets_are_u64_columns(
+    targets: dict[str, str] | None, columns: dict[str, tuple[str, Any]]
+) -> None:
+    """Every declared row reference names a ``u64[N]`` column of its block."""
+    for name in targets or {}:
+        if name not in columns:
+            raise ValueError(f"targets names {name!r}, which is no column of the block")
+        dtype, trailing = columns[name]
+        if dtype != "u64" or tuple(trailing):
+            raise ValueError(
+                f"column {name!r} is a row reference, so u64[N]; found {dtype}"
+                f"{''.join(f'[{n}]' for n in trailing)}"
+            )
 
 
 #: The published shapes of the cell's parts. The contract is three-dimensional:
@@ -693,6 +789,24 @@ class FrameModel(BaseModel):
                 raise ValueError(f"meta key {key!r} is tagged {tags[key]!r}: {exc}") from None
         object.__setattr__(self, "meta", meta)
         object.__setattr__(self, "meta_types", tags)
+        return self
+
+    @model_validator(mode="after")
+    def _references_resolve(self) -> FrameModel:
+        """Every declared same-container row reference is to a block of this
+        frame, and in range. (An absolute one is the record's to check.)"""
+        for name, block in self.blocks.items():
+            for column, target in (block.targets or {}).items():
+                if target.startswith("/"):
+                    continue
+                tracked = self.blocks.get(target)
+                check_references(
+                    name,
+                    block.columns[column],
+                    column,
+                    target,
+                    None if tracked is None else tracked.count,
+                )
         return self
 
     def __eq__(self, other: object) -> bool:
@@ -863,6 +977,10 @@ class SequenceBlockModel(DocumentModel):
     update of it holds exactly ``prod(structural_shape)`` rows, and a writer
     refuses one that does not.
 
+    ``targets`` is the block's row references (``docs/spec/frame.md``): on a
+    trajectory the declaration is the only place they are stated, and they
+    hold on every resolved frame. Written only when set.
+
     ``aligned_with`` names another declared block whose rows this block's
     rows are, one for one, at every resolved frame (``docs/spec/ragged.md``,
     aligned blocks): a sparse companion of a block that changes more often.
@@ -871,7 +989,16 @@ class SequenceBlockModel(DocumentModel):
 
     columns: dict[str, SequenceColumnModel] = Field(default_factory=dict)
     structural_shape: tuple[int, ...] | None = None
+    targets: dict[str, Target] | None = None
     aligned_with: str | None = None
+
+    @model_validator(mode="after")
+    def _targets_are_declared_u64_columns(self) -> SequenceBlockModel:
+        _targets_are_u64_columns(
+            self.targets,
+            {name: (spec.dtype, spec.trailing) for name, spec in self.columns.items()},
+        )
+        return self
 
 
 class SequenceSchemaModel(DocumentModel):
@@ -904,6 +1031,7 @@ def declare_block(block: BlockModel) -> SequenceBlockModel:
             for name, column in block.columns.items()
         },
         structural_shape=block.structural_shape,
+        targets=block.targets,
     )
 
 
@@ -1168,6 +1296,16 @@ class TrajectoryModel(BaseModel):
                             }
                         }
                     )
+                if presented.targets is not None and presented.targets != pinned.targets:
+                    if pinned.targets is not None or stated:
+                        raise ValueError(
+                            f"frame {ordinal}: block {name!r} states targets {presented.targets}, "
+                            f"the sequence declares {pinned.targets}; a trajectory declares a "
+                            "block's row references once"
+                        )
+                    declared[name] = pinned = pinned.model_copy(
+                        update={"targets": presented.targets}
+                    )
                 # S4: a grid block's row count is fixed. ``BlockModel`` already
                 # holds each presentation to ``count == prod(structural_shape)``,
                 # so pinning the shape pins the count.
@@ -1186,16 +1324,22 @@ class TrajectoryModel(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _declared_precision_rounds_every_frame(self, info: ValidationInfo) -> TrajectoryModel:
-        """Every frame holds the stored values: rounded to its column's declared
-        precision, which the declaration then states for the run and the
-        frames no longer do. A model built from a store (:data:`STORED`)
-        keeps the values exactly as stored."""
+    def _the_declaration_states_what_frames_stated(self, info: ValidationInfo) -> TrajectoryModel:
+        """Precision and row references are the declaration's, not a frame's.
+
+        Every frame holds the stored values -- rounded to its column's
+        declared precision -- and neither its columns' precision nor its
+        blocks' ``targets``: the declaration states both for the run. A model
+        built from a store (:data:`STORED`) keeps the values exactly as
+        stored.
+        """
         declared = self.blocks or {}
         if not any(
             spec.precision is not None
             for block in declared.values()
             for spec in block.columns.values()
+        ) and not any(
+            block.targets is not None for frame in self.frames for block in frame.blocks.values()
         ):
             return self
         rounding = not _stored(info)
@@ -1214,7 +1358,7 @@ class TrajectoryModel(BaseModel):
                         if values is column.values and column.precision is None
                         else column.model_copy(update={"values": values, "precision": None})
                     )
-                blocks[name] = block.model_copy(update={"columns": columns})
+                blocks[name] = block.model_copy(update={"columns": columns, "targets": None})
             resolved.append(frame.model_copy(update={"blocks": blocks}))
         object.__setattr__(self, "frames", resolved)
         return self
@@ -1239,6 +1383,31 @@ class TrajectoryModel(BaseModel):
                 else frame.model_copy(update={"blocks": dict(current)})
             )
         object.__setattr__(self, "frames", resolved)
+        return self
+
+    @model_validator(mode="after")
+    def _references_resolve(self) -> TrajectoryModel:
+        """A declared same-container row reference holds on every resolved
+        frame: its target is there and every non-null value is one of its rows."""
+        for name, block in (self.blocks or {}).items():
+            for column, target in (block.targets or {}).items():
+                if target.startswith("/"):
+                    continue
+                for ordinal, frame in enumerate(self.frames):
+                    referencing = frame.blocks.get(name)
+                    if referencing is None:
+                        continue
+                    tracked = frame.blocks.get(target)
+                    try:
+                        check_references(
+                            name,
+                            referencing.columns[column],
+                            column,
+                            target,
+                            None if tracked is None else tracked.count,
+                        )
+                    except ValueError as exc:
+                        raise ValueError(f"ordinal {ordinal}: {exc}") from None
         return self
 
     @model_validator(mode="after")
@@ -1745,10 +1914,49 @@ class RecordModel(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _absolute_references_resolve(self) -> RecordModel:
+        _check_absolute_references(self)
+        return self
+
+    @model_validator(mode="after")
     def _has_a_section(self) -> RecordModel:
         if all(getattr(self, section) is None for section in SUBSTANTIVE_SECTIONS):
             raise ValueError(f"a record needs at least one of {', '.join(SUBSTANTIVE_SECTIONS)}")
         return self
+
+
+def _check_absolute_references(record: RecordModel) -> None:
+    """Every absolute row reference (``/<section>/<block>``) into a present
+    frame-shaped section is to a block of it, and in range -- from a frame or
+    system block, and from every resolved frame of a trajectory block."""
+    sections: dict[str, FrameModel | None] = {"frame": record.frame, "system": record.system}
+
+    def rows(target: str) -> tuple[bool, int | None]:
+        section, block = target[1:].split("/", 1)
+        frame = sections.get(section)
+        if frame is None:
+            return False, None
+        tracked = frame.blocks.get(block)
+        return True, None if tracked is None else tracked.count
+
+    sources: list[tuple[str, BlockModel, dict[str, str]]] = []
+    for section, frame in sections.items():
+        for name, block in (frame.blocks if frame is not None else {}).items():
+            sources.append((f"{section}/{name}", block, block.targets or {}))
+    if record.trajectory is not None:
+        for name, declared in (record.trajectory.blocks or {}).items():
+            for frame in record.trajectory.frames:
+                if name in frame.blocks:
+                    sources.append(
+                        (f"trajectory/{name}", frame.blocks[name], declared.targets or {})
+                    )
+    for where, block, targets in sources:
+        for column, target in targets.items():
+            if not target.startswith("/"):
+                continue
+            present, count = rows(target)
+            if present:
+                check_references(where, block.columns[column], column, target, count)
 
 
 def _aligned_apart_from_system(system: FrameModel, trajectory: TrajectoryModel) -> None:
@@ -1884,6 +2092,7 @@ class CollectionModel(BaseModel):
                 continue
             try:
                 _aligned_apart_from_system(record.system, record.trajectory)
+                _check_absolute_references(record)
             except ValueError as exc:
                 raise ValueError(f"record {r}: {exc}") from None
             for name, fixed in record.system.blocks.items():

@@ -167,9 +167,12 @@ payload := the column buffers
   the [Zarr frame group](storage.md#frame-shaped-group). The `ff` frame's
   `meta` is the force-field document and carries no `meta_types`. `step` (an
   `i64`) and `time` (an `f64`) are typed values too.
-* A block's own attributes (beyond `count` and `structural_shape`) ride in
-  the optional `attributes` object of its entry, on a system frame only — a
-  trajectory block's attributes are its section's, not one update's.
+* A block's `targets`, when set, is its header entry's `targets`
+  (`{column: target}`, [Row references](frame.md#row-references)).
+* A block's own attributes (beyond `count`, `structural_shape` and
+  `targets`) ride in the optional `attributes` object of its entry, on a
+  system frame only — a trajectory block's attributes are its section's, not
+  one update's.
 * `step`, `time` and `box` appear only on trajectory updates; `box` follows
   the [cell](frame.md#simulation-box) fields.
 

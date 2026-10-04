@@ -56,7 +56,30 @@ _REFUSALS: tuple[type[Exception], ...] = (ValueError, molrs.BlockDtypeError)
 
 _MREC = molrs.io.mrec
 
+#: Whether this molrs build carries a block's row references (molrec F4).
+_HAS_TARGETS = hasattr(molrs.Block, "set_target") and hasattr(molrs.Block, "targets")
+
 _PENDING: tuple[tuple[str, bool, dict[str, tuple[str, ...]]], ...] = (
+    (
+        "molrs.Block.set_target / Block.targets (row references, molrec F4)",
+        _HAS_TARGETS,
+        {
+            "record": (
+                "frame/targets-declared",
+                "frame/reject-target-out-of-range",
+                "frame/reject-target-missing-block",
+                "frame/reject-target-not-u64",
+                "targets-absolute",
+                "reject-target-absolute-out-of-range",
+                "reject-target-into-trajectory",
+            ),
+        },
+    ),
+    (
+        "molrs.io.mrec.SequenceSchema.declare_target (row references, molrec F4)",
+        hasattr(_MREC.SequenceSchema, "declare_target"),
+        {"trajectory": ("targets-pinned", "reject-target-out-of-range-resolved")},
+    ),
     (
         "molrs.io.mrec.SequenceSchema.declare_aligned (aligned blocks, molrec F5)",
         hasattr(_MREC.SequenceSchema, "declare_aligned"),
@@ -135,6 +158,8 @@ def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -
                 native.set_precision(column, payload.precision)
         if block.structural_shape is not None:
             native.set_shape(list(block.structural_shape))
+        for column, target in (getattr(block, "targets", None) or {}).items():
+            native.set_target(column, target)
         frame[name] = native
     if model.box is not None:
         frame.box = _to_box(model.box, bool(model.box.cell_defined))
@@ -174,6 +199,11 @@ def _from_frame(frame: molrs.Frame | None, *, in_trajectory: bool = False) -> di
             "columns": columns,
             "structural_shape": tuple(structural) if structural is not None else None,
         }
+        if _HAS_TARGETS and not in_trajectory:
+            # On a trajectory the declaration states a block's targets.
+            targets = native.targets
+            targets = dict(targets() if callable(targets) else targets)
+            blocks[name]["targets"] = targets or None
 
     box = None if frame.box is None else _from_box(frame.box)
     typed = frame.meta.typed()
@@ -267,6 +297,8 @@ def _declared_schema(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSch
                     schema.declare_precision(name, column, declared.precision)
             if block.structural_shape is not None:
                 schema.declare_structural_shape(name, list(block.structural_shape))
+            for column, target in (getattr(block, "targets", None) or {}).items():
+                schema.declare_target(name, column, target)
         # Alignment last: a target must be declared before a block aligns with it.
         for name, block in model.blocks.items():
             if getattr(block, "aligned_with", None) is not None:
@@ -286,6 +318,8 @@ def _declared_schema(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSch
                         schema.declare_precision(name, column, declared.precision)
                 if block.structural_shape is not None:
                     schema.declare_structural_shape(name, list(block.structural_shape))
+                for column, target in (getattr(block, "targets", None) or {}).items():
+                    schema.declare_target(name, column, target)
     for key, series in model.meta.items():
         if series.has_fill:
             schema.declare_meta_with_fill(key, series.fill, dtype=_tag(series.dtype))

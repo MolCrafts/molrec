@@ -230,6 +230,7 @@ def _recast(model: FrameModel, source: str, target: str) -> FrameModel:
         name: BlockModel.model_construct(
             count=block.count,
             structural_shape=block.structural_shape,
+            targets=block.targets,
             columns={
                 key: ColumnModel(
                     dtype=target, shape=column.shape, values=column.values.astype(numpy_target)
@@ -273,6 +274,7 @@ def test_a_writer_that_narrows_i64_fails() -> None:
         "block-named-meta",
         "unknown-names-preserved",
         "reject-precision-on-non-f64",
+        "canonical-topology",  # formal_charge is i64 wherever it appears
     }, report.table()
     assert not _failed(report, "read")
 

@@ -146,7 +146,8 @@ def test_a_module_without_an_adapter_is_skipped_not_failed():
 
 def test_silent_integer_widening_is_caught():
     report = molrec.ConformanceSuite(WidensIntegers(), modules=["core"]).run()
-    assert _failed_case_ids(report) == {"every-dtype", "no-silent-widening"}
+    # canonical-topology: the image flags ix / iy / iz are i32.
+    assert _failed_case_ids(report) == {"every-dtype", "no-silent-widening", "canonical-topology"}
 
 
 def test_both_directions_run_for_every_positive_case():

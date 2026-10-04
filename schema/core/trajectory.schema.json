@@ -2,7 +2,7 @@
   "$defs": {
     "BlockModel": {
       "additionalProperties": true,
-      "description": "Named columns sharing one count, plus an optional structural shape.\n\nA plain table has implicit shape ``[count]``. A volumetric block declares\n``structural_shape = (nx, ny, nz)`` with ``nx * ny * nz == count`` -- the\nonly thing that makes a flat column reshapable after a roundtrip.\n\nA block imposes no meaning on its column names beyond one: a\n:data:`canonical <CANONICAL_COLUMNS>` key has one dtype and shape wherever\nit appears.",
+      "description": "Named columns sharing one count, plus an optional structural shape.\n\nA plain table has implicit shape ``[count]``. A volumetric block declares\n``structural_shape = (nx, ny, nz)`` with ``nx * ny * nz == count`` -- the\nonly thing that makes a flat column reshapable after a roundtrip.\n\nA block imposes no meaning on its column names beyond one: a\n:data:`canonical <CANONICAL_COLUMNS>` key has one dtype and shape wherever\nit appears.\n\n``targets`` declares the block's row references beyond the conventional\none (``atomi`` ... ``atoml`` into ``atoms``): column -> target, each\ncolumn ``u64``. Whether the values are in range is the container's to\ncheck (:class:`FrameModel`, :class:`TrajectoryModel`,\n:class:`RecordModel`), which knows the target's row count.",
       "properties": {
         "columns": {
           "additionalProperties": {
@@ -30,6 +30,22 @@
           ],
           "default": null,
           "title": "Structural Shape"
+        },
+        "targets": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "pattern": "^(?!/trajectory/)(/[^/]+/[^/]+|[^/]+)$",
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Targets"
         }
       },
       "required": [
@@ -376,7 +392,7 @@
     },
     "SequenceBlockModel": {
       "additionalProperties": true,
-      "description": "One block's declaration: its columns and, when it is a grid, its shape.\n\nA block that declares ``structural_shape`` is a fixed-size object: every\nupdate of it holds exactly ``prod(structural_shape)`` rows, and a writer\nrefuses one that does not.\n\n``aligned_with`` names another declared block whose rows this block's\nrows are, one for one, at every resolved frame (``docs/spec/ragged.md``,\naligned blocks): a sparse companion of a block that changes more often.\nDeclared only, never derived; written only when set.",
+      "description": "One block's declaration: its columns and, when it is a grid, its shape.\n\nA block that declares ``structural_shape`` is a fixed-size object: every\nupdate of it holds exactly ``prod(structural_shape)`` rows, and a writer\nrefuses one that does not.\n\n``targets`` is the block's row references (``docs/spec/frame.md``): on a\ntrajectory the declaration is the only place they are stated, and they\nhold on every resolved frame. Written only when set.\n\n``aligned_with`` names another declared block whose rows this block's\nrows are, one for one, at every resolved frame (``docs/spec/ragged.md``,\naligned blocks): a sparse companion of a block that changes more often.\nDeclared only, never derived; written only when set.",
       "properties": {
         "aligned_with": {
           "anyOf": [
@@ -411,6 +427,22 @@
           ],
           "default": null,
           "title": "Structural Shape"
+        },
+        "targets": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "pattern": "^(?!/trajectory/)(/[^/]+/[^/]+|[^/]+)$",
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Targets"
         }
       },
       "title": "SequenceBlockModel",

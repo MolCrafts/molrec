@@ -151,6 +151,7 @@ frame-shaped — share one normative layout:
  \-- <block>
  |    +-- count: i64[]            required: the block's row count N (>= 0)
  |    +-- (structural_shape: i64[k])   optional: product equals count
+ |    +-- (targets: {column: target})  optional: row references
  |    +-- (<other attribute>)     preserved
  |    \-- <column>: <dtype>[N][...]
  |         +-- (precision: f64[])      optional: the column's declared precision
@@ -182,8 +183,9 @@ frame-shaped — share one normative layout:
   block group carries the required integer attribute `count` — a block with
   no columns still has one, and a reader refuses a block whose columns
   disagree with it — and, for a volumetric block, `structural_shape`, whose
-  product equals `count`. Any other attribute of a block group is a
-  producer's and is preserved.
+  product equals `count`, and, when set, `targets`
+  ([Row references](frame.md#row-references)). Any other attribute of a
+  block group is a producer's and is preserved.
 - **Reserved child names.** Among a frame-shaped group's children, `box` is
   the [cell](frame.md#simulation-box) and is not a block; a block named
   `box` is refused at write. Among a block group's children, `_validity` is

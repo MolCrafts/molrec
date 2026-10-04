@@ -28,10 +28,17 @@ row (`<dtype>[N]`, no trailing axes), at the dtype the trees below give it.
 | Keys | dtype |
 |------|-------|
 | `x` `y` `z` `vx` `vy` `vz` `fx` `fy` `fz` `charge` `mass` | `f64` |
+| `quatw` `quati` `quatj` `quatk` `mux` `muy` `muz` `axis_x` `axis_y` `axis_z` `occupancy` `b_factor` | `f64` |
 | `id` `atomic_number` `type_id` `mol_id` `res_id` `atom_map` | `u64` |
-| `atomi` `atomj` `atomk` `atoml` `bond_type` `bond_number` | `u64` |
+| `atomi` `atomj` `atomk` `atoml` `ibead` `bond_type` `bond_number` | `u64` |
 | `formal_charge` | `i64` |
-| `element` `type` `name` `res_name` `bead_type` | `string` |
+| `ix` `iy` `iz` | `i32` |
+| `free` `is_14` `exclude_14` | `bool` |
+| `element` `type` `name` `res_name` `bead_type` `chain` `icode` `altloc` `style` | `string` |
+
+The table is published as
+[`schema/core/vocabulary.json`](../../schema/core/vocabulary.json)
+(`{key: dtype}`), generated from the models.
 
 - A writer **MUST NOT** store a canonical key at any other dtype or shape.
   A writer whose producer hands it a narrower unsigned array under one of
@@ -39,7 +46,7 @@ row (`<dtype>[N]`, no trailing axes), at the dtype the trees below give it.
   write the canonical dtype.
 - The unsigned identifiers and relation endpoints — `id`, `atomic_number`,
   `type_id`, `mol_id`, `res_id`, `atomi`, `atomj`, `atomk`, `atoml`,
-  `bond_type`, `bond_number` — are **exactly `u64`**. A reader **MUST**
+  `ibead`, `bond_type`, `bond_number` — are **exactly `u64`**. A reader **MUST**
   refuse one stored at any other width or signedness rather than widen it on
   read: a store that holds one narrower came from a writer that broke the
   contract, and reading it back as `u64` would hide that.
@@ -55,15 +62,10 @@ the number of particles. Positions are stored as three separate 1-D columns
 
 ```text
 atoms
- \-- (x: f64[N])
- \-- (y: f64[N])
- \-- (z: f64[N])
- \-- (vx: f64[N])
- \-- (vy: f64[N])
- \-- (vz: f64[N])
- \-- (fx: f64[N])
- \-- (fy: f64[N])
- \-- (fz: f64[N])
+ \-- (x, y, z: f64[N])
+ \-- (vx, vy, vz: f64[N])
+ \-- (fx, fy, fz: f64[N])
+ \-- (ix, iy, iz: i32[N])
  \-- (id: u64[N])
  \-- (atomic_number: u64[N])
  \-- (element: string[N])
@@ -77,7 +79,16 @@ atoms
  \-- (mol_id: u64[N])
  \-- (res_id: u64[N])
  \-- (res_name: string[N])
+ \-- (chain: string[N])
+ \-- (icode: string[N])
+ \-- (altloc: string[N])
+ \-- (occupancy: f64[N])
+ \-- (b_factor: f64[N])
  \-- (bead_type: string[N])
+ \-- (free: bool[N])
+ \-- (quatw, quati, quatj, quatk: f64[N])
+ \-- (mux, muy, muz: f64[N])
+ \-- (axis_x, axis_y, axis_z: f64[N])
 ```
 
 `x`, `y`, `z`
@@ -145,17 +156,64 @@ The atom-map number of each atom in a mapped SMILES string
 (`mapped_smiles`), `0` for an unmapped atom. Row `i` of `atoms` is the atom
 mapped `atom_map[i]`.
 
+`ix`, `iy`, `iz`
+
+Periodic image flags along the first, second and third lattice vector: how
+many cells the atom has crossed. The continuous position is
+`(x, y, z) + H · (ix, iy, iz)` with `H` the box `vectors`; the stored
+coordinate stays wrapped. Signed. They travel with the coordinates: a writer
+that drops one drops all three.
+
+`res_id`, `res_name`, `chain`, `icode`, `altloc`
+
+The residue an atom belongs to and where it came from. `res_id` is the source
+file's residue number (never a row index; unsigned — a reader renumbers a
+negative one at its boundary), `res_name` its name, `chain` the chain label
+(PDB chain identifier, mmCIF `label_asym_id`), `icode` the insertion code and
+`altloc` the alternate-location indicator, `""` for none. A residue is
+identified by `(chain, res_id, icode)`. There is no `residues` or `chains`
+block: the per-atom columns are the one carrier.
+
+`occupancy`, `b_factor`
+
+Crystallographic occupancy (a fraction) and isotropic displacement parameter
+`B` (length²).
+
+`free`
+
+Whether an atom may move when coordinates are optimized. `false` pins it. A
+block without the column has every atom free.
+
+`quatw`, `quati`, `quatj`, `quatk`
+
+A per-particle orientation quaternion `(w, i, j, k)`.
+
+`mux`, `muy`, `muz`
+
+A per-particle electric dipole moment (charge × length).
+
+`axis_x`, `axis_y`, `axis_z`
+
+A coarse-grained site's axis: from the first member of its group to the site
+(length).
+
+Positions are Cartesian. Fractional coordinates are not a convention: a
+reader of a fractional format converts at its boundary.
+
 ## Relations
 
-Tuple blocks reference atoms by 0-based integer indices into the `atoms`
-block's row order. Endpoints are `u64` and must store integers — never
-object references.
+Relation blocks reference atoms by 0-based `u64` row indices into the
+`atoms` block (`atomi` … `atoml`) — integers, never object references; a
+relation that references another block says so with
+[`targets`](frame.md#row-references).
 
 ```text
 bonds
  \-- atomi: u64[E]
  \-- atomj: u64[E]
  \-- (type: string[E])
+ \-- (type_id: u64[E])
+ \-- (style: string[E])
  \-- (bond_type: u64[E])
  \-- (bond_number: u64[E])
 ```
@@ -167,15 +225,47 @@ aromaticity is a bond type, not a number. The two are orthogonal: an
 aromatic bond is `bond_type = 4` carrying a `bond_number` of 1 or 2. There
 is no float `order` column.
 
-| Block | Endpoint columns | Optional |
-|-------|------------------|----------|
-| `bonds` | `atomi`, `atomj` | `type`, `bond_type`, `bond_number` |
-| `angles` | `atomi`, `atomj`, `atomk` | `type` |
-| `dihedrals` | `atomi`, `atomj`, `atomk`, `atoml` | `type` |
-| `impropers` | `atomi`, `atomj`, `atomk`, `atoml` | `type` |
+| Block | Endpoints | Optional |
+|-------|-----------|----------|
+| `bonds` | `atomi`, `atomj` | `type`, `type_id`, `style`, `bond_type`, `bond_number` |
+| `angles` | `atomi`, `atomj` (vertex), `atomk` | `type`, `type_id`, `style` |
+| `dihedrals` | `atomi` … `atoml` | `type`, `type_id`, `style`, `exclude_14` |
+| `impropers` | `atomi` … `atoml` | `type`, `type_id`, `style`, `exclude_14` |
+| `pairs` | `atomi`, `atomj` | `type`, `type_id`, `style`, `is_14` |
+| `exclusions` | `atomi`, `atomj` | — |
+| `constraints` | `atomi`, `atomj` | `type`, `type_id`, `style` |
+| `virtual_sites` | `atomi` (the site), `atomj`, `atomk`, `atoml` (constructing atoms) | `type`, `type_id`, `style` |
+| `drudes` | `atomi` (core), `atomj` (Drude particle) | `type`, `type_id`, `style` |
+| `members` | `ibead` → `atoms`, `atom` (declared) | — |
 
-`atomj` is the center atom of an angle. Other entity sets (beads, fragments,
-residues, virtual sites) follow the same pattern with their own block name.
+`type` names a row of the record's [force field](forcefield.md#linking-a-system)
+and `style` picks the style when several hold that name. `type_id` is a
+format-local ordinal (LAMMPS) and plays no part in linking. A relation may
+carry per-instance parameters as further columns named as its style names
+them (`r0` on `constraints`, `kb` on an MMFF `bonds`).
+
+`is_14` marks a `pairs` row as a 1-4 pair; `exclude_14` marks a torsion whose
+1-4 non-bonded term is suppressed (AMBER's negative third index).
+`exclusions` lists pairs excluded from non-bonded interaction.
+
+A `virtual_sites` row constructs the particle `atomi` (an `atoms` row,
+usually massless) from up to three others; a site built from fewer leaves
+the trailing endpoints null. A `drudes` row pairs a core atom with its Drude
+particle; both are `atoms` rows.
+
+A coarse-grained frame stores its beads as `atoms` rows (with `bead_type`)
+and its bonds in `bonds`. `members` maps beads to the atoms they group, one
+row per (bead, atom): `ibead` references `atoms` of the same frame; `atom`
+references the all-atom block named by `targets` (`/frame/atoms`, …), and
+without a declared target it is an opaque handle.
+
+There is no `residues`, `chains` or `molecules` block: per-atom `res_id`,
+`res_name`, `chain`, `icode` and `mol_id` are what every format carries, and
+a block would be a second carrier of one fact. Residue-level data a producer
+needs goes in a block of its own, referenced with `targets`.
+
+Other entity sets (fragments, a producer's own groupings) follow the same
+pattern with their own block name.
 
 The naming conventions do not change with the record section. An `atoms`
 block under `trajectory` carries the same columns it carries under `frame`.
@@ -199,6 +289,15 @@ all `f64`:
 
 As with columns, the tag carries no unit; producers add other keys freely
 and readers preserve them.
+
+## Units on a frame
+
+The meta key `units` (`json`) on a `frame` or `system` says what unit system
+the frame's numbers are in. Its value has the shape of the
+[force-field `units`](forcefield.md#the-document) object
+(`{"preset": "real"}`, `{"length": "nm", "energy": "kJ/mol"}`). A string
+value is read as `{"preset": <string>}`. Absent means the frame states none
+(a collection states them once, in its `meta.units`).
 
 ## Composition and identity keys
 

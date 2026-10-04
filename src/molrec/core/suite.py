@@ -265,6 +265,7 @@ class FrameSuite(Suite):
 
         yield from _frame_precision_cases(prefix)
         yield from _frame_typed_meta_cases(prefix)
+        yield from _frame_topology_cases()
 
         yield Case(
             id="empty-frame",
@@ -986,6 +987,209 @@ def _aligned_cases() -> Iterable[Case]:
         )
 
 
+def _canonical_topology() -> FrameModel:
+    """Every conventional ``atoms`` column at its canonical dtype, and every
+    conventional relation block (``docs/spec/conventions.md``)."""
+    n = 3
+    floats = ("x", "y", "z", "vx", "vy", "vz", "fx", "fy", "fz", "charge", "mass")
+    floats += ("occupancy", "b_factor", "quatw", "quati", "quatj", "quatk")
+    floats += ("mux", "muy", "muz", "axis_x", "axis_y", "axis_z")
+    atoms = {name: _column("f64", [0.5 * i for i in range(n)]) for name in floats}
+    atoms |= {name: _column("i32", [-1, 0, 1]) for name in ("ix", "iy", "iz")}
+    atoms |= {
+        name: _column("u64", [1, 2, 3])
+        for name in ("id", "atomic_number", "type_id", "mol_id", "res_id", "atom_map")
+    }
+    atoms |= {
+        "formal_charge": _column("i64", [0, -1, 1]),
+        "free": _column("bool", [True, False, True]),
+        "element": _column("string", ["C", "O", "H"]),
+        "type": _column("string", ["CT", "OH", "HO"]),
+        "name": _column("string", ["C1", "O1", "H1"]),
+        "res_name": _column("string", ["ALA"] * n),
+        "chain": _column("string", ["A"] * n),
+        "icode": _column("string", ["", "", "B"]),
+        "altloc": _column("string", ["", "A", ""]),
+        "bead_type": _column("string", ["C1", "P4", "Na"]),
+    }
+
+    def relation(arity: int, rows: list[list[int]], **extra: ColumnModel) -> BlockModel:
+        columns = {
+            endpoint: _column("u64", [row[i] for row in rows])
+            for i, endpoint in enumerate(("atomi", "atomj", "atomk", "atoml")[:arity])
+        }
+        return BlockModel(count=len(rows), columns={**columns, **extra})
+
+    def labels(count: int, prefix: str) -> dict[str, ColumnModel]:
+        return {
+            "type": _column("string", [f"{prefix}{i}" for i in range(count)]),
+            "type_id": _column("u64", list(range(count))),
+            "style": _column("string", ["harmonic"] * count),
+        }
+
+    return FrameModel(
+        blocks={
+            "atoms": BlockModel(count=n, columns=atoms),
+            "bonds": relation(
+                2,
+                [[0, 1], [1, 2]],
+                **labels(2, "b"),
+                bond_type=_column("u64", [1, 1]),
+                bond_number=_column("u64", [1, 1]),
+            ),
+            "angles": relation(3, [[0, 1, 2]], **labels(1, "a")),
+            "dihedrals": relation(
+                4, [[0, 1, 2, 0]], **labels(1, "d"), exclude_14=_column("bool", [True])
+            ),
+            "impropers": relation(
+                4, [[1, 0, 2, 0]], **labels(1, "i"), exclude_14=_column("bool", [False])
+            ),
+            "pairs": relation(2, [[0, 2]], **labels(1, "p"), is_14=_column("bool", [True])),
+            "exclusions": relation(2, [[0, 1], [1, 2]]),
+            "constraints": relation(2, [[1, 2]], **labels(1, "c"), r0=_column("f64", [0.96])),
+            "virtual_sites": BlockModel(
+                count=1,
+                columns={
+                    "atomi": _column("u64", [2]),
+                    "atomj": _column("u64", [0]),
+                    "atomk": _column("u64", [1]),
+                    "atoml": _column("u64", [0], validity=[False]),
+                    **labels(1, "v"),
+                },
+            ),
+            "drudes": relation(2, [[0, 2]], **labels(1, "dr")),
+            # Undeclared, ibead and atom are plain u64 numbers here; their
+            # declared form is targets-declared.
+            "members": BlockModel(
+                count=3,
+                columns={"ibead": _column("u64", [0, 0, 1]), "atom": _column("u64", [0, 1, 2])},
+            ),
+        }
+    )
+
+
+def _members(beads: list[int], target: str = "atoms") -> BlockModel:
+    """A ``members`` block over a three-atom frame, built around the validators."""
+    return BlockModel.model_construct(
+        count=len(beads),
+        columns={"ibead": _column("u64", beads), "atom": _column("u64", list(range(len(beads))))},
+        structural_shape=None,
+        targets={"ibead": target},
+    )
+
+
+def _with_members(members: BlockModel) -> FrameModel:
+    return FrameModel.model_construct(
+        blocks={"atoms": _atoms(0.0, 1.0, 2.0), "members": members},
+        box=None,
+        meta={},
+        meta_types={},
+    )
+
+
+def _frame_topology_cases() -> Iterable[Case]:
+    """The conventional topology vocabulary and declared row references."""
+    yield Case(
+        id="canonical-topology",
+        exercises="every conventional atoms column and relation block at its canonical dtype, "
+        "a virtual site built from two atoms (atoml null) included",
+        model=_canonical_topology(),
+    )
+
+    yield Case(
+        id="targets-declared",
+        exercises="a block's declared row references (members.ibead -> atoms) round-trip as "
+        "its targets attribute",
+        model=FrameModel(
+            blocks={
+                "atoms": _atoms(0.0, 1.0, 2.0),
+                "members": BlockModel(
+                    count=3,
+                    columns={"ibead": _column("u64", [0, 0, 1]), "atom": _column("u64", [7, 8, 9])},
+                    targets={"ibead": "atoms"},
+                ),
+            }
+        ),
+    )
+
+    yield Case(
+        id="reject-target-out-of-range",
+        exercises="a declared reference is a row of its target: members.ibead = 5 over 3 atoms "
+        "is refused",
+        expect_violation="bad_reference",
+        model=_with_members(_members([0, 5])),
+    )
+
+    yield Case(
+        id="reject-target-missing-block",
+        exercises="a declared target exists wherever the referencing block has rows",
+        expect_violation="bad_reference",
+        model=_with_members(_members([0, 1], target="sites")),
+    )
+
+    yield Case(
+        id="reject-target-not-u64",
+        exercises="a declared row reference is u64; an i64 one is refused",
+        expect_violation="bad_reference",
+        model=_with_members(
+            BlockModel.model_construct(
+                count=2,
+                columns={"host": _column("i64", [0, 1])},
+                structural_shape=None,
+                targets={"host": "atoms"},
+            )
+        ),
+    )
+
+
+def _trajectory_target_cases() -> Iterable[Case]:
+    """Row references on a trajectory: declared once, held per resolved frame."""
+    declared = {
+        "atoms": SequenceBlockModel(columns={"x": SequenceColumnModel(dtype="f64")}),
+        "members": SequenceBlockModel(
+            columns={
+                "ibead": SequenceColumnModel(dtype="u64"),
+                "atom": SequenceColumnModel(dtype="u64"),
+            },
+            targets={"ibead": "atoms"},
+        ),
+    }
+    members = BlockModel(
+        count=3,
+        columns={"ibead": _column("u64", [0, 0, 1]), "atom": _column("u64", [10, 11, 12])},
+    )
+
+    def run(*frames: FrameModel, validated: bool = True) -> TrajectoryModel:
+        fields = {"frames": list(frames), "step": list(range(len(frames))), "blocks": declared}
+        if validated:
+            return TrajectoryModel(**fields)
+        return TrajectoryModel.model_construct(**fields, time=None, meta={}, box=None)
+
+    yield Case(
+        id="targets-pinned",
+        exercises="a block's targets are part of the pinned declaration and hold on every "
+        "resolved frame, the carried-forward ones included",
+        model=run(
+            FrameModel(blocks={"atoms": _atoms(0.0, 1.0), "members": members}),
+            FrameModel(blocks={"atoms": _atoms(0.5, 1.5, 2.5)}),
+            FrameModel(blocks={"atoms": _atoms(1.0, 2.0)}),
+        ),
+    )
+
+    yield Case(
+        id="reject-target-out-of-range-resolved",
+        exercises="a reference that carries forward is held to the target it resolves "
+        "beside: atoms shrinking under members.ibead = 1 is refused",
+        expect_violation="bad_reference",
+        rejects_on="write",
+        model=run(
+            FrameModel(blocks={"atoms": _atoms(0.0, 1.0), "members": members}),
+            FrameModel(blocks={"atoms": _atoms(0.5)}),
+            validated=False,
+        ),
+    )
+
+
 def _break_offset(store: Any) -> None:
     """Make ``atoms/offset`` non-monotonic in a store the codec just wrote.
 
@@ -1086,6 +1290,7 @@ class TrajectorySuite(Suite):
         yield from self._positive_cases()
         yield from self._precision_cases()
         yield from _aligned_cases()
+        yield from _trajectory_target_cases()
         yield from self._writer_refusals()
         yield from self._reader_refusals()
 
@@ -1954,6 +2159,66 @@ class RecordSuite(Suite):
             exercises="a system's meta document is typed like a frame's: an i32, an f64x3 and "
             "a NaN survive",
             model=RecordModel(meta=meta, system=_typed_system()),
+        )
+
+        coarse = FrameModel(
+            blocks={
+                "atoms": BlockModel(
+                    count=2, columns={"bead_type": _column("string", ["P4", "C1"])}
+                ),
+                "members": BlockModel(
+                    count=3,
+                    columns={"ibead": _column("u64", [0, 0, 1]), "atom": _column("u64", [0, 1, 2])},
+                    targets={"ibead": "atoms", "atom": "/frame/atoms"},
+                ),
+            }
+        )
+        yield Case(
+            id="targets-absolute",
+            exercises="a system block references the frame section's atoms by an absolute target "
+            "(/frame/atoms), in range",
+            model=RecordModel(meta=meta, system=coarse, frame=atoms),
+        )
+
+        far = coarse.blocks["members"].model_copy(
+            update={
+                "columns": {**coarse.blocks["members"].columns, "atom": _column("u64", [0, 1, 3])}
+            }
+        )
+        yield Case(
+            id="reject-target-absolute-out-of-range",
+            exercises="an absolute reference into a present section is range-checked like any "
+            "other: atom 3 of a three-atom frame is refused",
+            expect_violation="bad_reference",
+            model=RecordModel.model_construct(
+                meta=meta,
+                system=FrameModel(blocks={**coarse.blocks, "members": far}),
+                frame=atoms,
+            ),
+        )
+
+        yield Case(
+            id="reject-target-into-trajectory",
+            exercises="a trajectory block is never a target: its row count is not fixed",
+            expect_violation="bad_reference",
+            rejects_on="write",
+            model=RecordModel.model_construct(
+                meta=meta,
+                system=FrameModel.model_construct(
+                    blocks={
+                        "members": BlockModel.model_construct(
+                            count=1,
+                            columns={"atom": _column("u64", [0])},
+                            structural_shape=None,
+                            targets={"atom": "/trajectory/atoms"},
+                        )
+                    },
+                    box=None,
+                    meta={},
+                    meta_types={},
+                ),
+                frame=None,
+            ),
         )
 
         yield Case(

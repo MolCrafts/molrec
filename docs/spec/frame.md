@@ -67,6 +67,7 @@ frame
  \-- <block>
  |    +-- count: i64[]
  |    +-- (structural_shape: i64[k])
+ |    +-- (targets: {column: target})
  |    \-- <column>: <dtype>[N][...]
  |    \-- (_validity)
  \-- <block>
@@ -161,6 +162,33 @@ and compresses no better than raw data.
   declares the same `p`.
 - A reader does not re-round, re-check or refuse. A stored value off the grid
   is the writer's defect; a validator **SHOULD** report it.
+
+## Row references
+
+A column whose values are 0-based row indices into another block is a **row
+reference**. By convention the relation endpoint columns `atomi`, `atomj`,
+`atomk`, `atoml` reference the rows of the `atoms` block of the same
+container. Every other reference — and any endpoint that references something
+else — is declared by the block's attribute `targets`, a map from column name
+to target:
+
+| Target | Rows it indexes |
+|--------|-----------------|
+| `<block>` | that block of the same frame (on a trajectory: of the same resolved frame) |
+| `/<section>/<block>` | that block of a frame-shaped section of the same record (`/frame/atoms`, `/system/atoms`) |
+
+- A referencing column is `u64`; a null row (validity) references nothing.
+- A same-container target **MUST** exist wherever the referencing block has
+  rows, and every non-null value **MUST** be below its row count; a reader
+  refuses a store that breaks either. An absolute target is checked the same
+  way when that section is present; a trajectory block is never a target
+  (its row count is not fixed).
+- A `u64` column that is neither an endpoint nor declared is a plain number
+  (an opaque handle, an identifier), never a reference.
+- Tools that renumber rows (subset, replicate) renumber every same-container
+  reference and leave absolute ones unchanged.
+- On a trajectory, `targets` is part of the block's entry in
+  `sequence_schema`; on a frame it is the block group's attribute.
 
 ## Simulation box
 

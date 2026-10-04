@@ -497,3 +497,50 @@ class TestTypedFrameMeta:
         frame = FrameModel(meta={"n": 1})
         model = TrajectoryModel(frames=[frame], step=[0], meta={"n": MetaSeriesModel(dtype="i32")})
         assert model.frames[0].meta_types == {"n": "i32"}
+
+
+class TestRowReferences:
+    @staticmethod
+    def _members(target: str, beads: list[int]) -> BlockModel:
+        values = np.array(beads, dtype="uint64")
+        return BlockModel(
+            count=len(beads),
+            columns={"ibead": ColumnModel(dtype="u64", shape=values.shape, values=values)},
+            targets={"ibead": target},
+        )
+
+    def test_a_target_is_a_block_or_a_section_block(self) -> None:
+        self._members("atoms", [0])
+        self._members("/frame/atoms", [0])
+        for bad in ("/trajectory/atoms", "/frame", "a/b", ""):
+            with pytest.raises(ValidationError):
+                self._members(bad, [0])
+
+    def test_a_reference_is_a_u64_column_of_the_block(self) -> None:
+        values = np.array([0], dtype="int64")
+        with pytest.raises(ValidationError, match="u64"):
+            BlockModel(
+                count=1,
+                columns={"host": ColumnModel(dtype="i64", shape=(1,), values=values)},
+                targets={"host": "atoms"},
+            )
+        with pytest.raises(ValidationError, match="no column"):
+            BlockModel(count=0, targets={"host": "atoms"})
+
+    def test_a_null_row_references_nothing(self) -> None:
+        values = np.array([0, 99], dtype="uint64")
+        members = BlockModel(
+            count=2,
+            columns={
+                "ibead": ColumnModel(
+                    dtype="u64", shape=(2,), values=values, validity=np.array([True, False])
+                )
+            },
+            targets={"ibead": "atoms"},
+        )
+        FrameModel(blocks={"atoms": BlockModel(count=1), "members": members})
+
+    def test_an_empty_referencing_block_needs_no_target(self) -> None:
+        FrameModel(blocks={"members": self._members("sites", [])})
+        with pytest.raises(ValidationError, match="not there"):
+            FrameModel(blocks={"members": self._members("sites", [0])})
