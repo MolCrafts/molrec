@@ -6,9 +6,9 @@ guessing private layouts. It covers molecular systems, snapshots and
 trajectories, scientific observables, and run logs (status, metrics, method).
 
 MolRec names layout and semantics. Implementations expose their own APIs
-(the reference implementation's are `molrs.io.mrec.write_frame`,
-`write_trajectory` and the streaming `TrajectoryWriter`); the contract is
-the structure in the chapters that follow.
+(the reference implementation's are `molrs.io.write_mrec`,
+`write_mrec_trajectory` and the streaming `molrs.io.mrec.TrajectoryWriter`);
+the contract is the structure in the chapters that follow.
 
 The unit of interchange is the *record*. A `frame` section *is* a frame; a
 `trajectory` section *is* an ordered series of frames. Time-dependent data is

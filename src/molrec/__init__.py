@@ -12,25 +12,29 @@ What is here:
 * **Stores and bindings** -- one per (module x backend) pair. Zarr is one
   backend, not the backend; metrics land in JSONL, datasets in tables.
 * **Adapters** -- the only thing an implementation author writes. Two methods
-  per module, no assertions.
+  per module, no assertions; refusals are typed (:class:`Refusal`).
 * **Suites** -- the conformance harness and the benchmark harness, side by
   side, driven by the same adapter.
 
 Usage::
 
-    class MolrsFrameAdapter(molrec.FrameAdapter):
+    class MolrsRecordAdapter(molrec.RecordAdapter):
         backends = ("zarr",)
+        refusal_types = (ValueError,)  # what molrs refuses malformed input with
 
         def write(self, model, store):
-            molrs.write_frame(self._build(model), store.uri)
+            molrs.io.write_mrec(store.uri, self._build(model.frame), meta=...)
 
         def read(self, store):
-            return self._describe(molrs.read_frame(store.uri))
+            return {
+                "meta": molrs.io.read_mrec_meta(store.uri),
+                "frame": self._describe(molrs.io.read_mrec(store.uri)),
+            }
 
     class Molrs(molrec.Implementation):
         name    = "molrs"
         version = molrs.__version__
-        frame   = MolrsFrameAdapter()
+        record  = MolrsRecordAdapter()
 
     molrec.ConformanceSuite(Molrs()).run().report()
     molrec.BenchmarkSuite(Molrs()).run().report()

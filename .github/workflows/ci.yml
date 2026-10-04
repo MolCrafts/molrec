@@ -53,4 +53,8 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --extra dev
       - name: pytest
+        # molrs was just built from the sibling checkout: a molrs that fails
+        # to import here is a failure, not a skipped conformance run.
+        env:
+          MOLREC_REQUIRE_MOLRS: "1"
         run: uv run pytest -q

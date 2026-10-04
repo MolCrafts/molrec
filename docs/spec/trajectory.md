@@ -88,4 +88,4 @@ The reference binding stores each block as a sparse update series (an
 append-first CSR layout). That encoding is specified under
 [Ragged trajectory](ragged.md); the reference streaming writer is
 `molrs.io.mrec.TrajectoryWriter`, the whole-sequence doors
-`molrs.io.mrec.write_trajectory` / `read_trajectory`.
+`molrs.io.write_mrec_trajectory` / `read_mrec_trajectory`.

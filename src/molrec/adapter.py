@@ -59,7 +59,7 @@ class Implementation:
         class Molrs(Implementation):
             name    = "molrs"
             version = molrs.__version__
-            frame   = MolrsFrameAdapter()
+            record  = MolrsRecordAdapter()
     """
 
     name: ClassVar[str] = "unnamed"

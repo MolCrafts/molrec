@@ -137,10 +137,11 @@ document.
 
 ## Array groups
 
-Reference implementation: molrs — `molrs.io.mrec.write_frame` /
-`write_system` / `write_trajectory` and the streaming
-`molrs.io.mrec.TrajectoryWriter`, with `read_frame` / `read_system` /
-`read_trajectory` / `read_meta` on the way back.
+Reference implementation: molrs — `molrs.io.write_mrec` /
+`write_mrec_system` / `write_mrec_trajectory` and the streaming
+`molrs.io.mrec.TrajectoryWriter`, with `read_mrec` / `read_mrec_system` /
+`read_mrec_trajectory` / `read_mrec_meta` (and `mrec_sections`) on the way
+back.
 
 - A frame-shaped section (`frame/`, `system/`) is a group of named blocks;
   each block is a group of named columns (arrays). Optional `box` is part of

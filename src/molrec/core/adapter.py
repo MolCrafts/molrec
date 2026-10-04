@@ -13,16 +13,21 @@ from molrec.core.store import CollectionStore, FrameStore, RecordStore, Trajecto
 class FrameAdapter(Adapter):
     """Implement this to have your frame serialization judged.
 
-        class MolrsFrameAdapter(molrec.FrameAdapter):
+        class MyFrameAdapter(molrec.FrameAdapter):
             backends = ("zarr",)
+            refusal_types = (ValueError,)
 
             def write(self, model, store):
-                molrs.write_frame(self._build(model), store.uri)
+                mylib.write_frame(self._build(model), store.uri)
 
             def read(self, store):
-                return self._describe(molrs.read_frame(store.uri))
+                return self._describe(mylib.read_frame(store.uri))
 
-    ``read`` may return any duck shaped like ``FrameModel``.
+    ``read`` may return any duck shaped like ``FrameModel``. This door is a
+    bare frame at a store root; an implementation that only writes whole
+    records (molrs: ``molrs.io.write_mrec`` / ``read_mrec``) is judged on the
+    same frame cases through :class:`RecordAdapter`, which runs each of them
+    inside a record.
     """
 
     module: ClassVar[str] = "core"

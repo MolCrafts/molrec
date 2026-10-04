@@ -8,7 +8,14 @@ error.
 
 from __future__ import annotations
 
+import importlib
+import os
+
 import pytest
+
+#: Set (to ``1``) where molrs must be judged -- CI sets it. There, a missing
+#: or unimportable molrs is a failure, not a skip that turns the run green.
+REQUIRE_MOLRS = os.environ.get("MOLREC_REQUIRE_MOLRS") == "1"
 
 
 @pytest.fixture(scope="session")
@@ -16,8 +23,14 @@ def molrs():
     """``molrs``, or a skip when it is not installed at all.
 
     Installed but stale (built before the rulings the suite now judges) is
-    not a skip: those tests run and go red until molrs is rebuilt.
+    not a skip: those tests run and go red until molrs is rebuilt. With
+    ``MOLREC_REQUIRE_MOLRS=1`` an absent molrs is not a skip either.
     """
+    if REQUIRE_MOLRS:
+        try:
+            return importlib.import_module("molrs")
+        except ImportError as exc:
+            pytest.fail(f"MOLREC_REQUIRE_MOLRS=1 but molrs cannot be imported: {exc}")
     return pytest.importorskip("molrs")
 
 
