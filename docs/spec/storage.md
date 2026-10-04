@@ -174,5 +174,6 @@ back.
    newest the reader supports, never `null`. Scientific paths use
    `*.mrec/` / `*.mrec.zip`.
 7. Data precede metadata. A writer lands chunk bytes before it replaces an
-   array's `zarr.json` (atomically), `step` last of all, and a reader is
-   bound by the trajectory group's `nstep` attribute.
+   array's `zarr.json` (atomically), and the trajectory group's `nstep`
+   attribute — the commit marker — last of all; a reader is bound by it
+   ([Chunking and packing](chunking.md#normative)).

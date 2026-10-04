@@ -30,6 +30,8 @@ from molrec.core.bindings.zarr import (
 from molrec.core.model import (
     BlockModel,
     BoxModel,
+    BoxUpdateModel,
+    CellModel,
     ColumnModel,
     FrameModel,
     MetaModel,
@@ -37,6 +39,7 @@ from molrec.core.model import (
     MethodModel,
     RecordModel,
     StatusModel,
+    TrajectoryBoxModel,
     TrajectoryModel,
 )
 
@@ -136,16 +139,107 @@ def test_the_trajectory_group_pins_sequence_schema(tmp_path: Path) -> None:
     assert "molrs_meta_dtype" not in root["trajectory/meta/pe"].attrs
 
 
-def test_block_groups_carry_the_writer_hints(tmp_path: Path) -> None:
+def test_the_elision_markers_never_ride_beside_an_index(tmp_path: Path) -> None:
     store = ZarrTrajectoryStore(tmp_path / "hints.mrec")
     ZarrTrajectoryCodec().write(_trajectory(), store)
     root = store.root(mode="r")
 
-    atoms = root["trajectory/atoms"].attrs
-    assert atoms["dense_updates"] is True
-    assert "uniform_rows" not in atoms  # 2 rows then 3
-    bonds = root["trajectory/bonds"].attrs
-    assert bonds["uniform_rows"] == 1 and bonds["dense_updates"] is True
+    # atoms: 2 rows then 3 -- ragged, so it carries its index and no markers.
+    atoms = root["trajectory/atoms"]
+    assert "uniform_rows" not in atoms.attrs and "dense_updates" not in atoms.attrs
+    assert {"step_index", "offset"} <= {name for name, _ in atoms.arrays()}
+    # bonds: one update of one row at ordinal 0 -- regular, so no index at all.
+    bonds = root["trajectory/bonds"]
+    assert bonds.attrs["uniform_rows"] == 1 and bonds.attrs["dense_updates"] is True
+    assert {name for name, _ in bonds.arrays()} == {"atomi"}
+
+
+def test_the_common_run_costs_one_array_per_column(tmp_path: Path) -> None:
+    """Fixed atom count, every frame, fixed cell, regular step and time."""
+    model = TrajectoryModel(
+        frames=[FrameModel(blocks={"atoms": _atoms(x, x + 1.0)}) for x in (0.0, 0.5, 1.0)],
+        step=[0, 10, 20],
+        time=[0.0, 0.25, 0.5],
+        box=TrajectoryBoxModel(
+            updates=[BoxUpdateModel(step_index=0, box=CellModel(vectors=np.eye(3) * 4.0))]
+        ),
+    )
+    store = ZarrTrajectoryStore(tmp_path / "common.mrec")
+    ZarrTrajectoryCodec().write(model, store)
+    root = store.root(mode="r")
+    trajectory = root["trajectory"]
+
+    arrays = sorted(
+        str(path.parent.relative_to(store.path))
+        for path in (store.path / "trajectory").rglob("zarr.json")
+        if json.loads(path.read_text())["node_type"] == "array"
+    )
+    assert arrays == ["trajectory/atoms/x"]
+    assert trajectory.attrs["step_progression"] == {"start": 0, "stride": 10}
+    assert trajectory.attrs["time_progression"] == {"start": 0.0, "stride": 0.25}
+    assert trajectory.attrs["nstep"] == 3
+    assert trajectory["box"].attrs["vectors"] == (np.eye(3) * 4.0).tolist()
+    assert ZarrTrajectoryCodec().read(store) == model
+
+
+def test_an_irregular_step_series_is_an_array(tmp_path: Path) -> None:
+    model = TrajectoryModel(
+        frames=[FrameModel(blocks={"atoms": _atoms(x)}) for x in (0.0, 0.5, 1.0)],
+        step=[0, 1, 5],
+        time=[0.0, 0.1, 0.30000000000000004 + 1e-9],
+    )
+    store = ZarrTrajectoryStore(tmp_path / "irregular.mrec")
+    ZarrTrajectoryCodec().write(model, store)
+    trajectory = store.root(mode="r")["trajectory"]
+    assert "step_progression" not in trajectory.attrs
+    assert trajectory["step"][...].tolist() == [0, 1, 5]
+    assert "time_progression" not in trajectory.attrs
+    assert ZarrTrajectoryCodec().read(store) == model
+
+
+def test_a_progression_without_its_marker_is_refused(tmp_path: Path) -> None:
+    store = ZarrTrajectoryStore(tmp_path / "unmarked.mrec")
+    ZarrTrajectoryCodec().write(_trajectory(), store)
+    trajectory = zarr.open_group(store=store.path, mode="r+")["trajectory"]
+    attrs = dict(trajectory.attrs)
+    del attrs["nstep"]
+    trajectory.attrs.clear()
+    trajectory.attrs.update(attrs)
+    with pytest.raises(ValueError, match="nstep"):
+        ZarrTrajectoryCodec().read(store)
+
+
+@pytest.mark.parametrize(
+    "markers",
+    [{"uniform_rows": 1}, {"dense_updates": True}, {"uniform_rows": 0, "dense_updates": True}],
+)
+def test_half_an_elision_is_refused(tmp_path: Path, markers: dict) -> None:
+    store = ZarrTrajectoryStore(tmp_path / "half.mrec")
+    ZarrTrajectoryCodec().write(_trajectory(), store)
+    bonds = zarr.open_group(store=store.path, mode="r+")["trajectory/bonds"]
+    bonds.attrs.clear()
+    bonds.attrs.update(markers)
+    with pytest.raises(ValueError, match="elide"):
+        ZarrTrajectoryCodec().read(store)
+
+
+def test_a_declared_block_never_updated_is_absent(tmp_path: Path) -> None:
+    from molrec.core.model import SequenceBlockModel, SequenceColumnModel
+
+    model = TrajectoryModel(
+        frames=[FrameModel(blocks={"atoms": _atoms(0.0)})],
+        step=[0],
+        blocks={
+            "atoms": SequenceBlockModel(columns={"x": SequenceColumnModel(dtype="f64")}),
+            "bonds": SequenceBlockModel(columns={"atomi": SequenceColumnModel(dtype="u64")}),
+        },
+    )
+    store = ZarrTrajectoryStore(tmp_path / "declared.mrec")
+    ZarrTrajectoryCodec().write(model, store)
+    bonds = store.root(mode="r")["trajectory/bonds"]
+    assert dict(bonds.attrs) == {} and bonds["atomi"].shape == (0,)
+    back = ZarrTrajectoryCodec().read(store)
+    assert back == model and "bonds" not in back.frames[0].blocks
 
 
 def test_every_trajectory_array_is_sharded_with_the_index_at_the_start(tmp_path: Path) -> None:
@@ -172,13 +266,14 @@ def test_every_trajectory_array_is_sharded_with_the_index_at_the_start(tmp_path:
     # Float columns are uncompressed; dense arrays and non-float columns take gzip.
     x = json.loads((store.path / "trajectory/atoms/x/zarr.json").read_text())
     assert [c["name"] for c in x["codecs"][0]["configuration"]["codecs"]] == ["bytes", "crc32c"]
-    step = json.loads((store.path / "trajectory/step/zarr.json").read_text())
-    assert [c["name"] for c in step["codecs"][0]["configuration"]["codecs"]] == [
+    dense = json.loads((store.path / "trajectory/meta/pe/zarr.json").read_text())
+    assert [c["name"] for c in dense["codecs"][0]["configuration"]["codecs"]] == [
         "bytes",
         "gzip",
         "crc32c",
     ]
-    assert step["codecs"][0]["configuration"]["chunk_shape"] == [1024]
+    assert dense["codecs"][0]["configuration"]["chunk_shape"] == [1024]
+    assert dense["chunk_grid"]["configuration"]["chunk_shape"] == [1024 * 256]
 
 
 def test_a_bare_trajectory_store_has_a_root_and_a_stamped_meta_document(tmp_path: Path) -> None:

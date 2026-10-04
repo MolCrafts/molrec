@@ -31,7 +31,7 @@ from pydantic import (
 )
 
 from molrec import jsonvalue
-from molrec.arrays import NDArray, arrays_equal
+from molrec.arrays import NDArray, arrays_equal, arrays_identical
 
 DType = Literal[
     "f64",
@@ -663,6 +663,32 @@ def declare_block(block: BlockModel) -> SequenceBlockModel:
     )
 
 
+def same_bits(left: BlockModel, right: BlockModel) -> bool:
+    """Whether two presentations of a block are one update: bit for bit, masks
+    included. What earns a section a new update is any difference here."""
+    if (
+        left.count != right.count
+        or left.structural_shape != right.structural_shape
+        or left.columns.keys() != right.columns.keys()
+    ):
+        return False
+    return all(
+        column.dtype == right.columns[name].dtype
+        and arrays_identical(column.values, right.columns[name].values)
+        and arrays_identical(column.validity, right.columns[name].validity)
+        for name, column in left.columns.items()
+    )
+
+
+def same_cell(left: CellModel, right: CellModel) -> bool:
+    """Bit-for-bit cell equality: the predicate behind the ``box/`` index."""
+    return (
+        arrays_identical(left.vectors, right.vectors)
+        and arrays_identical(left.origin, right.origin)
+        and left.boundary == right.boundary
+    )
+
+
 class BlockState(StrEnum):
     """What a block *is* at one frame ordinal -- the three states of S1.
 
@@ -723,13 +749,14 @@ class TrajectoryBoxModel(BaseModel):
             )
         if self.cell_defined is None:
             object.__setattr__(self, "cell_defined", True)
-        resolved = [
-            BoxUpdateModel(
-                step_index=update.step_index,
-                box=CellModel(**resolve_cell(update.box, self.cell_defined)),
-            )
-            for update in self.updates
-        ]
+        resolved: list[BoxUpdateModel] = []
+        for update in self.updates:
+            cell = CellModel(**resolve_cell(update.box, self.cell_defined))
+            # An update identical to the one before it is not a change: the
+            # section is the list of changes, so it is dropped here once.
+            if resolved and same_cell(resolved[-1].box, cell):
+                continue
+            resolved.append(BoxUpdateModel(step_index=update.step_index, box=cell))
         object.__setattr__(self, "updates", resolved)
         return self
 

@@ -73,3 +73,21 @@ def arrays_equal(left: np.ndarray | None, right: np.ndarray | None) -> bool:
     if left.dtype.kind in "fc" and right.dtype.kind in "fc":
         return bool(np.allclose(left, right, rtol=0, atol=0, equal_nan=True))
     return bool(np.array_equal(left, right))
+
+
+def arrays_identical(left: np.ndarray | None, right: np.ndarray | None) -> bool:
+    """Bit-for-bit equality: same dtype, same shape, same bytes.
+
+    The predicate behind a section's update index. A NaN that repeats is
+    unchanged and a ``-0.0`` that replaces a ``0.0`` is a change -- numeric
+    equality gets both wrong, and either mistake turns one stored update into
+    a different one.
+    """
+    if left is None or right is None:
+        return left is None and right is None
+    left, right = np.asarray(left), np.asarray(right)
+    if left.shape != right.shape or left.dtype != right.dtype:
+        return False
+    if left.dtype.kind in "OUTS":
+        return bool(np.array_equal(left, right))
+    return np.ascontiguousarray(left).tobytes() == np.ascontiguousarray(right).tobytes()

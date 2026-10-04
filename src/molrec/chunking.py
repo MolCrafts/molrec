@@ -17,11 +17,13 @@ Trajectory arrays:
 * **Shards hold 256 MiB.** ``chunks_per_shard = clamp(256 MiB / chunk_bytes,
   1, 4096)``; the cap keeps a shard index under 64 KiB.
 * **Dense arrays** (``step``, ``time``, ``meta/*``, ``offset``, ``step_index``,
-  ``box/*``) take 1024-row chunks, 4096 chunks per shard.
+  ``box/*``) take 1024-row chunks, 256 chunks per shard (a 4 KiB shard index).
 
-Fixed-size arrays (``frame/``, ``system/``) are not sharded: one chunk holds
-the whole array up to 4 MiB, and 4 MiB leading-axis slabs beyond that.
-Trailing axes are per-entity structure and are never split.
+Fixed-size arrays (``frame/``, ``system/``, ``observables/``) aim for 512 KiB
+leading-axis chunks; an array of more than four chunks packs them into one
+shard spanning the whole array. A string, an empty leading axis or a 0-d
+array is one chunk. Trailing axes are per-entity structure and are never
+split.
 """
 
 from __future__ import annotations
@@ -39,11 +41,13 @@ SHARD_TARGET_BYTES = 256 * MIB
 MAX_CHUNKS_PER_SHARD = 4096
 #: Per-step and index arrays: rows per inner chunk, chunks per shard.
 DENSE_ROWS_PER_CHUNK = 1024
-DENSE_CHUNKS_PER_SHARD = 4096
+DENSE_CHUNKS_PER_SHARD = 256
 #: A variable-width string row, for the byte arithmetic above.
 STRING_ROW_BYTES = 16
-#: Fixed-size (frame / system) arrays: one chunk up to this many bytes.
-FIXED_CHUNK_BYTES = 4 * MIB
+#: Fixed-size (frame / system / observables) arrays: the chunk byte target.
+FIXED_CHUNK_BYTES = 512 * KIB
+#: A fixed-size array of more than this many chunks is packed into one shard.
+SHARD_ABOVE = 4
 
 
 def row_bytes(trailing: tuple[int, ...], itemsize: int | None) -> int:
@@ -65,22 +69,25 @@ def chunks_per_shard(chunk_bytes: int) -> int:
     return max(1, min(MAX_CHUNKS_PER_SHARD, SHARD_TARGET_BYTES // max(1, chunk_bytes)))
 
 
-def fixed_chunk_rows(rows: int, bytes_per_row: int) -> int:
-    """The inner chunk of a fixed-size (frame / system) array, in rows."""
-    if rows <= 0:
-        return 1
-    return min(rows, max(1, FIXED_CHUNK_BYTES // bytes_per_row))
-
-
 def plan(
     shape: tuple[int, ...], itemsize: int | None
 ) -> tuple[tuple[int, ...] | None, tuple[int, ...] | None]:
     """``(chunks, shards)`` for a fixed-size array; either may be ``None``.
 
-    The fixed-size rule above, in the shape the observables binding consumes:
-    leading-axis chunks only, no shard.
+    Leading-axis chunks of about :data:`FIXED_CHUNK_BYTES`; above
+    :data:`SHARD_ABOVE` of them, one shard spanning the whole array (rounded
+    up to a whole number of chunks). ``chunks`` is ``None`` -- one chunk for
+    the whole array -- for a variable-width dtype, an empty leading axis or a
+    0-d array; ``shards`` is ``None`` when there are few enough chunks.
+    The reference implementation's ``chunking.rs`` is this function.
     """
-    if not shape or shape[0] == 0:
+    if not shape or shape[0] == 0 or itemsize is None:
         return None, None
-    rows = fixed_chunk_rows(shape[0], row_bytes(tuple(shape[1:]), itemsize))
-    return (rows, *shape[1:]), None
+    rows_total = shape[0]
+    per_row = max(1, math.prod(shape[1:]) * itemsize)
+    rows = min(rows_total, max(1, FIXED_CHUNK_BYTES // per_row))
+    chunks = (rows, *shape[1:])
+    count = math.ceil(rows_total / rows)
+    if count <= SHARD_ABOVE:
+        return chunks, None
+    return chunks, (rows * count, *shape[1:])

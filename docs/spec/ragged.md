@@ -65,24 +65,42 @@ The trajectory group's attribute `nstep` is the number of frames fully on
 disk. It is written **last**: a writer lands every array of a commit before
 replacing the group metadata (atomically), so a crash between two writes of
 one commit costs the uncommitted frames and nothing else. A reader takes
-`nstep` from that attribute; every array is read to its logical length and
-**MAY** be longer (a tail the writer had not yet committed) but **MUST NOT**
-be shorter. A store from a writer that kept no marker attribute is read to
-`len(step)`. The full protocol is
+`nstep` from that attribute (a non-negative JSON integer); every array is
+read to its logical length and **MAY** be longer (a tail the writer had not
+yet committed) but **MUST NOT** be shorter. A store from a writer that kept
+no marker attribute is read to `len(step)` (zero frames when there is no
+`step` array either). The progression attributes below are only ever written
+in the same metadata update as `nstep`, so a store that carries
+`step_progression` or `time_progression` **without** `nstep` is malformed
+and a reader refuses it. The full protocol is
 [Chunking and packing](chunking.md#normative).
 
 ### `step` and `time`
 
 While the step numbers are an arithmetic progression — the dump every `k`
 steps that every MD run produces — they are recorded as the attribute
-`step_progression: {"start": s, "stride": k}` (`stride` appears from the
-second frame on) and **no `step` array exists**. The first frame whose step
-number breaks the progression materializes the `step` array, backfilled with
-the whole history, and the attribute is removed. `time` follows the same
-rule with `time_progression`, compared exactly (a time that is
-`start + i·stride` in floating point stays regular; an accumulated one
-usually does not). A reader resolves step `i` as `start + i·stride` from the
-attribute, else from the array.
+`step_progression: {"start": s, "stride": k}` and **no `step` array
+exists**. `stride` is `step[1] − step[0]` and appears from the second frame
+on (a one-frame sequence carries `{"start": s}`; a zero-frame one carries no
+attribute). The first frame whose step number breaks the progression
+materializes the `step` array, backfilled with the whole history, and the
+attribute is removed. `time` follows the same rule with `time_progression`.
+
+The arithmetic is normative, because a progression is only as exact as the
+formula that expands it:
+
+- `step[i] = start + i × stride`, exact integer arithmetic; `start` and
+  `stride` are JSON integers.
+- `time[i] = start + f64(i) × stride`, evaluated in IEEE 754 binary64 —
+  `i` converted to binary64, one rounded multiplication, one rounded
+  addition, **no fused multiply-add** — with `stride = time[1] − time[0]`
+  (one rounded subtraction). A writer keeps a time series as a progression
+  only while every value equals that expression bit for bit; an accumulated
+  time usually does not, and goes to the array. A non-finite time cannot be
+  spelled in JSON, so a series holding one is always an array.
+
+A reader resolves frame `i` from the attribute when present, else from the
+array.
 
 `time` exists only when the run supplied times. It is all-or-nothing: a
 sequence that starts without times cannot gain them later, and one that
@@ -90,7 +108,8 @@ starts with them cannot drop them. A writer **MUST** refuse either.
 
 `step` holds the producer's iteration counter (strictly increasing; a
 repeated or smaller step number is refused at append). Every `step_index`
-below holds **frame ordinals** `0 .. nstep-1`, not those counters. See
+below holds **frame ordinals** `0 .. nstep-1`, not those counters, and is
+**strictly ascending**: a reader refuses one that repeats or decreases. See
 [Trajectory](trajectory.md).
 
 ### Per-step metadata
@@ -194,49 +213,45 @@ mirrors it onto its group as the attribute `structural_shape`. Such a block
 has a **fixed row count**: every update holds exactly the product of the
 shape, and a writer refuses an update that does not.
 
-**A regular block costs no index.** Two attributes are maintained by the
-writer on the block group:
+**A regular block costs no index.** A block is *regular* while every update
+so far has the same row count `N > 0` and sits at its own ordinal
+(`step_index[j] == j`). While it is regular a writer writes **no
+`step_index` and no `offset`** and instead marks the block group with two
+*elision markers*:
 
-| Attribute | Meaning while it holds |
-|-----------|------------------------|
+| Attribute | Meaning |
+|-----------|---------|
 | `uniform_rows: N` | every update so far has exactly `N > 0` rows |
-| `dense_updates: true` | every update so far sits at its own ordinal (`step_index[j] == j`) |
+| `dense_updates: true` | every update so far sits at its own ordinal |
 
-While **both** hold, `step_index` and `offset` are **not written**: update
-`j` is at ordinal `j` and owns rows `j·N … (j+1)·N`, and the number of
-updates is `min(len(column) / N, nstep)` for any column of the block. The
-first update that breaks either rule — a different row count (a ragged run,
-a zero-row update), or an update at an ordinal other than its own (a
-topology that changed at frame 5) — materializes both arrays, backfilled
-with the regular history, and removes the attributes for good. Once the
-arrays exist they are authoritative and the attributes never return. A
-constant topology (one update at ordinal `0`) and coordinates that move
+The markers are a pair and they stand **in place of** the index — never
+beside it:
+
+- Update `j` is at ordinal `j` and owns rows `j·N … (j+1)·N`. The number of
+  updates is `min(⌊len(c) / N⌋, nstep)` over the shortest column `c` of the
+  block (floor division: a partial trailing update is an uncommitted tail).
+- The first update that breaks either rule — a different row count (a ragged
+  run, a zero-row update), or an update at an ordinal other than its own (a
+  topology that changed at frame 5) — materializes **both** arrays,
+  backfilled with the regular history, and the same commit removes **both**
+  markers for good. A committed store never carries a marker beside an index
+  array; a reader that finds both (a crash between the two writes of that
+  commit) uses the arrays, which are authoritative.
+- A block with **no columns** has no length to count its updates by, so it
+  always keeps its index.
+- One marker without the other, `uniform_rows` that is not a positive
+  integer, or markers on a block with no columns is malformed, and a reader
+  refuses it.
+
+A constant topology (one update at ordinal `0`) and coordinates that move
 every frame are both regular; only a block that *sometimes* changes, or
 changes size, pays for an index.
 
-### Nullable columns
-
-A column declared `nullable` in the [pinned declaration](#the-pinned-declaration)
-keeps its [validity mask](frame.md#nullable-columns) as the array
-`B/_validity/<column>`: `bool[total_rows]`, one flag per row, grown in
-lockstep with the column so update `j`'s flags are rows `offset[j] …
-offset[j+1]` of the mask, exactly the rows its values occupy.
-
-- The mask array is **dense over the section's rows**: an update that
-  carries no mask for a nullable column lands all-`true`. That is what lets
-  a column be holed in one frame and whole in the next.
-- A nullable column whose mask array is absent is fully valid at every
-  ordinal (a writer **MAY** create the array only once a row is null, and
-  then backfills the earlier rows with `true`).
-- Nullability is a union over the run: a column masked in any frame is
-  nullable for all of them. A frame that masks a column the declaration pins
-  non-nullable is **refused** at append — landing the values without the
-  mask would lose which rows hold nothing.
-- The masks count as content: two presentations whose values agree while
-  their masks differ are different updates.
-- A reader resolving a frame hands back the mask rows of the update; an
-  all-`true` slice is "no mask". A mask array shorter than the rows its
-  `offset` claims, or not `bool`, is refused.
+**A declared block with no updates** is a group with zero-length columns and
+neither markers nor an index (a writer may create every declared block's
+group when the sequence is created). It is absent at every ordinal; a reader
+**MUST NOT** refuse it. Rows its columns hold beyond the committed frames are
+an uncommitted tail, as everywhere else.
 
 ## The three states of a block
 
@@ -316,6 +331,15 @@ The declaration is pinned as the `trajectory/` group attribute
 - `meta`: a map of key to `{dtype, fill?}`, `dtype` drawn from the per-step
   tag set above.
 
+`sequence_schema.blocks` is the **authoritative block list**. A reader
+resolves exactly the declared blocks: a declared block whose group is
+missing is absent at every ordinal, and a child group of `trajectory/` the
+declaration does not name (and that is not one of the reserved names) is
+not a block of the sequence — a reader does not resolve it into frames, and
+preserves it as unknown content. Only a store that carries no
+`sequence_schema` at all (a foreign writer's) is read by deriving the
+declaration from its groups.
+
 The attribute carries **no version of its own**; the record's
 `meta["molrec_version"]` covers it.
 
@@ -331,9 +355,10 @@ To read block `B` at frame ordinal `i`:
    of `B`. **A zero-row range yields an empty block**: present, with its
    declared columns and no rows.
 
-With `dense_updates` and `uniform_rows` both set there is no index to
-search: `j = min(i, n_updates − 1)` with `n_updates = min(len(column) / N,
-nstep)`, and the rows are `j·N … (j+1)·N`.
+With the elision markers there is no index to search: `j = min(i,
+n_updates − 1)` with `n_updates = min(⌊len(c) / N⌋, nstep)` over the
+shortest column `c`, and the rows are `j·N … (j+1)·N`; with zero updates the
+block is absent.
 
 The box resolves the same way over `box/step_index`, minus the row range:
 the frame's cell is update `j` itself.
@@ -356,18 +381,23 @@ at the first write.
 
 ## Cost tracks change
 
-Because every section carries its own index, the cost of a section follows
-how often it **changes**, not how long the run is:
+Because every section carries its own index — or, while it is regular, none
+at all — the cost of a section follows how often it **changes**, not how long
+the run is:
 
-| Section | Entries in its `step_index` |
-|---------|-----------------------------|
-| Constant topology (`bonds` that never changes) | 1 |
-| Reactive / grand-canonical topology | one per change |
-| Coordinates (`atoms`, changing every step) | `nstep` |
-| Fixed cell (`box/` under NVT) | 1 |
+| Section | Updates | On disk beyond its columns |
+|---------|---------|-----------------------------|
+| Constant topology (`bonds` that never changes) | 1 | nothing: regular, two marker attributes |
+| Coordinates (`atoms`, changing every step, fixed count) | `nstep` | nothing: regular, two marker attributes |
+| Reactive / grand-canonical topology | one per change | `step_index` and `offset`, one entry per change |
+| Ragged run (`atoms` gaining rows) | one per change | `step_index` and `offset`, one entry per change |
+| Fixed cell (`box/` under NVT) | 1 | nothing: three attributes on `box/` |
+| Changing cell (`box/` under NPT) | one per change | `step_index`, `vectors` (+ `origin` / `boundary` when off their defaults) |
+| `step` dumped every `k` steps | — | nothing: `step_progression` |
 
-A section earns a new update only when its content differs bitwise from its
-previous update.
+A section earns a new update only when its content differs **bit for bit**
+from its previous update: a repeated `NaN` is unchanged, and a `-0.0` after
+a `0.0` is a change.
 
 This is what makes hand-splitting an unchanging topology into `system/`
 optional, and it is what lets a topology that changes *sometimes* be
@@ -376,36 +406,40 @@ expressed at all.
 ## Worked example: a growth trajectory
 
 A growth trajectory (`growth.mrec/`) whose `atoms` block gains rows over 19
-frames, with only positions, an element string, and a molecule id. The cell
-is constant, and the potential energy is recorded per step.
+frames, with only positions, an element string, and a molecule id; frames
+dumped every 10 steps from step 0; a constant cell; the potential energy per
+step.
 
 ```text
 growth.mrec
  \-- meta
+ |    +-- molrec_version: 1
  \-- trajectory
       +-- sequence_schema
-      \-- step: i64[19]
+      +-- nstep: 19
+      +-- step_progression: {"start": 0, "stride": 10}
       \-- meta
       |    \-- pe: f64[19]
       |         +-- meta_dtype: "f64"
       \-- atoms
-      |    +-- dense_updates: true
       |    \-- step_index: u64[19]
       |    \-- offset: u64[20]
-      |    \-- element: string[N]
-      |    \-- mol_id: u64[N]
-      |    \-- x: f64[N]
-      |    \-- y: f64[N]
-      |    \-- z: f64[N]
+      |    \-- element: string[total_rows]
+      |    \-- mol_id: u64[total_rows]
+      |    \-- x: f64[total_rows]
+      |    \-- y: f64[total_rows]
+      |    \-- z: f64[total_rows]
       \-- box
-           \-- step_index: u64[1]
-           \-- vectors: f64[1][3][3]
+           +-- vectors: [[20, 0, 0], [0, 20, 0], [0, 0, 20]]
 ```
 
-`meta/` is present with `molrec_version: 1` in its attribute map: writers
-always create it and stamp the version.
+`meta/` carries `molrec_version: 1`: writers always create it and stamp the
+version. There is no `step` array (the numbering is a progression) and no
+`box/` array (the cell is fixed from ordinal 0, so it is three attributes —
+here only `vectors`, because `origin` and `boundary` hold their defaults).
 
-Suppose the first three frames have 2, 2, and 5 atoms. Then:
+`atoms` is **not** regular — its row count changes — so it carries its index
+and no markers. Suppose the first three frames have 2, 2, and 5 atoms. Then:
 
 ```text
 offset      = [0, 2, 4, 9, ...]
@@ -415,9 +449,9 @@ step_index  = [0, 1, 2, ...]
 Frame `0` owns rows `0:2`, frame `1` owns `2:4` (still 2 atoms — the count
 did not grow, but positions changed, so there is still an update), frame `2`
 owns `4:9`. Had this writer also declared `bonds` and presented the same
-bonds on every frame, they would have `step_index = [0]` and a single row
-range covering the whole run; a frame that omitted them would still read
-them back.
+bonds on every frame, `bonds` would be regular — one update at ordinal `0`,
+`uniform_rows` and `dense_updates: true` on its group, no index — and a
+frame that omitted them would still read them back.
 
 The pinned `trajectory` attribute:
 
@@ -443,6 +477,6 @@ The pinned `trajectory` attribute:
 ```
 
 Frame `i` is read by resolving each block through the algorithm above:
-`atoms` at frame `i` owns rows `offset[i] … offset[i+1]` (here
-`step_index[i] == i` because atoms change every frame, which is what
-`dense_updates` records); the box is its single update.
+`atoms` at frame `i` owns rows `offset[j] … offset[j+1]` for the update `j`
+that `step_index` finds (here `j == i`, since atoms change every frame); the
+step number is `0 + 10·i`; the cell is the one attribute cell.

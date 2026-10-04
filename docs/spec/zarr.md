@@ -25,7 +25,10 @@ the top of that directory.
 ## What V3 gives a record
 
 - **A store of keys.** Each chunk or shard is one object. Cloud object stores
-  speak GET/PUT; a trajectory append is a write at the tail of a shard.
+  speak GET/PUT, so they hold *closed* records (read with ranged GETs); a
+  live trajectory append is a positional write at the tail of a shard plus
+  an atomic rename, which needs a POSIX-like filesystem
+  ([Chunking and packing](chunking.md#normative)).
 - **JSON metadata.** Group and array metadata are UTF-8 JSON. Document
   sections (`meta`, `status`, `method`) live as group attributes on the same
   root.

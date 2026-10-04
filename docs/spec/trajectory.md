@@ -11,14 +11,22 @@ index and an optional physical time.
 
 ```text
 trajectory
- \-- step: i64[nstep]
+ +-- sequence_schema
+ +-- nstep
+ +-- (step_progression: {start, stride})
+ +-- (time_progression: {start, stride})
+ \-- (step: i64[nstep])
  \-- (time: f64[nstep])
  \-- (meta)
- |    \-- <key>: <dtype>[nstep]
+ |    \-- <key>: <dtype>[nstep][...]
  \-- (box)
  \-- <block>
       \-- ...
 ```
+
+This is the logical picture; the full on-disk tree, with the elisions that
+make the common run cost one array per column, is
+[Ragged trajectory](ragged.md#layout).
 
 `step`
 

@@ -29,14 +29,36 @@ compiled). **No lossy codec is admitted.**
 1. for every touched array: the chunk bytes first (positional writes into
    the shard), then its `zarr.json` replaced **atomically** (write a
    temporary file, rename over the old one);
-2. if the flush is durable: `fsync` the touched data files and their
-   directories;
+2. if the flush is durable: `fsync` the touched data files, their
+   `zarr.json` files, and their directories;
 3. the trajectory group's metadata last — one atomic replace carrying the
-   new `nstep` and the `step_progression` / `time_progression` attributes.
+   new `nstep` and the `step_progression` / `time_progression` attributes;
+4. if the flush is durable: `fsync` that `zarr.json` and the `trajectory/`
+   directory, so the rename that published the commit is itself on disk.
 
 Data therefore always precedes metadata, and the `nstep` attribute is the
 commit marker. Explicit `flush()` and `close()` are durable; an automatic
 flush (see below) does not `fsync`.
+
+**What the protocol guarantees, and where.** The guarantee is scoped to the
+kind of failure and the kind of store:
+
+- *Process crash* (the writer dies, the machine keeps running): after any
+  flush, automatic or explicit, the store opens at the last `nstep` the
+  operating system received; uncommitted tails are read past.
+- *Power loss or kernel crash*: only an **explicit** `flush()` / `close()`
+  is durable. Frames landed by automatic flushes since the last explicit one
+  may be lost, and an `nstep` the disk never received reads as the previous
+  one — never as a store that claims frames it lacks.
+- *One writer, no concurrent readers.* A store has exactly one writer at a
+  time. A reader that opens a store while it is being written may observe a
+  half-replaced metadata file on a store without atomic rename; reading a
+  live store is a convenience of POSIX filesystems, not a guarantee of the
+  format.
+- *Live append needs a POSIX-like store*: positional writes into a shard,
+  atomic rename, `fsync`. An object store (S3, GCS) has none of these, so it
+  holds **closed** records — written elsewhere, then uploaded, or packed into
+  `*.mrec.zip` — and is read, never appended to.
 
 **Reopen rule.** A writer reopening a store to append, and a reader opening
 one, are bound by `nstep`:
@@ -87,11 +109,18 @@ chunks_per_shard = clamp(floor(256 MiB / chunk_bytes), 1, 4096)
 
 The upper clamp keeps a shard index at or under 64 KiB.
 
+Every column of one block shares one `rows_per_chunk`, computed from the
+block's **narrowest** column (the smallest `row_bytes`), so a frame's rows
+sit at the same chunk boundaries in every column; `chunks_per_shard` is then
+each column's own.
+
 **Dense arrays** — `step`, `time`, `meta/*`, `offset`, `step_index`,
-`box/*` — are sharded the same way with **1024-row inner chunks and 256
-chunks per shard** (a 4 KiB shard index: every landing rewrites the index
-of each touched array in place, and a producer that flushes per frame
-touches every dense array per frame).
+`box/*`, and a nullable column's mask — are sharded the same way with
+**1024-row inner chunks and 256 chunks per shard** (a 4 KiB shard index:
+every landing rewrites the index of each touched array in place, and a
+producer that flushes per frame touches every dense array per frame). A
+mask shares its block's `rows_per_chunk` instead, so its chunks line up with
+the values it qualifies.
 
 Trailing axes are per-entity structure and are never split: a single entity
 would otherwise span several chunks.
@@ -101,9 +130,18 @@ chunk grid cannot be re-planned under live data. File count is
 `total_bytes / shard_bytes + O(number of arrays)` and does not scale with
 `nstep`.
 
-**Fixed-size arrays** (`frame/`, `system/`, observables) are not sharded by
-the reference writer: one chunk holds the whole array up to 4 MiB, and 4 MiB
-leading-axis slabs beyond that.
+**Fixed-size arrays** (`frame/`, `system/`, `observables/`, `metrics/`) are
+cut along the leading axis only:
+
+```text
+rows   = min(N, max(1, floor(512 KiB / row_bytes)))
+chunks = ceil(N / rows)
+```
+
+An array of `chunks <= 4` is stored as those chunks; one of more is packed
+into **one shard spanning the whole array** (`rows × chunks` rows, the shard
+index at the end). A string array, an empty leading axis, or a 0-d array is
+one chunk holding the whole array.
 
 ## Reference writer: codecs
 
@@ -136,10 +174,21 @@ is available at any time and is durable.
 ## At-rest form: `*.mrec.zip`
 
 A closed store may be packed into a single file: a zip of the directory
-store in which every entry is *stored* (compression method 0). The chunks
-arrived already encoded, so packing is concatenation plus a central
-directory, and an entry read out of the archive is bit-identical to the
-file it replaced.
+store. The chunks arrived already encoded, so packing is concatenation plus
+a central directory, and an entry read out of the archive is bit-identical
+to the file it replaced. The archive follows fixed rules, so any zip-backed
+Zarr store can open any packed record:
+
+- One entry per file of the directory store, named by its path **relative
+  to the record root** (the directory `<stem>.mrec/` itself is not a path
+  component): `zarr.json`, `meta/zarr.json`, `trajectory/atoms/x/c/0`, …
+- Path separators are `/`, never `\`; no entry name is absolute or contains
+  `..`.
+- Every entry is *stored*: compression method `0`. A chunk is already
+  compressed by its codec pipeline; a second layer would cost random access.
+- ZIP64 extensions are used whenever a size, an offset or the entry count
+  needs them (a shard is routinely larger than 4 GiB).
+- No directory entries: a Zarr store has keys, not directories.
 
 Packing happens after the writer is closed. The running form is a directory
 `*.mrec/` (append needs in-place partial writes); the at-rest form is one

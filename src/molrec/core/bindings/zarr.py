@@ -36,6 +36,7 @@ codec set, and a conforming reader opens any chunking.
 from __future__ import annotations
 
 import json
+import math
 import shutil
 from pathlib import Path
 from typing import Any, ClassVar
@@ -50,7 +51,7 @@ from molrec.chunking import (
     DENSE_CHUNKS_PER_SHARD,
     DENSE_ROWS_PER_CHUNK,
     chunks_per_shard,
-    fixed_chunk_rows,
+    plan,
     row_bytes,
     rows_per_chunk,
 )
@@ -78,6 +79,7 @@ from molrec.core.model import (
     coerce_meta_value,
     dtype_of,
     revalidated,
+    same_bits,
     stamp_version,
 )
 from molrec.core.store import FrameStore, RecordStore, TrajectoryStore
@@ -113,19 +115,22 @@ def _compressors(dtype: DType, dense: bool) -> tuple[Any, ...]:
 
 
 def create_fixed(group: zarr.Group, name: str, shape: tuple[int, ...], dtype: DType) -> zarr.Array:
-    """A fixed-size (frame / system / observables) array: one chunk up to 4 MiB,
-    leading-axis slabs beyond, no shard. A 0-d array is its own chunk."""
-    if not shape:
-        return group.create_array(
-            name, shape=(), dtype=TO_ZARR[dtype], compressors=_compressors(dtype, dense=False)
-        )
-    rows = fixed_chunk_rows(shape[0], row_bytes(shape[1:], _itemsize(dtype)))
+    """A fixed-size (frame / system / observables) array, chunked per
+    :func:`molrec.chunking.plan`: 512 KiB leading-axis chunks, one shard over
+    the whole array above four of them, one chunk for a string, an empty or a
+    0-d array."""
+    chunks, shards = plan(shape, _itemsize(dtype))
+    options: dict[str, Any] = {
+        "chunks": chunks if chunks is not None else tuple(max(1, n) for n in shape)
+    }
+    if shards is not None:
+        options["shards"] = shards
     return group.create_array(
         name,
         shape=shape,
         dtype=TO_ZARR[dtype],
-        chunks=(rows, *shape[1:]),
         compressors=_compressors(dtype, dense=False),
+        **options,
     )
 
 
@@ -415,30 +420,33 @@ class ZarrTrajectoryStore(ZarrStore, TrajectoryStore):
 
 
 class ZarrTrajectoryCodec(Codec):
-    """The official translation for a sequence of frames.
+    """The official translation for a sequence of frames (``docs/spec/ragged.md``).
 
     Layout::
 
-        trajectory/                attr sequence_schema (the pinned declaration)
-        +-- nstep                          the commit marker, written last
-        +-- step_progression / time_progression   {start, stride} while regular
+        trajectory/        attrs sequence_schema (the pin), nstep (the commit
+        │                  marker, written last), step_progression /
+        │                  time_progression ({start, stride} while regular)
         ├── step           i64[nstep]      only once the numbering is not a progression
         ├── time           f64[nstep]      only when supplied, and not a progression
         ├── meta/<key>     <tag>[nstep][...]     attr meta_dtype
-        ├── box/           attr cell_defined, written only when false
-        │   +-- vectors / origin / boundary       a fixed cell from ordinal 0, as attributes
-        │   ├── step_index u64[n_updates]         frame ordinals (arrays once the cell changes)
+        ├── box/           attr cell_defined (only when false); a fixed cell from
+        │   │              ordinal 0 as attributes vectors / origin / boundary
+        │   ├── step_index u64[n_updates]         the arrays, once the cell changes
         │   ├── vectors    f64[n_updates][3][3]
         │   ├── origin     f64[n_updates][3]     omitted when every update is zero
         │   └── boundary   bool[n_updates][3]    omitted when every update is periodic
-        └── <block>/       attrs structural_shape?, uniform_rows?, dense_updates?
-            ├── step_index u64[n_updates]         frame ordinals (absent while the block is regular)
-            ├── offset     u64[n_updates+1]       CSR row pointer
-            └── <column>   <dtype>[total_rows][...]
+        └── <block>/       attrs structural_shape?; uniform_rows + dense_updates
+            │              while the block is regular (elision markers)
+            ├── step_index u64[n_updates]         absent while the block is regular
+            ├── offset     u64[n_updates+1]       absent while the block is regular
+            ├── <column>   <dtype>[total_rows][...]
+            └── _validity/<column>  bool[total_rows]   nullable columns only
 
-    Dense per-step arrays carry one row per frame. Everything else -- the cell
-    and each block -- carries its own sparse index of the ordinals at which it
-    changed, so a section costs what it *changes*, not what the run *lasts*.
+    The common run -- a fixed number of atoms moving every frame, a topology
+    written once, a fixed cell, frames dumped every ``k`` steps -- costs one
+    array per column and nothing else: no index arrays, no ``step`` array, no
+    ``box/`` arrays.
 
     Three states per block and frame (S1). A frame that omits a block writes
     no update, so the block carries forward; a zero-row update means present
@@ -458,6 +466,8 @@ class ZarrTrajectoryCodec(Codec):
     def read(self, store: ZarrTrajectoryStore) -> TrajectoryModel:
         return self.read_from(store.root(mode="r")[TRAJECTORY_GROUP])
 
+    # -- write -------------------------------------------------------------
+
     def write_into(self, group: zarr.Group, model: TrajectoryModel) -> None:
         """Lay a trajectory out under an already-opened group.
 
@@ -470,6 +480,10 @@ class ZarrTrajectoryCodec(Codec):
         reserved name, an undeclared block or column or key, an omitted key
         without a fill, a non-increasing step, a partial ``time``, a grid
         whose row count moved, none of them reaches the disk.
+
+        Order is the commit protocol's: the pin when the sequence is created,
+        every array next, and the trajectory group's ``nstep`` (with the
+        progression attributes) last.
         """
         model = revalidated(model)
         nstep = len(model.frames)
@@ -482,44 +496,192 @@ class ZarrTrajectoryCodec(Codec):
                 (frame.blocks[name].count for frame in model.frames if name in frame.blocks),
                 default=0,
             )
-            self._write_block(group, name, pinned, self._updates(model, name), frame_rows)
+            self._write_block(group, name, pinned, _updates(model, name), frame_rows)
 
         if model.box is not None:
             self._write_box(group, model.box)
 
         self._write_meta(group, model)
 
-        if model.time is not None:
-            _create_dense(group, TIME_ARRAY, (nstep,), "f64")[...] = np.asarray(
-                model.time, dtype="float64"
+        marker: dict[str, Any] = {}
+        step = _progression(model.step, exact_int=True)
+        if step is not None:
+            marker[STEP_PROGRESSION_ATTR] = step
+        elif nstep:
+            _create_dense(group, STEP_ARRAY, (nstep,), "i64")[...] = np.asarray(
+                model.step, dtype="int64"
             )
+        if model.time is not None and nstep:
+            time = _progression(model.time, exact_int=False)
+            if time is not None:
+                marker[TIME_PROGRESSION_ATTR] = time
+            else:
+                _create_dense(group, TIME_ARRAY, (nstep,), "f64")[...] = np.asarray(
+                    model.time, dtype="float64"
+                )
+        # The commit marker lands last, in one metadata update with the
+        # progressions: a crash before it costs the uncommitted frames only.
+        group.attrs.update({**marker, NSTEP_ATTR: nstep})
 
-        _create_dense(group, STEP_ARRAY, (nstep,), "i64")[...] = np.asarray(
-            model.step, dtype="int64"
+    def _write_block(
+        self,
+        parent: zarr.Group,
+        name: str,
+        pinned: SequenceBlockModel,
+        entries: list[tuple[int, BlockModel]],
+        frame_rows: int,
+    ) -> None:
+        group = parent.create_group(name)
+        attrs: dict[str, Any] = {}
+        if pinned.structural_shape is not None:
+            attrs[STRUCTURAL_SHAPE_ATTR] = list(pinned.structural_shape)
+
+        ordinals = [ordinal for ordinal, _ in entries]
+        counts = [block.count for _, block in entries]
+        # Regular: a fixed, non-zero row count at ordinals 0, 1, 2, ... -- the
+        # block's index is then implied, and the two markers say so. A block
+        # with no columns has no length to imply it from, so it keeps one.
+        regular = (
+            bool(entries)
+            and bool(pinned.columns)
+            and counts[0] > 0
+            and len(set(counts)) == 1
+            and ordinals == list(range(len(entries)))
         )
-        # The commit marker lands last, after every array of the commit: the
-        # trajectory group's ``nstep`` attribute. A reader takes ``nstep``
-        # from it, so a crash between two writes costs the uncommitted frames
-        # and nothing else. (This codec keeps ``step`` / ``time`` as arrays;
-        # the reference writer records a regular series as a progression
-        # attribute instead and writes the array only once it stops being
-        # regular -- a reader accepts either.)
-        group.attrs[NSTEP_ATTR] = nstep
+        if regular:
+            attrs[UNIFORM_ROWS_ATTR] = counts[0]
+            attrs[DENSE_UPDATES_ATTR] = True
+        group.attrs.update(attrs)
+
+        offset = np.zeros(len(entries) + 1, dtype="uint64")
+        offset[1:] = np.cumsum(counts, dtype="uint64")
+        if entries and not regular:
+            _create_dense(group, STEP_INDEX_ARRAY, (len(entries),), "u64")[...] = np.asarray(
+                ordinals, dtype="uint64"
+            )
+            _create_dense(group, OFFSET_ARRAY, (len(entries) + 1,), "u64")[...] = offset
+
+        # One rows-per-chunk for the whole block, sized by its narrowest
+        # column, so a frame's rows stay chunk-aligned across columns.
+        narrowest = min(
+            (
+                row_bytes(tuple(spec.trailing), _itemsize(spec.dtype))
+                for spec in pinned.columns.values()
+            ),
+            default=8,
+        )
+        rows = rows_per_chunk(frame_rows, narrowest)
+        total = int(offset[-1])
+        for column_name, spec in pinned.columns.items():
+            array = _create_sharded(
+                group,
+                column_name,
+                (total, *spec.trailing),
+                spec.dtype,
+                rows,
+                chunks_per_shard(rows * row_bytes(tuple(spec.trailing), _itemsize(spec.dtype))),
+                dense=False,
+            )
+            for index, (_, block) in enumerate(entries):
+                values = block.columns[column_name].values
+                if values is not None and block.count:
+                    array[int(offset[index]) : int(offset[index + 1])] = values
+
+        # A nullable column's mask is dense over the section's rows, grown in
+        # lockstep with the values: an update that carries no mask lands
+        # all-true, so a frame's flags sit at exactly its values' row range.
+        nullable = [column for column, spec in pinned.columns.items() if spec.nullable]
+        if nullable:
+            masks = group.create_group(VALIDITY_GROUP)
+            for column_name in nullable:
+                mask = np.ones(total, dtype="bool")
+                for index, (_, block) in enumerate(entries):
+                    validity = block.columns[column_name].validity
+                    if validity is not None:
+                        mask[int(offset[index]) : int(offset[index + 1])] = validity
+                _create_sharded(
+                    masks,
+                    column_name,
+                    mask.shape,
+                    "bool",
+                    rows,
+                    chunks_per_shard(rows),
+                    dense=False,
+                )[...] = mask
+
+    def _write_box(self, parent: zarr.Group, section: TrajectoryBoxModel) -> None:
+        """A fixed cell from ordinal 0 as the group's attributes; arrays otherwise."""
+        group = parent.create_group(BOX_GROUP)
+        updates = section.updates
+        attrs: dict[str, Any] = {}
+        # Absent means true, so the flag is emitted only to record false.
+        if section.cell_defined is False:
+            attrs[CELL_DEFINED_ATTR] = False
+
+        origins = np.stack([update.box.origin for update in updates])
+        boundaries = np.asarray([update.box.boundary for update in updates], dtype="bool")
+        if len(updates) == 1 and updates[0].step_index == 0:
+            cell = updates[0].box
+            attrs["vectors"] = cell.vectors.tolist()
+            if origins.any():
+                attrs["origin"] = cell.origin.tolist()
+            if not boundaries.all():
+                attrs["boundary"] = list(cell.boundary)
+            group.attrs.update(attrs)
+            return
+
+        group.attrs.update(attrs)
+        count = len(updates)
+        _create_dense(group, STEP_INDEX_ARRAY, (count,), "u64")[...] = np.asarray(
+            [update.step_index for update in updates], dtype="uint64"
+        )
+        _create_dense(group, "vectors", (count, 3, 3), "f64")[...] = np.stack(
+            [update.box.vectors for update in updates]
+        )
+        # ``origin`` and ``boundary`` are optional with normative defaults;
+        # each is written only when some update departs from its default.
+        if origins.any():
+            _create_dense(group, "origin", (count, 3), "f64")[...] = origins
+        if not boundaries.all():
+            _create_dense(group, "boundary", (count, 3), "bool")[...] = boundaries
+
+    def _write_meta(self, group: zarr.Group, model: TrajectoryModel) -> None:
+        if not model.meta:
+            return
+        meta = group.create_group(META_GROUP)
+        for key, series in model.meta.items():
+            array = _create_dense(
+                meta, key, (len(model.frames), *series.shape), series.element_dtype
+            )
+            array.attrs[META_DTYPE_ATTR] = series.dtype
+            # Validation has already resolved every declared fill, so every
+            # frame carries every declared key by the time we get here. The
+            # fill lands as an ordinary value; the declaration that it *was*
+            # a fill is the ``sequence_schema`` attribute's.
+            values = [frame.meta[key] for frame in model.frames]
+            if not values:
+                continue
+            if series.dtype == "json":
+                array[...] = np.asarray([jsonvalue.dumps(value) for value in values], dtype="str")
+            else:
+                array[...] = np.asarray(values, dtype=NUMPY_DTYPE[series.element_dtype]).reshape(
+                    (len(values), *series.shape)
+                )
+
+    # -- read --------------------------------------------------------------
 
     def read_from(self, group: zarr.Group) -> TrajectoryModel:
         nstep = self._nstep(group)
         step = self._series(group, STEP_PROGRESSION_ATTR, STEP_ARRAY, nstep, int)
         if step is None:
-            raise ValueError(f"{group.name}: no step series (attribute or array)")
-        if len(step) != nstep:
-            raise ValueError(f"{group.name}: nstep={nstep} but {len(step)} step numbers")
+            if nstep:
+                raise ValueError(f"{group.name}: no step series (attribute or array)")
+            step = []
         declaration = self._declaration(group)
         declared_meta, meta = self._read_meta(group, nstep, declaration)
 
         blocks: list[dict[str, BlockModel]] = [{} for _ in range(nstep)]
-        for name, member in group.members():
-            if not isinstance(member, zarr.Group) or name in RESERVED_TRAJECTORY_NAMES:
-                continue
+        for name, member in self._block_groups(group, declaration):
             for ordinal, block in enumerate(self._resolve(member, nstep)):
                 if block is not None:
                     blocks[ordinal][name] = block
@@ -537,12 +699,49 @@ class ZarrTrajectoryCodec(Codec):
             box=self._read_box(group[BOX_GROUP], nstep) if BOX_GROUP in group else None,
         )
 
+    def _block_groups(
+        self, group: zarr.Group, declaration: SequenceSchemaModel | None
+    ) -> list[tuple[str, zarr.Group]]:
+        """The block sections to resolve.
+
+        With a pin, exactly the declared blocks -- ``sequence_schema.blocks``
+        is the authoritative list, a declared block whose group is missing is
+        absent at every ordinal, and a child group the pin does not name is
+        not a block of this sequence. Without one (a foreign store), every
+        child group outside the reserved names.
+        """
+        if declaration is None:
+            return [
+                (name, member)
+                for name, member in group.members()
+                if isinstance(member, zarr.Group) and name not in RESERVED_TRAJECTORY_NAMES
+            ]
+        found = []
+        for name in declaration.blocks:
+            if name in group:
+                member = group[name]
+                if not isinstance(member, zarr.Group):
+                    raise ValueError(f"{group.name}/{name} is declared a block but is no group")
+                found.append((name, member))
+        return found
+
     def _nstep(self, group: zarr.Group) -> int:
         """The commit marker: the ``nstep`` attribute, else ``len(step)`` for
-        a store from a writer that kept no marker attribute."""
+        a store from a writer that kept no marker attribute.
+
+        A progression attribute is only ever written together with the
+        marker, so one without it is a malformed store, not an old one.
+        """
         marker = group.attrs.get(NSTEP_ATTR)
         if marker is not None:
-            return int(marker)
+            if type(marker) is not int or marker < 0:
+                raise ValueError(f"{group.name}: nstep must be a non-negative integer")
+            return marker
+        for attribute in (STEP_PROGRESSION_ATTR, TIME_PROGRESSION_ATTR):
+            if attribute in group.attrs:
+                raise ValueError(
+                    f"{group.name}: {attribute} without the nstep marker it is committed with"
+                )
         if STEP_ARRAY in group:
             return int(group[STEP_ARRAY].shape[0])
         return 0
@@ -556,16 +755,23 @@ class ZarrTrajectoryCodec(Codec):
         cast: Any,
     ) -> list[Any] | None:
         """A dense per-frame series: the progression attribute when present,
-        else the array cut to ``nstep``, else ``None``."""
+        else the array cut to ``nstep``, else ``None``.
+
+        A value of a progression is ``start + f64(i) * stride`` in IEEE
+        binary64 (no fused multiply-add) for ``time``, exact integer
+        arithmetic for ``step``.
+        """
         progression = group.attrs.get(attribute)
         if progression is not None:
+            if not isinstance(progression, dict) or "start" not in progression:
+                raise ValueError(f"{group.name}: {attribute} is not a progression")
             start = cast(progression["start"])
             if nstep <= 1:
                 return [start] * nstep
             if "stride" not in progression:
                 raise ValueError(f"{group.name}: {attribute} has no stride for {nstep} frames")
             stride = cast(progression["stride"])
-            return [cast(start + i * stride) for i in range(nstep)]
+            return [cast(start + cast(i) * stride) for i in range(nstep)]
         if array in group:
             return [cast(value) for value in _logical(group[array], nstep, array)]
         return None
@@ -580,103 +786,26 @@ class ZarrTrajectoryCodec(Codec):
         pinned = group.attrs.get(SEQUENCE_SCHEMA_ATTR)
         return None if pinned is None else SequenceSchemaModel.model_validate(pinned)
 
-    def _updates(self, model: TrajectoryModel, name: str) -> list[tuple[int, BlockModel]]:
-        """One block's changes, in ordinal order.
-
-        A block earns an update when it is presented and differs from its
-        previous update -- which is what makes a constant topology one entry
-        instead of ``nstep``. Before its first presentation it earns nothing:
-        no entry ``<= i`` already means absent. A zero-row block is an
-        update like any other, and it is the *only* way a zero-row update is
-        written: an omission never becomes one.
-        """
-        entries: list[tuple[int, BlockModel]] = []
-        previous: BlockModel | None = None
-        for ordinal, frame in enumerate(model.frames):
-            current = frame.blocks.get(name)
-            if current is None:
-                continue
-            if entries and current == previous:
-                continue
-            entries.append((ordinal, current))
-            previous = current
-        return entries
-
-    def _write_block(
-        self,
-        parent: zarr.Group,
-        name: str,
-        pinned: SequenceBlockModel,
-        entries: list[tuple[int, BlockModel]],
-        frame_rows: int,
-    ) -> None:
-        group = parent.create_group(name)
-        if pinned.structural_shape is not None:
-            group.attrs[STRUCTURAL_SHAPE_ATTR] = list(pinned.structural_shape)
-
-        ordinals = [ordinal for ordinal, _ in entries]
-        counts = [block.count for _, block in entries]
-        if entries:
-            # Writer-maintained hints: a reader may resolve a frame in O(1)
-            # when every update has the same row count and updates are dense.
-            if len(set(counts)) == 1:
-                group.attrs[UNIFORM_ROWS_ATTR] = counts[0]
-            if ordinals == list(range(len(entries))):
-                group.attrs[DENSE_UPDATES_ATTR] = True
-
-        offset = np.zeros(len(entries) + 1, dtype="uint64")
-        offset[1:] = np.cumsum(counts, dtype="uint64")
-        _create_dense(group, STEP_INDEX_ARRAY, (len(entries),), "u64")[...] = np.asarray(
-            ordinals, dtype="uint64"
-        )
-        _create_dense(group, OFFSET_ARRAY, (len(entries) + 1,), "u64")[...] = offset
-
-        for column_name, spec in pinned.columns.items():
-            array = _create_column(
-                group,
-                column_name,
-                (int(offset[-1]), *spec.trailing),
-                spec.dtype,
-                frame_rows,
-            )
-            for index, (_, block) in enumerate(entries):
-                values = block.columns[column_name].values
-                if values is not None and block.count:
-                    array[int(offset[index]) : int(offset[index + 1])] = values
-
-        # A nullable column's mask is dense over the section's rows, grown in
-        # lockstep with the values: an update that carries no mask lands
-        # all-true, so a frame's flags sit at exactly its values' row range.
-        nullable = [name for name, spec in pinned.columns.items() if spec.nullable]
-        if nullable:
-            masks = group.create_group(VALIDITY_GROUP)
-            for column_name in nullable:
-                mask = np.ones(int(offset[-1]), dtype="bool")
-                for index, (_, block) in enumerate(entries):
-                    validity = block.columns[column_name].validity
-                    if validity is not None:
-                        mask[int(offset[index]) : int(offset[index + 1])] = validity
-                _create_column(masks, column_name, mask.shape, "bool", frame_rows)[...] = mask
-
     def _index(self, group: zarr.Group, nstep: int) -> tuple[list[int], list[int]]:
         """A section's logical ``step_index`` and ``offset`` (L8, checked).
 
         The logical update count is the prefix of ``step_index`` below
         ``nstep``: a longer array is a partially committed tail and is read
-        past, never into. ``offset`` is held to ``offset[0] == 0`` and
-        monotonic non-decreasing -- the row count of update ``j`` is
-        ``offset[j+1] - offset[j]`` with checked subtraction, so a store where
-        that would go negative is refused rather than wrapped.
+        past, never into. ``step_index`` is held to strictly ascending and
+        ``offset`` to ``offset[0] == 0`` and non-decreasing -- the row count of
+        update ``j`` is ``offset[j+1] - offset[j]`` with checked subtraction,
+        so a store where that would go negative is refused rather than
+        wrapped.
         """
+        if OFFSET_ARRAY not in group:
+            raise ValueError(f"{group.name}: step_index without the offset it indexes")
         ordinals = [int(value) for value in group[STEP_INDEX_ARRAY][...]]
         n_updates = 0
         while n_updates < len(ordinals) and ordinals[n_updates] < nstep:
             n_updates += 1
         ordinals = ordinals[:n_updates]
-        if ordinals != sorted(set(ordinals)):
-            raise ValueError(
-                f"{group.name}: step_index must be strictly increasing, got {ordinals}"
-            )
+        if any(later <= earlier for earlier, later in zip(ordinals, ordinals[1:], strict=False)):
+            raise ValueError(f"{group.name}: step_index must be strictly ascending, got {ordinals}")
 
         raw = group[OFFSET_ARRAY][...]
         if len(raw) < n_updates + 1:
@@ -717,18 +846,26 @@ class ZarrTrajectoryCodec(Codec):
             raise ValueError(
                 f"{group.name}/{VALIDITY_GROUP} masks {unknown}, which are no columns of the block"
             )
+        rows = group.attrs.get(UNIFORM_ROWS_ATTR)
+        dense = group.attrs.get(DENSE_UPDATES_ATTR)
         if STEP_INDEX_ARRAY in group:
+            # The arrays are authoritative. A crash between materializing
+            # them and withdrawing the markers can leave both; the arrays win.
             ordinals, offset = self._index(group, nstep)
+        elif rows is None and dense is None:
+            # Declared and never updated within the committed frames: absent
+            # at every ordinal. Rows a column holds are an uncommitted tail.
+            ordinals, offset = [], [0]
         else:
-            # A regular block writes no index: ``uniform_rows`` /
-            # ``dense_updates`` plus the columns' own length say everything.
-            rows = group.attrs.get(UNIFORM_ROWS_ATTR)
-            if not (rows and group.attrs.get(DENSE_UPDATES_ATTR) and columns):
-                return [None] * nstep
+            if type(rows) is not int or rows <= 0 or dense is not True or not columns:
+                raise ValueError(
+                    f"{group.name}: uniform_rows {rows!r} / dense_updates {dense!r} do not elide "
+                    "an index (both, a positive row count, and a column to measure are needed)"
+                )
             landed = min(int(array.shape[0]) for array in columns.values())
-            n_updates = min(landed // int(rows), nstep)
+            n_updates = min(landed // rows, nstep)
             ordinals = list(range(n_updates))
-            offset = [j * int(rows) for j in range(n_updates + 1)]
+            offset = [j * rows for j in range(n_updates + 1)]
         total = offset[-1]
         for name, array in {**columns, **masks}.items():
             if array.shape[0] < total:
@@ -761,33 +898,6 @@ class ZarrTrajectoryCodec(Codec):
             resolved.append(None if update < 0 else updates[update])
         return resolved
 
-    def _write_box(self, parent: zarr.Group, section: TrajectoryBoxModel) -> None:
-        group = parent.create_group(BOX_GROUP)
-        updates = section.updates
-        count = len(updates)
-        ndim = int(updates[0].box.vectors.shape[0])
-
-        _create_dense(group, STEP_INDEX_ARRAY, (count,), "u64")[...] = np.asarray(
-            [update.step_index for update in updates], dtype="uint64"
-        )
-        _create_dense(group, "vectors", (count, ndim, ndim), "f64")[...] = np.stack(
-            [update.box.vectors for update in updates]
-        )
-        # ``origin`` and ``boundary`` are optional with normative defaults
-        # (zero origin, all-periodic); each is written only when some update
-        # departs from its default.
-        origin = np.stack([np.asarray(update.box.origin, dtype="float64") for update in updates])
-        if origin.any():
-            _create_dense(group, "origin", (count, ndim), "f64")[...] = origin
-        boundary = np.asarray([update.box.boundary for update in updates], dtype="bool")
-        if not boundary.all():
-            _create_dense(group, "boundary", (count, ndim), "bool")[...] = boundary
-
-        # Absent means true -- every store predating the flag holds a defined
-        # cell -- so it is emitted only to record false.
-        if section.cell_defined is False:
-            group.attrs[CELL_DEFINED_ATTR] = False
-
     def _read_box(self, group: zarr.Group, nstep: int) -> TrajectoryBoxModel | None:
         defined = _cell_defined(group)
         if "vectors" not in group:
@@ -813,14 +923,18 @@ class ZarrTrajectoryCodec(Codec):
                 ],
                 cell_defined=defined,
             )
-        # A trivial ``step_index`` (exactly one update at ordinal 0 -- the
-        # fixed-cell case) may be omitted; absence reads back as ``[0]``. The
-        # logical update count is the prefix below ``nstep``, as for a block.
+        # A trivial ``step_index`` (exactly one update at ordinal 0) may be
+        # omitted; absence reads back as ``[0]``. The logical update count is
+        # the prefix below ``nstep``, as for a block.
         if STEP_INDEX_ARRAY in group:
             ordinals = [int(ordinal) for ordinal in group[STEP_INDEX_ARRAY][...]]
             ordinals = [ordinal for ordinal in ordinals if ordinal < nstep]
+            if any(b <= a for a, b in zip(ordinals, ordinals[1:], strict=False)):
+                raise ValueError(f"{group.name}: step_index must be strictly ascending")
         else:
-            ordinals = [0]
+            ordinals = [0] if nstep else []
+        if not ordinals:
+            return None
         count = len(ordinals)
         vectors = _logical(group["vectors"], count, f"{BOX_GROUP}/vectors")
         origin = (
@@ -848,27 +962,6 @@ class ZarrTrajectoryCodec(Codec):
             cell_defined=defined,
         )
 
-    def _write_meta(self, group: zarr.Group, model: TrajectoryModel) -> None:
-        if not model.meta:
-            return
-        meta = group.create_group(META_GROUP)
-        for key, series in model.meta.items():
-            array = _create_dense(
-                meta, key, (len(model.frames), *series.shape), series.element_dtype
-            )
-            array.attrs[META_DTYPE_ATTR] = series.dtype
-            # Validation has already resolved every declared fill, so every
-            # frame carries every declared key by the time we get here. The
-            # fill lands as an ordinary value; the declaration that it *was*
-            # a fill is the ``sequence_schema`` attribute's.
-            values = [frame.meta[key] for frame in model.frames]
-            if series.dtype == "json":
-                array[...] = np.asarray([jsonvalue.dumps(value) for value in values], dtype="str")
-            else:
-                array[...] = np.asarray(values, dtype=NUMPY_DTYPE[series.element_dtype]).reshape(
-                    (len(values), *series.shape)
-                )
-
     def _read_meta(
         self, group: zarr.Group, nstep: int, declaration: SequenceSchemaModel | None
     ) -> tuple[dict[str, MetaSeriesModel], list[dict[str, Any]]]:
@@ -888,16 +981,16 @@ class ZarrTrajectoryCodec(Codec):
                     "cannot be read back exactly"
                 )
             series = pinned.get(name, MetaSeriesModel(dtype=tag))
+            if series.dtype != tag:
+                raise ValueError(
+                    f"meta/{name}: {META_DTYPE_ATTR} is {tag!r} but the pinned declaration says "
+                    f"{series.dtype!r}"
+                )
             element, shape = series.element_dtype, series.shape
             if dtype_of(np.dtype(array.dtype)) != element or tuple(array.shape[1:]) != shape:
                 raise ValueError(
                     f"meta/{name} is stored as {array.dtype}{list(array.shape[1:])}, but its tag "
                     f"{tag!r} is {element}{list(shape)}"
-                )
-            if series.dtype != tag:
-                raise ValueError(
-                    f"meta/{name}: {META_DTYPE_ATTR} is {tag!r} but the pinned declaration says "
-                    f"{series.dtype!r}"
                 )
             declared[name] = series
             rows = _logical(array, nstep, f"{META_GROUP}/{name}")
@@ -909,11 +1002,59 @@ class ZarrTrajectoryCodec(Codec):
         return declared, values
 
 
+def _updates(model: TrajectoryModel, name: str) -> list[tuple[int, BlockModel]]:
+    """One block's changes, in ordinal order.
+
+    A block earns an update when it is presented and differs **bit for bit**
+    (masks included) from its previous update -- which is what makes a
+    constant topology one entry instead of ``nstep``, a repeated NaN unchanged
+    and a ``-0.0`` after a ``0.0`` a change. Before its first presentation it
+    earns nothing: no entry ``<= i`` already means absent. A zero-row block is
+    an update like any other, and it is the *only* way a zero-row update is
+    written: an omission never becomes one.
+    """
+    entries: list[tuple[int, BlockModel]] = []
+    previous: BlockModel | None = None
+    for ordinal, frame in enumerate(model.frames):
+        current = frame.blocks.get(name)
+        if current is None:
+            continue
+        if previous is not None and same_bits(current, previous):
+            continue
+        entries.append((ordinal, current))
+        previous = current
+    return entries
+
+
+def _progression(values: list[Any], *, exact_int: bool) -> dict[str, Any] | None:
+    """``{start, stride}`` when ``values`` is an arithmetic progression, else ``None``.
+
+    ``stride`` is ``values[1] - values[0]``; value ``i`` must equal
+    ``start + i * stride`` exactly -- integer arithmetic for ``step``, IEEE
+    binary64 ``start + f64(i) * stride`` (no fused multiply-add) for ``time``.
+    A non-finite time is never a progression (JSON cannot spell it), and
+    neither is an empty series.
+    """
+    if not values:
+        return None
+    if not exact_int and not all(math.isfinite(value) for value in values):
+        return None
+    start = values[0]
+    if len(values) == 1:
+        return {"start": start}
+    stride = values[1] - values[0]
+    for i, value in enumerate(values):
+        expected = start + i * stride if exact_int else start + float(i) * stride
+        if expected != value:
+            return None
+    return {"start": start, "stride": stride}
+
+
 def _logical(array: zarr.Array, length: int, what: str) -> np.ndarray:
     """The first ``length`` rows of a per-step array (L8).
 
-    A reader is bound by ``len(step)``: a longer array is a tail the writer
-    had not yet committed, and is tolerated; a shorter one cannot supply every
+    A reader is bound by ``nstep``: a longer array is a tail the writer had
+    not yet committed, and is tolerated; a shorter one cannot supply every
     committed frame, and is refused.
     """
     if array.shape[0] < length:
