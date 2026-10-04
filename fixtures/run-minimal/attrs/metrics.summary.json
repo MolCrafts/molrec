@@ -1,6 +1,8 @@
 {
-  "line_count": 3,
-  "series_count": 2,
+  "wal": {
+    "lines": 3,
+    "bytes": 233
+  },
   "series": {
     "train/loss": {
       "type": "scalar",

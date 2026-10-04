@@ -93,3 +93,17 @@ lives under `method`.
 Array data live in [columns, blocks, and frames](frame.md). Time-dependent
 data live in the [trajectory](trajectory.md) section. Recommended names are
 [standardized identifiers](conventions.md).
+
+## Published schemas
+
+The prose is normative; the JSON Schemas under `schema/` are generated from
+the reference models and describe the same documents for other languages:
+
+| Directory | Describes |
+|-----------|-----------|
+| `schema/core/` | the record, its documents (`meta`, `status`, `method`), frames, blocks, columns, cells, trajectories, collections |
+| `schema/observables/` | the v1 [observables](observables.md) section |
+| `schema/binding/` | the trajectory group's pinned `sequence_schema` attribute |
+| `schema/ref/` | a pointer from one record into another (`uri`, optional content `hash`), used by the draft observables' provenance |
+| `schema/report/` | one conformance violation — the closed vocabulary a conformance report names failures with, so implementations in other languages report the same names |
+| `schema/draft/observables/` | the dims-based observables **draft**; not part of version 1 |

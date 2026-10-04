@@ -36,9 +36,10 @@ declared once for every record and every column in the collection.
 
 A unit string is parseable by [pint](https://pint.readthedocs.io)
 (`angstrom`, `kcal/mol`, `kcal/mol/angstrom`, `eV`, `e`). A quantity the
-records do not carry may be omitted. Columns and per-step tags still carry no
-unit of their own: a collection's numbers mean what `units` says, for every
-record in it. Other keys are preserved.
+records do not carry may be omitted; an omitted `mass` or `charge` keeps
+its [default](conventions.md#atoms) (amu, `e`). Columns and per-step tags
+still carry no unit of their own: a collection's numbers mean what `units`
+says, for every record in it. Other keys are preserved.
 
 `sequence_schema`
 

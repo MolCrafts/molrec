@@ -28,7 +28,10 @@ Required when the group exists.
 
 `engine.name`
 
-Required when the group exists.
+Required when the group exists: a string. `engine.version` is an optional
+string; other `engine` keys are preserved.
 
 When `type` is `workflow`, `method.order` is an ordered list of stage ids
-and each `method.stages.<stage_id>` is itself a typed method block.
+(strings) and `method.stages` an object whose `<stage_id>` entries are each
+themselves a method document (`type`, `description`, `engine`). Every other
+key is preserved.

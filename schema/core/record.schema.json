@@ -50,6 +50,61 @@
       "title": "ArrayModel",
       "type": "object"
     },
+    "ArrayNodeModel": {
+      "description": "An array of an unrecognised subtree: its values and its attributes.",
+      "properties": {
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "dtype": {
+          "enum": [
+            "f64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "bool",
+            "string",
+            "c64",
+            "c128"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "shape": {
+          "default": [],
+          "items": {
+            "type": "integer"
+          },
+          "title": "Shape",
+          "type": "array"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Values"
+        }
+      },
+      "required": [
+        "dtype"
+      ],
+      "title": "ArrayNodeModel",
+      "type": "object"
+    },
     "AuthorModel": {
       "additionalProperties": true,
       "description": "The person or group responsible for the record.",
@@ -381,6 +436,45 @@
       "title": "EngineModel",
       "type": "object"
     },
+    "ErrorModel": {
+      "additionalProperties": true,
+      "description": "``status.error``: what failed, for a human and for a resume decision.",
+      "properties": {
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "traceback": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Traceback"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "title": "ErrorModel",
+      "type": "object"
+    },
     "FrameModel": {
       "additionalProperties": false,
       "description": "A map of names to blocks, plus free-form meta and an optional box.\n\nA frame enforces no relationship between its blocks: block counts are\nindependent and any block name is legal.",
@@ -442,6 +536,7 @@
         "created_at": {
           "anyOf": [
             {
+              "format": "date-time",
               "type": "string"
             },
             {
@@ -550,7 +645,7 @@
     },
     "MethodModel": {
       "additionalProperties": true,
-      "description": "The scientific / training context document (``docs/spec/method.md``).\n``type``, ``description`` and ``engine.name`` are required whenever the\nsection exists.",
+      "description": "The scientific / training context document (``docs/spec/method.md``).\n``type``, ``description`` and ``engine.name`` are required whenever the\nsection exists; a ``workflow`` names its stages in ``order`` and gives\neach one its own method document in ``stages``.",
       "properties": {
         "description": {
           "title": "Description",
@@ -558,6 +653,36 @@
         },
         "engine": {
           "$ref": "#/$defs/EngineModel"
+        },
+        "order": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Order"
+        },
+        "stages": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/MethodModel"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stages"
         },
         "type": {
           "title": "Type",
@@ -595,6 +720,32 @@
         "version"
       ],
       "title": "ModuleModel",
+      "type": "object"
+    },
+    "NodeModel": {
+      "description": "An unrecognised group, carried through verbatim.\n\nA reader preserves sections it does not interpret: their attributes,\narrays and child groups come back exactly as they were read, and a writer\nlays them down again. Nothing in them is interpreted.",
+      "properties": {
+        "arrays": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ArrayNodeModel"
+          },
+          "title": "Arrays",
+          "type": "object"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "groups": {
+          "additionalProperties": {
+            "$ref": "#/$defs/NodeModel"
+          },
+          "title": "Groups",
+          "type": "object"
+        }
+      },
+      "title": "NodeModel",
       "type": "object"
     },
     "ObservableMetaModel": {
@@ -792,11 +943,133 @@
     },
     "StatusModel": {
       "additionalProperties": true,
-      "description": "The lifecycle document (``docs/spec/status.md``). ``state`` is required\nwhenever the section exists; every other key is preserved as given.",
+      "description": "The lifecycle document (``docs/spec/status.md``). ``state`` is required\nwhenever the section exists; the other named keys are typed, and every key\na producer adds is preserved as given.",
       "properties": {
+        "epoch": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Epoch"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finished At"
+        },
+        "global_step": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Global Step"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message"
+        },
+        "progress": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Progress"
+        },
+        "stage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stage"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
         "state": {
           "title": "State",
           "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
         }
       },
       "required": [
@@ -952,7 +1225,7 @@
       ]
     }
   ],
-  "description": "The record root.\n\n``meta`` is always present (an empty document is a valid one), plus at\nleast one of ``frame``, ``system``, ``trajectory`` or ``status``. Each of\nthose is a valid **sole** section beside ``meta``: a trajectory-only\nrecord is conforming and a reader must not require a frame beside it,\nbecause frames may embed full blocks including topology.\n\n``observables`` is the v1 section (:class:`ObservablesModel`); ``metrics``\nis carried as its catalog document here, its dense series and WAL being\nspecified in their own chapters.",
+  "description": "The record root.\n\n``meta`` is always present (an empty document is a valid one), plus at\nleast one of ``frame``, ``system``, ``trajectory`` or ``status``. Each of\nthose is a valid **sole** section beside ``meta``: a trajectory-only\nrecord is conforming and a reader must not require a frame beside it,\nbecause frames may embed full blocks including topology.\n\n``observables`` is the v1 section (:class:`ObservablesModel`). ``metrics``\n-- the catalog document, the dense series and the live WAL of\n``docs/spec/metrics.md`` -- is carried verbatim as a :class:`NodeModel`:\nmolrec does not interpret run-local monitoring, it only never loses it.",
   "properties": {
     "frame": {
       "anyOf": [
@@ -982,15 +1255,13 @@
     "metrics": {
       "anyOf": [
         {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/$defs/NodeModel"
         },
         {
           "type": "null"
         }
       ],
-      "default": null,
-      "title": "Metrics"
+      "default": null
     },
     "observables": {
       "anyOf": [

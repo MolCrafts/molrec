@@ -442,3 +442,18 @@ class TestRecordAlignment:
         trajectory = TrajectoryModel(frames=[FrameModel(blocks={"atoms": _x(0.0)})], step=[0])
         with pytest.raises(ValidationError, match="align 1:1"):
             RecordModel(meta=MetaModel(), system=system, trajectory=trajectory)
+
+
+class TestRunDocuments:
+    @pytest.mark.parametrize("stamp", ["2026-08-04T12:00:00", "2026-08-04", "yesterday"])
+    def test_a_timestamp_names_an_instant(self, stamp: str) -> None:
+        with pytest.raises(ValidationError, match="RFC 3339|instant"):
+            StatusModel(state="running", started_at=stamp)
+
+    def test_a_timestamp_is_kept_as_written(self) -> None:
+        stamp = "2026-08-04T12:00:00.5Z"
+        assert StatusModel(state="running", started_at=stamp).started_at == stamp
+
+    def test_counters_are_non_negative_integers(self) -> None:
+        with pytest.raises(ValidationError):
+            StatusModel(state="running", epoch=-1)

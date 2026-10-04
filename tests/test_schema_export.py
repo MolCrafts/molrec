@@ -35,5 +35,7 @@ def test_committed_schemas_are_valid_json_objects():
     assert files, "nothing was exported"
     for path in files:
         document = json.loads(path.read_text())
+        if "$ref" in document:  # a recursive model publishes its root as a $def
+            document = document["$defs"][document["$ref"].rsplit("/", 1)[1]]
         assert document["type"] == "object"
         assert "properties" in document

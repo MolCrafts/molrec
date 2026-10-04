@@ -121,7 +121,7 @@ meta
  +-- (author)
  |    +-- name: string[]
  |    +-- (email: string[])
- +-- (created_at: string[])
+ +-- (created_at: string[])            RFC 3339 with an explicit offset
  +-- (source: string[])
  \-- (modules)
       \-- <module1>

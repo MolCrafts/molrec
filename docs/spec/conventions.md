@@ -113,9 +113,12 @@ trip through a force field. Numeric type ordinals live in `type_id`.
 
 `charge`, `mass`
 
-Partial charge and atomic mass. `mass` is in amu and `charge` in
-elementary-charge units. Coordinates and velocities carry no intrinsic
-unit.
+Partial charge and atomic mass. Their units are **defaults**, not fixed:
+`mass` is in amu and `charge` in elementary charges `e` unless a declared
+unit says otherwise — a [collection's](collection.md#model) `units`, or a
+module under `meta/modules`. Coordinates, velocities, forces and energies
+carry no default unit: without a declaration they are whatever the producer
+used, and a reader that needs one must find it declared.
 
 Continuous quantities (`x`/`y`/`z`, `vx`/`vy`/`vz`, `charge`, `mass`) are
 float-canonical: a value written as an integer is stored as a float so a

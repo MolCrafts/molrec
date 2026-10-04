@@ -29,7 +29,7 @@ fixtures/run-minimal/
 ├── attrs/
 │   ├── meta.json              # → Zarr group attributes on meta/
 │   ├── status.json            # → Zarr group attributes on status/
-│   └── metrics.summary.json   # optional closed catalog → metrics/ attrs
+│   └── metrics.summary.json   # closed catalog (watermark + series) → metrics/ attrs
 └── metrics/
     └── metrics.jsonl          # live WAL golden (compact t/k/s/w/v)
 ```

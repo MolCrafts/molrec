@@ -195,11 +195,24 @@ def test_dims_are_derived_not_stored():
     assert model.dims == {"point": 3, "component": 3}
 
 
-@pytest.mark.parametrize("name", ["train/loss", "gpu/0/util", "损失/训练", "a.b-c_d", "%"])
-def test_safe_name_is_reversible(name):
+@pytest.mark.parametrize(
+    "name", ["train/loss", "gpu/0/util", "损失/训练", "a.b-c_d", "%", ".", "..", "__x", "_"]
+)
+def test_safe_name_is_reversible_and_a_node_name(name):
     encoded = safe_name(name)
     assert "/" not in encoded
+    assert encoded not in (".", "..") and not encoded.startswith("__")
     assert original_name(encoded) == name
+
+
+def test_safe_name_edge_cases():
+    assert safe_name(".") == "%2E"
+    assert safe_name("..") == "%2E."
+    assert safe_name("__x") == "%5F_x"
+    with pytest.raises(ValueError):
+        safe_name("")
+    with pytest.raises(ValueError):
+        original_name("%G1")
 
 
 def test_a_row_carries_every_observable_on_its_dimension(tmp_path):

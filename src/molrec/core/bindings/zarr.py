@@ -1201,10 +1201,7 @@ class ZarrRecordCodec(Codec):
             if section is not None:
                 root.create_group(name).attrs.update(document(section))
         if model.metrics is not None:
-            raise NotImplementedError(
-                "the reference record codec lays out meta, status, method, frame, system, "
-                "trajectory and observables; metrics have their own chapter"
-            )
+            write_node(root.create_group(RECORD_METRICS), model.metrics)
         if model.observables is not None:
             self._observables().write_into(root.create_group(RECORD_OBSERVABLES), model.observables)
         # Sections this version does not define go back exactly as they came.
@@ -1242,6 +1239,7 @@ class ZarrRecordCodec(Codec):
             observables=self._observables().read_from(root[RECORD_OBSERVABLES])
             if RECORD_OBSERVABLES in root
             else None,
+            metrics=read_node(root[RECORD_METRICS]) if RECORD_METRICS in root else None,
             **{
                 name: read_node(member)
                 for name, member in root.members()

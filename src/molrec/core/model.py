@@ -16,14 +16,17 @@ deliberately malformed negative case has to be built with
 from __future__ import annotations
 
 import math
+from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 import numpy as np
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
+    NonNegativeInt,
     StrictInt,
     WithJsonSchema,
     model_serializer,
@@ -1079,6 +1082,24 @@ class ModuleModel(DocumentModel):
     version: tuple[int, int]
 
 
+def _rfc3339(value: str) -> str:
+    """An RFC 3339 timestamp with an explicit offset, kept as written."""
+    try:
+        moment = datetime.fromisoformat(value.replace("Z", "+00:00").replace("z", "+00:00"))
+    except ValueError:
+        raise ValueError(f"{value!r} is not an RFC 3339 timestamp") from None
+    if "T" not in value.upper() or moment.tzinfo is None:
+        raise ValueError(f"{value!r} names no instant: RFC 3339 needs a date, a time and an offset")
+    return value
+
+
+#: An instant: RFC 3339 with an explicit offset (``Z`` or ``+hh:mm``).
+Timestamp = Annotated[
+    str,
+    AfterValidator(_rfc3339),
+    WithJsonSchema({"type": "string", "format": "date-time"}),
+]
+
 #: The contract version this package speaks. Every writer stamps it on
 #: ``meta``; a reader validates a present key and refuses a newer one.
 MOLREC_VERSION = 1
@@ -1139,18 +1160,36 @@ class MetaModel(DocumentModel):
     )
     creator: CreatorModel | None = None
     author: AuthorModel | None = None
-    created_at: str | None = None
+    created_at: Timestamp | None = None
     source: str | None = None
     modules: dict[str, ModuleModel] | None = None
     record_id: str | None = None
     content_hash: str | None = None
 
 
+class ErrorModel(DocumentModel):
+    """``status.error``: what failed, for a human and for a resume decision."""
+
+    message: str
+    type: str | None = None
+    traceback: str | None = None
+
+
 class StatusModel(DocumentModel):
     """The lifecycle document (``docs/spec/status.md``). ``state`` is required
-    whenever the section exists; every other key is preserved as given."""
+    whenever the section exists; the other named keys are typed, and every key
+    a producer adds is preserved as given."""
 
     state: str
+    stage: str | None = None
+    epoch: NonNegativeInt | None = None
+    global_step: NonNegativeInt | None = None
+    progress: dict[str, StrictInt | float] | None = None
+    message: str | None = None
+    started_at: Timestamp | None = None
+    updated_at: Timestamp | None = None
+    finished_at: Timestamp | None = None
+    error: ErrorModel | None = None
 
 
 class EngineModel(DocumentModel):
@@ -1161,11 +1200,14 @@ class EngineModel(DocumentModel):
 class MethodModel(DocumentModel):
     """The scientific / training context document (``docs/spec/method.md``).
     ``type``, ``description`` and ``engine.name`` are required whenever the
-    section exists."""
+    section exists; a ``workflow`` names its stages in ``order`` and gives
+    each one its own method document in ``stages``."""
 
     type: str
     description: str
     engine: EngineModel
+    order: list[str] | None = None
+    stages: dict[str, MethodModel] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1319,9 +1361,10 @@ class RecordModel(BaseModel):
     record is conforming and a reader must not require a frame beside it,
     because frames may embed full blocks including topology.
 
-    ``observables`` is the v1 section (:class:`ObservablesModel`); ``metrics``
-    is carried as its catalog document here, its dense series and WAL being
-    specified in their own chapters.
+    ``observables`` is the v1 section (:class:`ObservablesModel`). ``metrics``
+    -- the catalog document, the dense series and the live WAL of
+    ``docs/spec/metrics.md`` -- is carried verbatim as a :class:`NodeModel`:
+    molrec does not interpret run-local monitoring, it only never loses it.
     """
 
     model_config = ConfigDict(
@@ -1342,7 +1385,7 @@ class RecordModel(BaseModel):
     trajectory: TrajectoryModel | None = None
     status: StatusModel | None = None
     method: MethodModel | None = None
-    metrics: dict[str, Any] | None = None
+    metrics: NodeModel | None = None
     observables: ObservablesModel | None = None
 
     @model_validator(mode="after")
