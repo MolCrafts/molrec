@@ -810,6 +810,182 @@ def _frame_typed_meta_cases(prefix: str) -> Iterable[Case]:
     )
 
 
+#: The declaration of the aligned-block cases: ``atom_types`` rides ``atoms``.
+_ALIGNED = {
+    "atoms": SequenceBlockModel(columns={"x": SequenceColumnModel(dtype="f64")}),
+    "atom_types": SequenceBlockModel(
+        columns={"type": SequenceColumnModel(dtype="string")}, aligned_with="atoms"
+    ),
+}
+
+
+def _types(*names: str) -> BlockModel:
+    return BlockModel(count=len(names), columns={"type": _column("string", list(names))})
+
+
+def _aligned_run(
+    *frames: tuple[list[float] | None, list[str] | None],
+    blocks: dict[str, SequenceBlockModel] | None = None,
+    validated: bool = True,
+) -> TrajectoryModel:
+    """A run of ``(atoms x, atom_types)`` presentations, ``None`` omitting one;
+    built around the trajectory's validators when ``validated`` is false."""
+    built = [
+        FrameModel(
+            blocks={
+                **({} if xs is None else {"atoms": _atoms(*xs)}),
+                **({} if types is None else {"atom_types": _types(*types)}),
+            }
+        )
+        for xs, types in frames
+    ]
+    fields = {
+        "frames": built,
+        "step": list(range(len(built))),
+        "blocks": _ALIGNED if blocks is None else blocks,
+    }
+    if validated:
+        return TrajectoryModel(**fields)
+    return TrajectoryModel.model_construct(**fields, time=None, meta={}, box=None)
+
+
+def _drop_last_row(path: str, update: int) -> Any:
+    """A tamper that moves ``offset[update]`` of the block at ``path`` one row
+    back, so the update before it holds one row fewer."""
+
+    def tamper(store: Any) -> None:
+        import zarr
+
+        offset = zarr.open_group(store=store.path, mode="r+")[f"{path}/offset"]
+        values = offset[...]
+        values[update] -= 1
+        offset[...] = values
+
+    return tamper
+
+
+def _aligned_cases() -> Iterable[Case]:
+    """Aligned blocks (``docs/spec/ragged.md``): one block's rows are another's."""
+    three = ["CT", "HC", "HC"]
+    yield Case(
+        id="aligned-carries-forward",
+        exercises="an aligned block updated at 0 and 3 resolves at every frame beside a target "
+        "that moves every frame",
+        model=_aligned_run(
+            ([0.0, 1.0, 2.0], three),
+            ([0.1, 1.1, 2.1], None),
+            ([0.2, 1.2, 2.2], None),
+            ([0.3, 1.3, 2.3], ["CT", "HC", "OH"]),
+            ([0.4, 1.4, 2.4], None),
+        ),
+    )
+
+    yield Case(
+        id="aligned-restated-on-growth",
+        exercises="a frame that grows the target restates the aligned block with the new count",
+        model=_aligned_run(
+            ([0.0, 1.0, 2.0], three),
+            ([0.1, 1.1, 2.1], None),
+            ([0.2, 1.2, 2.2, 3.2], [*three, "OW"]),
+            ([0.3, 1.3, 2.3, 3.3], None),
+        ),
+    )
+
+    yield Case(
+        id="aligned-absent-then-present",
+        exercises="an aligned block may be absent while its target is present; it first "
+        "appears at ordinal 1",
+        model=_aligned_run(
+            ([0.0, 1.0, 2.0], None), ([0.1, 1.1, 2.1], three), ([0.2, 1.2, 2.2], None)
+        ),
+    )
+
+    yield Case(
+        id="aligned-empty-target",
+        exercises="a target emptied at ordinal 2 takes the aligned block with it, restated empty",
+        model=_aligned_run(([0.0, 1.0, 2.0], three), ([0.1, 1.1, 2.1], None), ([], []), ([], None)),
+    )
+
+    yield Case(
+        id="reject-aligned-not-restated",
+        exercises="a frame that grows the target without restating the aligned block is refused",
+        expect_violation="aligned_count_mismatch",
+        rejects_on="write",
+        model=_aligned_run(
+            ([0.0, 1.0, 2.0], three),
+            ([0.1, 1.1, 2.1], None),
+            ([0.2, 1.2, 2.2, 3.2], None),
+            validated=False,
+        ),
+    )
+
+    yield Case(
+        id="reject-aligned-count-mismatch",
+        exercises="a reader refuses a store whose aligned block holds another row count than "
+        "its target at a resolved frame",
+        expect_violation="aligned_count_mismatch",
+        backends=("zarr",),
+        tamper=_drop_last_row("trajectory/atom_types", 1),
+        model=_aligned_run(
+            ([0.0, 1.0, 2.0], three), ([0.1, 1.1, 2.1], None), ([0.2, 1.2, 2.2], ["OW", "HW", "HW"])
+        ),
+    )
+
+    def declared(**aligned: SequenceBlockModel) -> dict[str, SequenceBlockModel]:
+        return {"atoms": _ALIGNED["atoms"], **aligned}
+
+    for case_id, why, blocks, frames in (
+        (
+            "reject-aligned-target-undeclared",
+            "an aligned block's target is a declared block",
+            declared(
+                atom_types=SequenceBlockModel(
+                    columns={"type": SequenceColumnModel(dtype="string")}, aligned_with="nope"
+                )
+            ),
+            [([0.0], ["CT"])],
+        ),
+        (
+            "reject-aligned-chain",
+            "an aligned block's target is not itself aligned",
+            declared(
+                atom_types=_ALIGNED["atom_types"],
+                charges=SequenceBlockModel(
+                    columns={"q": SequenceColumnModel(dtype="f64")}, aligned_with="atom_types"
+                ),
+            ),
+            [([0.0], ["CT"])],
+        ),
+        (
+            "reject-aligned-shared-column",
+            "an aligned block's columns are its own: both blocks carrying type is refused",
+            {
+                "atoms": SequenceBlockModel(
+                    columns={
+                        "x": SequenceColumnModel(dtype="f64"),
+                        "type": SequenceColumnModel(dtype="string"),
+                    }
+                ),
+                "atom_types": _ALIGNED["atom_types"],
+            },
+            [],
+        ),
+        (
+            "reject-aligned-target-absent",
+            "an aligned block is never present while its target is absent",
+            _ALIGNED,
+            [(None, ["CT"]), ([0.0], None)],
+        ),
+    ):
+        yield Case(
+            id=case_id,
+            exercises=why,
+            expect_violation="bad_alignment",
+            rejects_on="write",
+            model=_aligned_run(*frames, blocks=blocks, validated=False),
+        )
+
+
 def _break_offset(store: Any) -> None:
     """Make ``atoms/offset`` non-monotonic in a store the codec just wrote.
 
@@ -909,6 +1085,7 @@ class TrajectorySuite(Suite):
     def cases(self) -> Iterable[Case]:
         yield from self._positive_cases()
         yield from self._precision_cases()
+        yield from _aligned_cases()
         yield from self._writer_refusals()
         yield from self._reader_refusals()
 
@@ -2128,6 +2305,77 @@ class CollectionSuite(Suite):
             exercises="a system's typed meta survives the frame-bytes header (meta_types)",
             model=CollectionModel(
                 meta=meta, records=[RecordModel(meta=MetaModel(), system=_typed_system())]
+            ),
+        )
+
+        three = ["CT", "HC", "HC"]
+        yield Case(
+            id="aligned-in-collection",
+            exercises="each record holds its aligned block to its target on its own resolved "
+            "frames, restating on growth; carry-forward never crosses a record",
+            model=CollectionModel(
+                meta=meta,
+                records=[
+                    RecordModel(
+                        meta=MetaModel(),
+                        trajectory=_aligned_run(
+                            ([0.0, 1.0, 2.0], three),
+                            ([0.1, 1.1, 2.1, 3.1], [*three, "OW"]),
+                            ([0.2, 1.2, 2.2, 3.2], None),
+                        ),
+                    ),
+                    # Its first frame presents the target and not the aligned
+                    # block: valid, and nothing carries over from record 0.
+                    RecordModel(
+                        meta=MetaModel(),
+                        trajectory=_aligned_run(([0.0, 1.0], None), ([0.5, 1.5], ["OW", "HW"])),
+                    ),
+                ],
+            ),
+        )
+
+        yield Case(
+            id="reject-aligned-count-mismatch",
+            exercises="a record whose aligned block is not restated when its target grows is "
+            "refused",
+            expect_violation="aligned_count_mismatch",
+            rejects_on="write",
+            model=CollectionModel.model_construct(
+                meta=meta,
+                sequence_schema=None,
+                index=BlockModel(count=1),
+                records=[
+                    RecordModel.model_construct(
+                        meta=MetaModel(),
+                        system=None,
+                        trajectory=_aligned_run(
+                            ([0.0, 1.0, 2.0], three),
+                            ([0.1, 1.1, 2.1, 3.1], None),
+                            validated=False,
+                        ),
+                        frame=None,
+                    )
+                ],
+            ),
+        )
+
+        yield Case(
+            id="reject-aligned-shares-system-name",
+            exercises="an aligned trajectory block never shares a name with a system block",
+            expect_violation="bad_alignment",
+            rejects_on="write",
+            model=CollectionModel.model_construct(
+                meta=meta,
+                sequence_schema=None,
+                index=BlockModel(count=1),
+                records=[
+                    RecordModel.model_construct(
+                        meta=MetaModel(),
+                        system=FrameModel(blocks={"atom_types": _types("CT", "HC", "HC")}),
+                        trajectory=_aligned_run(([0.0, 1.0, 2.0], three)),
+                        frame=None,
+                    )
+                ],
             ),
         )
 

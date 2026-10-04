@@ -67,6 +67,11 @@ empty from then on. Once a block has appeared it is never absent again. The
 cell carries forward the same way. The full rules are
 [The three states of a block](ragged.md#the-three-states-of-a-block).
 
+A block may be declared [aligned](ragged.md#aligned-blocks) with another:
+its rows are the other block's rows, so it can change rarely beside a block
+that changes every frame, and it is restated whenever the other's row count
+changes.
+
 ## With and without `system`
 
 A record may omit `system` and still carry `trajectory` (frames may embed

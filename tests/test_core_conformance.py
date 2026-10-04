@@ -294,3 +294,11 @@ def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path, molrs) -> None
 
     frame = molrs.io.read_mrec(path)
     assert [bool(flag) for flag in np.asarray(frame.box.pbc)] == [True, True, True]
+
+
+def test_molrs_declares_only_real_cases_unsupported(molrs_implementation) -> None:
+    """Every case id the molrs adapter declares out of scope is a case of its
+    module, so a typo cannot silently skip nothing (or the wrong thing)."""
+    for module, adapter in molrs_implementation.adapters().items():
+        known = {case.id for case in REGISTRY.suite_for(module)().cases()}
+        assert set(adapter.unsupported) <= known, sorted(set(adapter.unsupported) - known)

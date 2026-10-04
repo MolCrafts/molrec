@@ -100,6 +100,10 @@ The collection suite (`module = "collection"`) pins down:
   `sequence_schema`;
 * refusal of a trajectory block whose row count differs from the system block
   it shares a name with;
-* refusal of a collection without `units`.
+* refusal of a collection without `units`;
+* an aligned block that carries forward while its target moves, and one
+  restated on growth;
+* refusal of an aligned block that shares a name with a `system` block, and
+  of one whose row count differs from its target's.
 
 The one binding is [LMDB](lmdb.md).

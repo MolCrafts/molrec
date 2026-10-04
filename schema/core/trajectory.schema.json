@@ -376,8 +376,20 @@
     },
     "SequenceBlockModel": {
       "additionalProperties": true,
-      "description": "One block's declaration: its columns and, when it is a grid, its shape.\n\nA block that declares ``structural_shape`` is a fixed-size object: every\nupdate of it holds exactly ``prod(structural_shape)`` rows, and a writer\nrefuses one that does not.",
+      "description": "One block's declaration: its columns and, when it is a grid, its shape.\n\nA block that declares ``structural_shape`` is a fixed-size object: every\nupdate of it holds exactly ``prod(structural_shape)`` rows, and a writer\nrefuses one that does not.\n\n``aligned_with`` names another declared block whose rows this block's\nrows are, one for one, at every resolved frame (``docs/spec/ragged.md``,\naligned blocks): a sparse companion of a block that changes more often.\nDeclared only, never derived; written only when set.",
       "properties": {
+        "aligned_with": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Aligned With"
+        },
         "columns": {
           "additionalProperties": {
             "$ref": "#/$defs/SequenceColumnModel"

@@ -304,6 +304,34 @@ equal row for row, so a reader may also join on `id`. A ragged trajectory
 block **MUST NOT** share a name with a `system` block. See
 [Trajectory](trajectory.md).
 
+## Aligned blocks
+
+A block may declare `aligned_with: "<target>"` in its `sequence_schema`
+entry. Its rows are then the target's rows, one for one, at every frame:
+a sparse companion of a block that changes more often — atom types beside
+coordinates under proton hopping, species under grand-canonical insertion.
+
+- The target is a declared block of the same trajectory, not the aligned
+  block itself, and not itself aligned. The aligned block declares no
+  `structural_shape`, and no column name appears in both.
+- At every frame ordinal where the aligned block is present or empty, the
+  target is present or empty **with the same row count**, both resolved by
+  [carry-forward](#the-three-states-of-a-block). A frame whose target
+  update changes the row count therefore restates the aligned block; a frame
+  that keeps the count may let it carry forward.
+- The aligned block may be absent while its target is present, never the
+  reverse.
+- Rows correspond by position. A producer that reorders or replaces rows
+  without changing their count restates the aligned block. (The two blocks
+  share no column, so an `id` lives in one of them.)
+- A writer refuses a frame that breaks the rule; a reader refuses a store
+  that does.
+- A reader hands back two blocks. It **MAY** also offer them joined; the
+  column sets are disjoint, so the join is the union of columns.
+- An aligned block never shares a name with a `system` block. Its target
+  may: the target's row count is then the `system` block's, and so is the
+  aligned block's.
+
 ## The pinned declaration
 
 The set of blocks, columns, dtypes, trailing shapes and per-step meta keys

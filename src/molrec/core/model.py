@@ -862,10 +862,16 @@ class SequenceBlockModel(DocumentModel):
     A block that declares ``structural_shape`` is a fixed-size object: every
     update of it holds exactly ``prod(structural_shape)`` rows, and a writer
     refuses one that does not.
+
+    ``aligned_with`` names another declared block whose rows this block's
+    rows are, one for one, at every resolved frame (``docs/spec/ragged.md``,
+    aligned blocks): a sparse companion of a block that changes more often.
+    Declared only, never derived; written only when set.
     """
 
     columns: dict[str, SequenceColumnModel] = Field(default_factory=dict)
     structural_shape: tuple[int, ...] | None = None
+    aligned_with: str | None = None
 
 
 class SequenceSchemaModel(DocumentModel):
@@ -1171,6 +1177,7 @@ class TrajectoryModel(BaseModel):
                         f"ordinal {ordinal}, declared {pinned.structural_shape} -- a grid's row "
                         "count is fixed for the run"
                     )
+        _alignments_are_well_formed(declared)
         object.__setattr__(self, "blocks", declared)
         # The declaration is now the only statement of each column's precision
         # (the frames give theirs up below), so it counts as stated: a model
@@ -1235,6 +1242,33 @@ class TrajectoryModel(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _aligned_blocks_track_their_target(self) -> TrajectoryModel:
+        """On resolved frames: wherever an aligned block is present or empty,
+        its target is too, with the same row count."""
+        for name, block in (self.blocks or {}).items():
+            target = block.aligned_with
+            if target is None:
+                continue
+            for ordinal, frame in enumerate(self.frames):
+                aligned = frame.blocks.get(name)
+                if aligned is None:
+                    continue
+                tracked = frame.blocks.get(target)
+                if tracked is None:
+                    raise ValueError(
+                        f"block {name!r} is aligned with {target!r}, which is absent at ordinal "
+                        f"{ordinal}; an aligned block may be absent while its target is present, "
+                        "never the reverse"
+                    )
+                if aligned.count != tracked.count:
+                    raise ValueError(
+                        f"block {name!r} is aligned with {target!r} but holds {aligned.count} rows "
+                        f"to its {tracked.count} at ordinal {ordinal}; a frame that changes the "
+                        "target's row count restates the aligned block"
+                    )
+        return self
+
+    @model_validator(mode="after")
     def _every_declared_meta_key_reaches_every_frame(self) -> TrajectoryModel:
         """Resolve the declared fills, once, the way ``BoxModel`` resolves its defaults.
 
@@ -1279,6 +1313,39 @@ class TrajectoryModel(BaseModel):
             resolved.append(frame.model_copy(update={"meta": completed, "meta_types": tags}))
         object.__setattr__(self, "frames", resolved)
         return self
+
+
+def _alignments_are_well_formed(declared: dict[str, SequenceBlockModel]) -> None:
+    """An aligned block's target is another declared block that is not itself
+    aligned; the aligned block is no grid, and the two share no column."""
+    for name, block in declared.items():
+        target = block.aligned_with
+        if target is None:
+            continue
+        if target == name or target not in declared:
+            raise ValueError(
+                f"block {name!r} is aligned with {target!r}, which is no other declared block"
+            )
+        if declared[target].aligned_with is not None:
+            raise ValueError(
+                f"block {name!r} is aligned with {target!r}, which is itself aligned with "
+                f"{declared[target].aligned_with!r}; alignments do not chain"
+            )
+        if block.structural_shape is not None:
+            raise ValueError(f"aligned block {name!r} declares a structural shape")
+        shared = sorted(set(block.columns) & set(declared[target].columns))
+        if shared:
+            raise ValueError(
+                f"block {name!r} and its target {target!r} both declare columns {shared}; an "
+                "aligned block's columns are its own"
+            )
+
+
+def _aligned_names(trajectory: TrajectoryModel | None) -> set[str]:
+    """The trajectory blocks declared aligned with another."""
+    if trajectory is None:
+        return set()
+    return {name for name, block in (trajectory.blocks or {}).items() if block.aligned_with}
 
 
 def _layout(block: SequenceBlockModel) -> dict[str, tuple[str, list[int]]]:
@@ -1658,6 +1725,7 @@ class RecordModel(BaseModel):
         count, and an ``id`` column both carry is equal row for row."""
         if self.system is None or self.trajectory is None:
             return self
+        _aligned_apart_from_system(self.system, self.trajectory)
         for name, fixed in self.system.blocks.items():
             for ordinal, frame in enumerate(self.trajectory.frames):
                 update = frame.blocks.get(name)
@@ -1681,6 +1749,17 @@ class RecordModel(BaseModel):
         if all(getattr(self, section) is None for section in SUBSTANTIVE_SECTIONS):
             raise ValueError(f"a record needs at least one of {', '.join(SUBSTANTIVE_SECTIONS)}")
         return self
+
+
+def _aligned_apart_from_system(system: FrameModel, trajectory: TrajectoryModel) -> None:
+    """An aligned trajectory block never shares a name with a ``system`` block
+    (its target may: the target's row count is then the system's)."""
+    clash = sorted(_aligned_names(trajectory) & set(system.blocks))
+    if clash:
+        raise ValueError(
+            f"aligned trajectory blocks {clash} share a name with system blocks; an aligned "
+            "block is the trajectory's own"
+        )
 
 
 #: The collection index columns a binding owns; a collection's own index
@@ -1759,7 +1838,10 @@ class CollectionModel(BaseModel):
             blocks: dict[str, SequenceBlockModel] = {}
             for r, trajectory in trajectories:
                 for name, block in (trajectory.blocks or {}).items():
-                    if name in blocks and _layout(blocks[name]) != _layout(block):
+                    if name in blocks and (
+                        _layout(blocks[name]) != _layout(block)
+                        or blocks[name].aligned_with != block.aligned_with
+                    ):
                         raise ValueError(
                             f"record {r} declares block {name!r} as {_layout(block)}, an earlier "
                             f"record as {_layout(blocks[name])}; a collection has one declaration"
@@ -1800,6 +1882,10 @@ class CollectionModel(BaseModel):
         for r, record in enumerate(self.records):
             if record.system is None or record.trajectory is None:
                 continue
+            try:
+                _aligned_apart_from_system(record.system, record.trajectory)
+            except ValueError as exc:
+                raise ValueError(f"record {r}: {exc}") from None
             for name, fixed in record.system.blocks.items():
                 for frame in record.trajectory.frames:
                     update = frame.blocks.get(name)

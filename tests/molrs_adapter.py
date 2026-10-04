@@ -44,6 +44,49 @@ _MOLRS_DTYPE = {"float": "f64", "int": "i32", "uint": "u64"}
 #: What molrs refuses malformed input with.
 _REFUSALS: tuple[type[Exception], ...] = (ValueError, molrs.BlockDtypeError)
 
+# ---------------------------------------------------------------------------
+# What molrs cannot run yet -- the one place it is declared.
+#
+# Each entry names the molrs API a group of cases needs, whether this molrs
+# build has it, and the cases, per conformance module. A case whose API is
+# present is judged like any other (so it goes red, not skipped, the moment
+# molrs lands the API with a defect); one whose API is absent is reported as
+# a skip carrying the missing API's name. Nothing here is an xfail.
+# ---------------------------------------------------------------------------
+
+_MREC = molrs.io.mrec
+
+_PENDING: tuple[tuple[str, bool, dict[str, tuple[str, ...]]], ...] = (
+    (
+        "molrs.io.mrec.SequenceSchema.declare_aligned (aligned blocks, molrec F5)",
+        hasattr(_MREC.SequenceSchema, "declare_aligned"),
+        {
+            "trajectory": (
+                "aligned-carries-forward",
+                "aligned-restated-on-growth",
+                "aligned-absent-then-present",
+                "aligned-empty-target",
+                "reject-aligned-not-restated",
+                "reject-aligned-count-mismatch",
+                "reject-aligned-target-undeclared",
+                "reject-aligned-chain",
+                "reject-aligned-shared-column",
+                "reject-aligned-target-absent",
+            ),
+        },
+    ),
+)
+
+
+def _unsupported(module: str) -> dict[str, str]:
+    """``module``'s cases whose molrs API this build lacks, each with the API."""
+    return {
+        case: f"molrs lacks {api}"
+        for api, available, cases in _PENDING
+        if not available
+        for case in cases.get(module, ())
+    }
+
 
 def _dtype_of(native: molrs.Block, column: str) -> str:
     """The contract dtype of a stored column, as molrs reports it -- never guessed."""
@@ -224,6 +267,10 @@ def _declared_schema(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSch
                     schema.declare_precision(name, column, declared.precision)
             if block.structural_shape is not None:
                 schema.declare_structural_shape(name, list(block.structural_shape))
+        # Alignment last: a target must be declared before a block aligns with it.
+        for name, block in model.blocks.items():
+            if getattr(block, "aligned_with", None) is not None:
+                schema.declare_aligned(name, block.aligned_with)
     else:
         seen: set[str] = set()
         for frame in model.frames:
@@ -252,6 +299,7 @@ class MolrsRecordAdapter(molrec.RecordAdapter):
 
     backends = ("zarr",)
     refusal_types = _REFUSALS
+    unsupported = _unsupported("record")
 
     def write(self, model: molrec.RecordModel, store) -> None:
         path = Path(store.uri)
@@ -365,6 +413,7 @@ class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
 
     backends = ("zarr",)
     refusal_types = _REFUSALS
+    unsupported = _unsupported("trajectory")
 
     def write(self, model: molrec.TrajectoryModel, store: molrec.TrajectoryStore) -> None:
         tags = {key: _tag(series.dtype) for key, series in model.meta.items()}

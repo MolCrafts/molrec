@@ -97,7 +97,8 @@ ordinal:
   of a record holds every block present at that ordinal; a later frame holds a
   block only when its content differs from the block it would carry forward.
   A zero-row block is an update that empties it. Carry-forward never crosses a
-  record boundary.
+  record boundary. An [aligned](ragged.md#aligned-blocks) block is held to its
+  target's row count at every resolved ordinal of the record.
 * **meta**: every declared per-step key, with any declared fill materialized.
 * **step**: the frame's step number; **time** when the trajectory has one.
 * **box**: the cell, only at the ordinals where it changes.
