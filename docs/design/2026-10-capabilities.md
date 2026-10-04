@@ -543,7 +543,7 @@ array is again optional unless that section's chapter says otherwise.
 
 **E2.3 — overview.md § "Section kinds", **Frame-shaped** paragraph: replace
 "`frame` and `system` are frame-shaped; so is each named observable's data."
-with "`frame`, `system` and [`forcefield`](forcefield.md) are frame-shaped;
+with "`frame`, `system` and [`forcefield`](../spec/forcefield.md) are frame-shaped;
 so is each named observable's data."**
 
 **E2.4 — overview.md § "Design principles", **Facts vs arrays**: replace the
@@ -599,7 +599,7 @@ relation blocks.
 
 **E2.8 — method.md: replace "System-defining parameter tables live under
 `system/parameters`." with "Force-field parameters live in the
-[`forcefield`](forcefield.md) section."**
+[`forcefield`](../spec/forcefield.md) section."**
 
 **E2.9 — collection.md § "Model": insert `\-- (forcefield)  the one force
 field every record links into` after `\-- index …` in the tree, and after the
@@ -1002,7 +1002,7 @@ meta document as JSON. A per-step key's exact type is the tag the
 extend the list "a per-step `fill` in `sequence_schema`, a per-step value in
 an LMDB frame header, a value in a live observables WAL row" with ", a
 value of a frame's or system's `meta` (typed by `_meta_types`,
-[Root layout](storage.md#array-groups))"; and replace the closing paragraph
+[Root layout](../spec/storage.md#frame-shaped-group))"; and replace the closing paragraph
 "An untyped document — `meta`, `status`, `method`, a frame's `meta` — …"
 with:**
 
@@ -1363,7 +1363,7 @@ value is read as `{"preset": <string>}`. Absent means the frame states none
 **E4.6 — storage.md § "Array groups": in the bullet "A frame-shaped section
 … is a group of named blocks; each block is a group of named columns", append
 "A block group carries the attributes `count`, `structural_shape` (when set)
-and `targets` (when set, [Row references](frame.md#row-references))."**
+and `targets` (when set, [Row references](../spec/frame.md#row-references))."**
 
 **E4.7 — lmdb.md § "Frame bytes", header example and rules: a block entry
 may carry `"targets": {column: target}` beside `count` and
@@ -1598,7 +1598,7 @@ and "* refusal of an aligned block whose row count differs from its
 target's;".**
 
 **E5.4 — lmdb.md § "Frames", first bullet: append "An
-[aligned](ragged.md#aligned-blocks) block is held to its target's row count
+[aligned](../spec/ragged.md#aligned-blocks) block is held to its target's row count
 at every resolved ordinal of the record."**
 
 ### F5.4 Model (A)

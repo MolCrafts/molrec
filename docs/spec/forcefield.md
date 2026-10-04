@@ -452,6 +452,8 @@ The force-field suite (`module = "forcefield"`) pins down:
 - `ff-lj-preset`: `preset lj` with no quantity strings;
 - `ff-smirks-keyed`: a `smirks`-keyed table with no endpoint columns;
 - `ff-without-special-bonds`: absence survives as absence;
+- `ff-document-keys-preserved`: a document key and a table no style names
+  survive as unknown content;
 - refusals on read: `reject-ff-no-units`, `reject-ff-units-conflict`,
   `reject-ff-duplicate-style`, `reject-ff-missing-table`,
   `reject-ff-duplicate-type-name`, `reject-ff-wrong-arity`,

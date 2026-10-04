@@ -213,6 +213,17 @@ mirrors it onto its group as the attribute `structural_shape`. Such a block
 has a **fixed row count**: every update holds exactly the product of the
 shape, and a writer refuses an update that does not.
 
+### Nullable columns
+
+A column the declaration pins `nullable` carries its
+[validity mask](frame.md#nullable-columns) as `B/_validity/<column>`:
+`bool[total_rows]`, one flag per row of the section, cut by the same
+`offset` as the values, so update `j`'s flags are rows
+`offset[j] … offset[j+1]`. An update that presents the column without a mask
+lands all-`true` flags. A frame that masks a column the declaration pins
+non-nullable is refused: its values would land without the mask. Columns
+the declaration does not pin nullable have no mask array.
+
 **A regular block costs no index.** A block is *regular* while every update
 so far has the same row count `N > 0` and sits at its own ordinal
 (`step_index[j] == j`). While it is regular a writer writes **no
