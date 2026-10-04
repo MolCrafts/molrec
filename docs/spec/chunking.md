@@ -12,17 +12,19 @@ of a trajectory is [Ragged trajectory](ragged.md).
 
 ## Normative
 
-**Must-decode codec set.** A conforming reader decodes every array whose
-codec pipeline is drawn from
+**Must-decode codec set.** A conforming reader — a wasm32 build included —
+decodes every array whose codec pipeline is drawn from
 
 ```text
-bytes   gzip   crc32c   vlen-utf8   sharding_indexed   transpose
+bytes   gzip   zstd   numcodecs.shuffle   crc32c   vlen-utf8   sharding_indexed   transpose
 ```
 
 and a conforming writer uses no codec outside this set unless the store is
-for a reader known to have it. `zstd` **SHOULD** be decodable (it is on
-native platforms; in a wasm build it depends on how the reader was
-compiled). **No lossy codec is admitted.**
+for a reader known to have it. `numcodecs.shuffle` is the byte shuffle of the
+Zarr extension registry (configuration `{"elementsize": n}`). **No lossy codec
+is admitted**: a [declared precision](frame.md#declared-precision) is a
+rounding the writer applies to values before they reach the pipeline, and
+every pipeline returns the stored bytes exactly.
 
 **Commit protocol.** Each flush of a trajectory writer lands in this order:
 
@@ -145,19 +147,26 @@ one chunk holding the whole array.
 
 ## Reference writer: codecs
 
-Each inner chunk's pipeline is
+Each inner chunk's pipeline is `bytes` (or `vlen-utf8` for strings), then the
+column's bytes-to-bytes codecs, then `crc32c`:
 
-```text
-bytes  (+ gzip level 1)  + crc32c
-```
+| Array | Bytes-to-bytes codecs |
+|-------|----------------------|
+| non-float column, every dense array | `gzip` level 1 |
+| `f64` column with a declared precision | `numcodecs.shuffle` (`elementsize` 8), then `zstd` level 3 |
+| any other float column (`f64`, `c64`, `c128`) | none |
 
-- `gzip` level 1 is applied to every **non-float column** and to **every
-  dense array**;
-- **float columns** (`f64` `c64` `c128`) are left uncompressed by
-  default. The writer knob `Compression::{None, Gzip(level), Zstd(level)}`
-  acts on float columns only;
-- `crc32c` closes every inner pipeline;
-- string columns serialize with `vlen-utf8` in place of `bytes`.
+- A writer that cannot encode `zstd` (the reference wasm32 build) writes a
+  precision column with `numcodecs.shuffle` then `gzip` level 1.
+- The writer knob `Compression::{None, Gzip(level), Zstd(level)}` selects the
+  compressor of float columns: for a column without a precision it replaces
+  "none"; for a precision column it replaces `zstd` level 3, and the shuffle
+  stays.
+- `crc32c` closes every inner pipeline.
+
+Expected size of coordinates (3 `f64` columns; worst-case atom order):
+24 B/atom/frame raw; 7.6 at `p = 10⁻³` and 5.8 at `p = 10⁻²` with the
+reference pipeline.
 
 ## Reference writer: automatic flush
 

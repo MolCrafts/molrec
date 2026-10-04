@@ -7,6 +7,7 @@ everything conforms to nothing.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from typing import Any, ClassVar
 
@@ -19,6 +20,7 @@ from molrec.core.model import (
     META_TAGS,
     MOLREC_VERSION,
     NUMPY_DTYPE,
+    STORED,
     BlockModel,
     BoxModel,
     BoxUpdateModel,
@@ -35,6 +37,7 @@ from molrec.core.model import (
     TrajectoryBoxModel,
     TrajectoryModel,
 )
+from molrec.precision import quantum
 from molrec.registry import REGISTRY
 from molrec.report import Violation
 from molrec.suite import Suite
@@ -76,6 +79,50 @@ def _replace_array(path: str, values: np.ndarray) -> Any:
 
 def _atoms(*xs: float) -> BlockModel:
     return BlockModel(count=len(xs), columns={"x": _column("f64", list(xs))})
+
+
+def _raw_column(dtype: str, values: list, precision: float | None) -> ColumnModel:
+    """A column as a producer hands it to a writer: values not yet rounded to
+    the precision it declares (the validated model would round them)."""
+    array = np.array(values, dtype=NUMPY_DTYPE[dtype])
+    return ColumnModel.model_construct(
+        dtype=dtype, shape=array.shape, values=array, validity=None, precision=precision
+    )
+
+
+def _raw_frame(blocks: dict[str, dict[str, ColumnModel]]) -> FrameModel:
+    """A frame of :func:`_raw_column` columns, built around the validators."""
+    return FrameModel.model_construct(
+        blocks={
+            name: BlockModel.model_construct(
+                count=next(iter(columns.values())).count if columns else 0,
+                columns=columns,
+                structural_shape=None,
+            )
+            for name, columns in blocks.items()
+        },
+        box=None,
+        meta={},
+    )
+
+
+def _set_array(path: str, values: np.ndarray) -> Any:
+    """A tamper that overwrites the values of the array at ``path`` in place,
+    keeping its attributes and codecs."""
+
+    def tamper(store: Any) -> None:
+        import zarr
+
+        zarr.open_group(store=store.path, mode="r+")[path][...] = values
+
+    return tamper
+
+
+#: The precision the precision cases declare, and its quantum (2**-10).
+_P = 1e-3
+_Q = quantum(_P)
+#: Values that are not on the grid of :data:`_P`.
+_UNROUNDED = [0.12345678, -1.00049, 2.718281828, 1e-5]
 
 
 @REGISTRY.suite
@@ -214,6 +261,8 @@ class FrameSuite(Suite):
                 meta={},
             ),
         )
+
+        yield from _frame_precision_cases(prefix)
 
         yield Case(
             id="empty-frame",
@@ -453,6 +502,154 @@ class FrameSuite(Suite):
         )
 
 
+def _frame_precision_cases(prefix: str) -> Iterable[Case]:
+    """Declared precision on the frame path (``docs/spec/frame.md``)."""
+    raw = _raw_frame({"atoms": {"x": _raw_column("f64", _UNROUNDED, _P)}})
+    # The validated model holds what a writer stores: quantize(values, p).
+    rounded = FrameModel(
+        blocks={
+            "atoms": BlockModel(
+                count=len(_UNROUNDED),
+                columns={
+                    "x": ColumnModel(
+                        dtype="f64",
+                        shape=(len(_UNROUNDED),),
+                        values=np.array(_UNROUNDED),
+                        precision=_P,
+                    )
+                },
+            )
+        }
+    )
+    yield Case(
+        id="precision-rounds-on-write",
+        exercises="a writer stores an f64 column declaring a precision rounded to its binary "
+        "grid -- exactly quantize(values), within p/2 of the values and on the grid",
+        model=raw,
+        expected=rounded,
+    )
+
+    yield Case(
+        id="precision-declaration-survives",
+        exercises="the declared precision reads back beside the values; a column declaring "
+        "none stays undeclared",
+        model=FrameModel(
+            blocks={
+                "atoms": BlockModel(
+                    count=3,
+                    columns={
+                        "x": ColumnModel(
+                            dtype="f64",
+                            shape=(3,),
+                            values=np.array([0.0, 1.5, -3.25]),
+                            precision=0.01,
+                        ),
+                        "charge": _column("f64", [0.4, -0.8, 0.4]),
+                    },
+                )
+            }
+        ),
+    )
+
+    edges = [math.nan, math.inf, -math.inf, -0.0, -1e-4, 2.0**43 + 2.0**-9]
+    edges += [2.5 * _Q, 3.5 * _Q, -2.5 * _Q]
+    stored = [math.nan, math.inf, -math.inf, -0.0, -0.0, 2.0**43 + 2.0**-9]
+    stored += [2 * _Q, 4 * _Q, -2 * _Q]
+    yield Case(
+        id="precision-edge-values",
+        exercises="NaN and the infinities are kept, a value at or beyond 2**52 q is kept, "
+        "-0.0 stays -0.0, and a tie rounds to even (2.5q -> 2q, 3.5q -> 4q)",
+        model=_raw_frame({"atoms": {"x": _raw_column("f64", edges, _P)}}),
+        expected=FrameModel(
+            blocks={
+                "atoms": BlockModel(
+                    count=len(stored),
+                    columns={
+                        "x": ColumnModel.model_validate(
+                            {
+                                "dtype": "f64",
+                                "shape": (len(stored),),
+                                "values": np.array(stored),
+                                "precision": _P,
+                            },
+                            context=STORED,
+                        )
+                    },
+                )
+            }
+        ),
+    )
+
+    walk = np.cumsum(np.full(3 * 64, 0.0123456789))
+    yield Case(
+        id="precision-shuffle-zstd-decodes",
+        exercises="a column the reference writer stored with numcodecs.shuffle + zstd (the "
+        "must-decode set) decodes",
+        model=_raw_frame({"atoms": {"x": _raw_column("f64", walk.tolist(), _P)}}),
+        expected=FrameModel(
+            blocks={
+                "atoms": BlockModel(
+                    count=walk.size,
+                    columns={
+                        "x": ColumnModel(dtype="f64", shape=walk.shape, values=walk, precision=_P)
+                    },
+                )
+            }
+        ),
+        directions=("read",),
+    )
+
+    off_grid = np.array([0.1, 0.2, 0.3])
+    yield Case(
+        id="precision-reader-keeps-stored-values",
+        exercises="a reader hands back the stored values exactly: it does not re-round a "
+        "value a writer left off the grid",
+        model=FrameModel(
+            blocks={
+                "atoms": BlockModel(
+                    count=3,
+                    columns={
+                        "x": ColumnModel(dtype="f64", shape=(3,), values=off_grid, precision=_P)
+                    },
+                )
+            }
+        ),
+        expected=FrameModel(
+            blocks={
+                "atoms": BlockModel(
+                    count=3,
+                    columns={
+                        "x": ColumnModel.model_validate(
+                            {"dtype": "f64", "shape": (3,), "values": off_grid, "precision": _P},
+                            context=STORED,
+                        )
+                    },
+                )
+            }
+        ),
+        directions=("read",),
+        backends=("zarr",),
+        tamper=_set_array(f"{prefix}atoms/x", off_grid),
+    )
+
+    yield Case(
+        id="reject-precision-on-non-f64",
+        exercises="only an f64 column declares a precision; an i64 column declaring one is refused",
+        expect_violation="bad_precision",
+        rejects_on="write",
+        model=_raw_frame({"atoms": {"n": _raw_column("i64", [1, 2], _P)}}),
+    )
+
+    for suffix, bad in (("", 0.0), ("-negative", -1.0), ("-infinite", math.inf)):
+        yield Case(
+            id=f"reject-precision-out-of-bounds{suffix}",
+            exercises=f"a precision is finite, in [2**-1000, 2**1000]; p = {bad} is refused",
+            expect_violation="bad_precision",
+            rejects_on="write",
+            model=_raw_frame({"atoms": {"x": _raw_column("f64", [0.5], bad)}}),
+        )
+
+
 def _break_offset(store: Any) -> None:
     """Make ``atoms/offset`` non-monotonic in a store the codec just wrote.
 
@@ -551,8 +748,73 @@ class TrajectorySuite(Suite):
 
     def cases(self) -> Iterable[Case]:
         yield from self._positive_cases()
+        yield from self._precision_cases()
         yield from self._writer_refusals()
         yield from self._reader_refusals()
+
+    def _precision_cases(self) -> Iterable[Case]:
+        """Declared precision on the trajectory path: the declaration states it,
+        every frame is rounded to it, and the change check sees rounded values."""
+        declared = {
+            "atoms": SequenceBlockModel(
+                columns={"x": SequenceColumnModel(dtype="f64", precision=_P)}
+            )
+        }
+
+        def raw(*rows: list[float]) -> list[FrameModel]:
+            return [_raw_frame({"atoms": {"x": _raw_column("f64", row, None)}}) for row in rows]
+
+        def logical(*rows: list[float]) -> TrajectoryModel:
+            return TrajectoryModel(
+                frames=[FrameModel(blocks={"atoms": _atoms(*row)}) for row in rows],
+                step=list(range(len(rows))),
+                blocks=declared,
+            )
+
+        rows = ([0.12345678, -1.00049, 2.718281828], [0.2468, -1.0011, 2.7])
+        yield Case(
+            id="precision-in-sequence-schema",
+            exercises="the pinned declaration states a column's precision, and every frame's "
+            "values read back rounded to it",
+            model=TrajectoryModel.model_construct(
+                frames=raw(*rows), step=[0, 1], time=None, blocks=declared, meta={}, box=None
+            ),
+            expected=logical(*rows),
+        )
+
+        # Frame 0 sits on the grid; frame 1 moves every atom by less than q/2,
+        # so after rounding it is frame 0 again.
+        on_grid = [0.125, -1.0, 2.75]
+        nudged = [x + 0.4 * _Q * (-1) ** i for i, x in enumerate(on_grid)]
+        yield Case(
+            id="precision-sub-quantum-carries-forward",
+            exercises="the change check compares rounded presentations: a change below half the "
+            "quantum is no change, and both frames read back as frame 0's stored values",
+            model=TrajectoryModel.model_construct(
+                frames=raw(on_grid, nudged),
+                step=[0, 1],
+                time=None,
+                blocks=declared,
+                meta={},
+                box=None,
+            ),
+            expected=logical(on_grid, on_grid),
+        )
+
+        yield Case(
+            id="reject-frame-precision-disagrees",
+            exercises="a frame column stating another precision than the pinned one is refused",
+            expect_violation="precision_mismatch",
+            rejects_on="write",
+            model=TrajectoryModel.model_construct(
+                frames=[_raw_frame({"atoms": {"x": _raw_column("f64", [0.5], 1e-2)}})],
+                step=[0],
+                time=None,
+                blocks=declared,
+                meta={},
+                box=None,
+            ),
+        )
 
     def _positive_cases(self) -> Iterable[Case]:
         #: One object, presented by several frames: identical content is what
@@ -1248,6 +1510,9 @@ class RecordSuite(Suite):
                 directions=case.directions,
                 tamper=case.tamper,
                 model=RecordModel.model_construct(meta=meta, frame=case.model, system=None),
+                expected=None
+                if case.expected is None
+                else RecordModel.model_construct(meta=meta, frame=case.expected, system=None),
             )
 
     def _own_cases(self) -> Iterable[Case]:
@@ -1639,6 +1904,63 @@ class CollectionSuite(Suite):
                 sequence_schema=None,
                 index=BlockModel(count=1),
                 records=[record],
+            ),
+        )
+
+        precise_system = FrameModel(
+            blocks={
+                "atoms": BlockModel(
+                    count=3,
+                    columns={
+                        **system.blocks["atoms"].columns,
+                        "mass": ColumnModel(
+                            dtype="f64",
+                            shape=(3,),
+                            values=np.array([15.9994, 1.00794, 1.00794]),
+                            precision=_P,
+                        ),
+                    },
+                )
+            }
+        )
+        precise = TrajectoryModel.model_construct(
+            frames=[
+                _raw_frame({"atoms": {"x": _raw_column("f64", [x, x + 1.0, x - 1.0], None)}})
+                for x in (0.1234567, 0.2345678)
+            ],
+            step=[0, 1],
+            time=None,
+            blocks={
+                "atoms": SequenceBlockModel(
+                    columns={"x": SequenceColumnModel(dtype="f64", precision=_P)}
+                )
+            },
+            meta={},
+            box=None,
+        )
+        yield Case(
+            id="precision-in-collection",
+            exercises="a precision-declared system column (its header entry) and trajectory "
+            "column (the collection's sequence_schema) survive the LMDB binding, rounded",
+            model=CollectionModel.model_construct(
+                meta=meta,
+                sequence_schema=None,
+                index=BlockModel(count=1),
+                records=[
+                    RecordModel.model_construct(
+                        meta=MetaModel(), system=precise_system, trajectory=precise, frame=None
+                    )
+                ],
+            ),
+            expected=CollectionModel(
+                meta=meta,
+                records=[
+                    RecordModel(
+                        meta=MetaModel(),
+                        system=precise_system,
+                        trajectory=TrajectoryModel.model_validate(precise.model_dump()),
+                    )
+                ],
             ),
         )
 

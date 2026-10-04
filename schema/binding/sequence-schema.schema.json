@@ -67,7 +67,17 @@
       "type": "object"
     },
     "SequenceColumnModel": {
-      "description": "One column's type in a sequence declaration.\n\nA column is fixed for the run by its ``dtype`` -- the same closed\nvocabulary as :class:`ColumnModel` -- and its ``trailing`` axes, the\nper-entity structure after the leading count axis. A ``Float[count][3]``\ncolumn declares ``trailing = [3]``; a scalar column declares\n``trailing = []``.\n\n``nullable`` says the column may carry a validity mask. It is a union over\nthe run -- a column masked in any frame is nullable for all of them -- and\na frame that masks a column the declaration pins non-nullable is refused:\nlanding its values without the mask would lose which rows hold nothing.",
+      "description": "One column's type in a sequence declaration.\n\nA column is fixed for the run by its ``dtype`` -- the same closed\nvocabulary as :class:`ColumnModel` -- and its ``trailing`` axes, the\nper-entity structure after the leading count axis. A ``Float[count][3]``\ncolumn declares ``trailing = [3]``; a scalar column declares\n``trailing = []``.\n\n``nullable`` says the column may carry a validity mask. It is a union over\nthe run -- a column masked in any frame is nullable for all of them -- and\na frame that masks a column the declaration pins non-nullable is refused:\nlanding its values without the mask would lose which rows hold nothing.\n\n``precision`` is the column's declared precision (``f64`` only): on a\ntrajectory the declaration is the only place it is stated, and every\nframe's values are rounded to it.",
+      "if": {
+        "properties": {
+          "precision": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "precision"
+        ]
+      },
       "properties": {
         "dtype": {
           "enum": [
@@ -94,6 +104,21 @@
           "title": "Nullable",
           "type": "boolean"
         },
+        "precision": {
+          "anyOf": [
+            {
+              "maximum": 1.0715086071862673e+301,
+              "minimum": 9.332636185032189e-302,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The column's declared precision (f64 only); written only when declared.",
+          "title": "Precision"
+        },
         "trailing": {
           "items": {
             "minimum": 0,
@@ -106,6 +131,13 @@
       "required": [
         "dtype"
       ],
+      "then": {
+        "properties": {
+          "dtype": {
+            "const": "f64"
+          }
+        }
+      },
       "title": "SequenceColumnModel",
       "type": "object"
     }

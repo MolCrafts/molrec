@@ -39,6 +39,12 @@ class Adapter(ABC):
     #: with (``(ValueError,)`` for most Python bindings). The harness counts
     #: them, and :class:`~molrec.Refusal`, as a refusal; nothing else.
     refusal_types: ClassVar[tuple[type[Exception], ...]] = ()
+    #: Case ids this adapter declares out of its implementation's scope, each
+    #: with the reason (the API the implementation lacks). The harness reports
+    #: them as ``skip`` with that reason -- never as a pass -- and judges every
+    #: other case. A case id prefixed by a module's own wrapping (``frame/``
+    #: in the record suite) is matched as written.
+    unsupported: ClassVar[dict[str, str]] = {}
 
     @abstractmethod
     def write(self, model: BaseModel, store: Store) -> None:

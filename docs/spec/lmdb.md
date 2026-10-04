@@ -147,6 +147,11 @@ payload := the column buffers
   that returned the value is open (LMDB's memory map is only stable that
   long). A reader that keeps the data past the transaction copies it; the
   format promises alignment, not zero-copy.
+* A column of a `system` or `index` frame that declares a
+  [precision](frame.md#declared-precision) carries `"precision": p` in its
+  header entry, and its buffer holds the rounded values. A trajectory frame's
+  columns carry none: the collection's `sequence_schema` declares them. No
+  codec is applied: frame bytes are raw buffers.
 * A [nullable column](frame.md#nullable-columns) that carries a mask adds
   `"validity": <offset>` to its entry: a buffer of `shape[0]` one-byte
   `bool`s (`0` / `1`) at that 8-aligned offset. No `validity` key means

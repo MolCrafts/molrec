@@ -14,7 +14,8 @@ dependencies = [
   "pydantic>=2.7",
   # The reference binding: importing molrec registers its Zarr codecs, so the
   # backend they are written against is not optional.
-  "zarr>=3.0",
+  # 3.3: the first release that registers numcodecs.shuffle (must-decode).
+  "zarr>=3.3",
 ]
 
 # LMDB is the one optional backend: it is imported where a store is opened,

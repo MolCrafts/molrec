@@ -64,6 +64,13 @@ class Suite(ABC):
         for case in self.cases():
             if not case.applies_to(binding.backend):
                 continue
+            if case.id in adapter.unsupported:
+                results.append(
+                    self._result(
+                        case, binding, "", status="skip", message=adapter.unsupported[case.id]
+                    )
+                )
+                continue
             if case.expect_violation:
                 if case.rejects_on == "write":
                     results.append(self._rejects_on_write(case, adapter, binding, workdir))

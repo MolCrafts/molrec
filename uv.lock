@@ -397,7 +397,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.16.5" },
-    { name = "zarr", specifier = ">=3.0" },
+    { name = "zarr", specifier = ">=3.3" },
     { name = "zensical", marker = "extra == 'docs'", specifier = ">=0.0.53" },
 ]
 provides-extras = ["dev", "docs", "lmdb", "test"]

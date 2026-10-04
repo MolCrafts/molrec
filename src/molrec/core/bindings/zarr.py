@@ -8,7 +8,7 @@ Layout::
 
     <frame root>/               group attributes = the frame's meta document
     ├── <block>/                group attributes: count, structural_shape
-    │   └── <column>            array
+    │   └── <column>            array (attribute precision, when declared)
     └── box/                    group attribute cell_defined, only when false
         ├── vectors             f64[3][3]
         ├── origin              f64[3]   (optional; absent = zeros)
@@ -43,7 +43,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 import zarr
-from zarr.codecs import Crc32cCodec, GzipCodec
+from zarr.codecs import Crc32cCodec, GzipCodec, ZstdCodec
 
 from molrec import jsonvalue
 from molrec.binding import Binding, Codec
@@ -59,6 +59,7 @@ from molrec.core.model import (
     NUMPY_DTYPE,
     RESERVED_BLOCK_NAMES,
     RESERVED_TRAJECTORY_NAMES,
+    STORED,
     VALIDITY_GROUP,
     ArrayNodeModel,
     BlockModel,
@@ -85,6 +86,7 @@ from molrec.core.model import (
     stamp_version,
 )
 from molrec.core.store import FrameStore, RecordStore, TrajectoryStore
+from molrec.precision import check_precision, quantize
 from molrec.registry import REGISTRY
 from molrec.store import Store
 
@@ -122,6 +124,12 @@ FLOAT_DTYPES: frozenset[str] = frozenset({"f64", "c64", "c128"})
 
 STRUCTURAL_SHAPE_ATTR = "structural_shape"
 CELL_DEFINED_ATTR = "cell_defined"
+#: A frame-path column array's declared precision (``docs/spec/frame.md``).
+#: A trajectory column states it in ``sequence_schema`` only.
+PRECISION_ATTR = "precision"
+
+#: The byte shuffle of the Zarr extension registry, in the must-decode set.
+Shuffle = zarr.registry.get_codec_class("numcodecs.shuffle")
 
 
 def _itemsize(dtype: DType) -> int | None:
@@ -131,31 +139,47 @@ def _itemsize(dtype: DType) -> int | None:
     return np.dtype(NUMPY_DTYPE[dtype]).itemsize
 
 
-def _compressors(dtype: DType, dense: bool) -> tuple[Any, ...]:
-    """The bytes->bytes tail of an inner pipeline: (gzip-1)? then crc32c."""
-    pipeline: list[Any] = [] if (dtype in FLOAT_DTYPES and not dense) else [GzipCodec(level=1)]
+def _compressors(dtype: DType, dense: bool, precision: float | None = None) -> tuple[Any, ...]:
+    """The bytes->bytes tail of an inner pipeline (``docs/spec/chunking.md``):
+    shuffle + zstd-3 for a precision column, none for any other float column,
+    gzip-1 for everything else; crc32c closes it."""
+    if precision is not None:
+        pipeline: list[Any] = [Shuffle(elementsize=8), ZstdCodec(level=3)]
+    elif dtype in FLOAT_DTYPES and not dense:
+        pipeline = []
+    else:
+        pipeline = [GzipCodec(level=1)]
     pipeline.append(Crc32cCodec())
     return tuple(pipeline)
 
 
-def create_fixed(group: zarr.Group, name: str, shape: tuple[int, ...], dtype: DType) -> zarr.Array:
+def create_fixed(
+    group: zarr.Group,
+    name: str,
+    shape: tuple[int, ...],
+    dtype: DType,
+    precision: float | None = None,
+) -> zarr.Array:
     """A fixed-size (frame / system / observables) array, chunked per
     :func:`molrec.chunking.plan`: 512 KiB leading-axis chunks, one shard over
     the whole array above four of them, one chunk for a string, an empty or a
-    0-d array."""
+    0-d array. A declared precision is the array's ``precision`` attribute."""
     chunks, shards = plan(shape, _itemsize(dtype))
     options: dict[str, Any] = {
         "chunks": chunks if chunks is not None else tuple(max(1, n) for n in shape)
     }
     if shards is not None:
         options["shards"] = shards
-    return group.create_array(
+    array = group.create_array(
         name,
         shape=shape,
         dtype=TO_ZARR[dtype],
-        compressors=_compressors(dtype, dense=False),
+        compressors=_compressors(dtype, dense=False, precision=precision),
         **options,
     )
+    if precision is not None:
+        array.attrs[PRECISION_ATTR] = precision
+    return array
 
 
 def _create_sharded(
@@ -166,6 +190,7 @@ def _create_sharded(
     rows: int,
     per_shard: int,
     dense: bool,
+    precision: float | None = None,
 ) -> zarr.Array:
     """A trajectory array: ``sharding_indexed`` with the index at the start."""
     return group.create_array(
@@ -174,7 +199,7 @@ def _create_sharded(
         dtype=TO_ZARR[dtype],
         chunks=(rows, *shape[1:]),
         shards={"shape": (rows * per_shard, *shape[1:]), "index_location": "start"},
-        compressors=_compressors(dtype, dense),
+        compressors=_compressors(dtype, dense, precision),
     )
 
 
@@ -283,9 +308,14 @@ class ZarrFrameCodec(Codec):
         group.attrs.update(attrs)
 
         for column_name, column in block.columns.items():
-            array = create_fixed(group, column_name, column.shape, column.dtype)
+            precision = _declared_precision(name, column_name, column)
+            array = create_fixed(group, column_name, column.shape, column.dtype, precision)
             if column.values is not None:
-                array[...] = column.values
+                # The writer stores exactly the rounded values -- whatever
+                # values the model it was handed holds.
+                array[...] = (
+                    column.values if precision is None else quantize(column.values, precision)
+                )
 
         # Only a masked column writes a mask, and a block with none writes no
         # subgroup: its bytes are what a writer that predates masks wrote.
@@ -330,11 +360,17 @@ class ZarrFrameCodec(Codec):
         )
 
     def _read_column(self, array: zarr.Array, validity: np.ndarray | None) -> ColumnModel:
-        return ColumnModel(
-            dtype=stored_dtype(array),
-            shape=tuple(int(n) for n in array.shape),
-            values=array[...],
-            validity=validity,
+        # The values are handed back exactly as stored: a reader never
+        # re-rounds a declared precision.
+        return ColumnModel.model_validate(
+            {
+                "dtype": stored_dtype(array),
+                "shape": tuple(int(n) for n in array.shape),
+                "values": array[...],
+                "validity": validity,
+                "precision": array.attrs.get(PRECISION_ATTR),
+            },
+            context=STORED,
         )
 
     def _write_box(self, root: zarr.Group, box: BoxModel) -> None:
@@ -362,6 +398,17 @@ class ZarrFrameCodec(Codec):
             boundary=tuple(bool(flag) for flag in boundary) if boundary is not None else None,
             cell_defined=defined,
         )
+
+
+def _declared_precision(block: str, name: str, column: ColumnModel) -> float | None:
+    """A column's precision, refused unless it is a valid one on an ``f64`` column."""
+    if column.precision is None:
+        return None
+    if column.dtype != "f64":
+        raise ValueError(
+            f"{block}/{name} declares a precision; only an f64 column can, found {column.dtype}"
+        )
+    return check_precision(column.precision)
 
 
 def _cell_defined(group: zarr.Group) -> bool:
@@ -616,6 +663,7 @@ class ZarrTrajectoryCodec(Codec):
                 rows,
                 chunks_per_shard(rows * row_bytes(tuple(spec.trailing), _itemsize(spec.dtype))),
                 dense=False,
+                precision=spec.precision,
             )
             for index, (_, block) in enumerate(entries):
                 values = block.columns[column_name].values
@@ -723,16 +771,18 @@ class ZarrTrajectoryCodec(Codec):
 
         time = self._series(group, TIME_PROGRESSION_ATTR, TIME_ARRAY, nstep, float)
 
-        return TrajectoryModel(
-            frames=[
+        fields: dict[str, Any] = {
+            "frames": [
                 FrameModel(blocks=blocks[ordinal], meta=meta[ordinal]) for ordinal in range(nstep)
             ],
-            step=step,
-            time=time,
-            blocks=None if declaration is None else declaration.blocks,
-            meta=declared_meta,
-            box=self._read_box(group[BOX_GROUP], nstep) if BOX_GROUP in group else None,
-        )
+            "step": step,
+            "time": time,
+            "meta": declared_meta,
+            "box": self._read_box(group[BOX_GROUP], nstep) if BOX_GROUP in group else None,
+        }
+        if declaration is not None:
+            fields["blocks"] = declaration.blocks
+        return TrajectoryModel.model_validate(fields, context=STORED)
 
     def _block_groups(
         self, group: zarr.Group, declaration: SequenceSchemaModel | None

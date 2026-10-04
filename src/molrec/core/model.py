@@ -28,6 +28,7 @@ from pydantic import (
     Field,
     NonNegativeInt,
     StrictInt,
+    ValidationInfo,
     WithJsonSchema,
     model_serializer,
     model_validator,
@@ -35,6 +36,7 @@ from pydantic import (
 
 from molrec import jsonvalue
 from molrec.arrays import NDArray, arrays_equal, arrays_identical
+from molrec.precision import PRECISION_MAX, PRECISION_MIN, quantize
 
 
 class DocumentModel(BaseModel):
@@ -256,6 +258,33 @@ VALIDITY_GROUP = "_validity"
 #: A column's validity mask in the published schema: one flag per row.
 _MASK = {"type": "array", "items": {"type": "boolean"}}
 
+#: A declared precision (``docs/spec/frame.md``, declared precision): an
+#: absolute tolerance, finite, in ``[2**-1000, 2**1000]``.
+Precision = Annotated[float, Field(ge=PRECISION_MIN, le=PRECISION_MAX, allow_inf_nan=False)]
+
+#: The validation context a reader builds its models under: the values are
+#: the **stored** ones, handed back exactly -- a reader never re-rounds a
+#: declared precision (an off-grid value is the writer's defect, for a
+#: validator to report).
+STORED: dict[str, bool] = {"stored": True}
+
+
+def _stored(info: ValidationInfo | None) -> bool:
+    """Whether a model is being built from a store (:data:`STORED`)."""
+    return bool(info is not None and info.context and info.context.get("stored"))
+
+
+#: The published form of "only an f64 column declares a precision".
+_PRECISION_ON_F64 = {
+    "if": {"required": ["precision"], "properties": {"precision": {"type": "number"}}},
+    "then": {"properties": {"dtype": {"const": "f64"}}},
+}
+
+
+def _precision_on_f64(precision: float | None, dtype: str, what: str) -> None:
+    if precision is not None and dtype != "f64":
+        raise ValueError(f"{what} declares a precision; only an f64 column can, found {dtype}")
+
 
 class ColumnModel(BaseModel):
     """A typed N-dimensional array, optionally nullable.
@@ -269,23 +298,36 @@ class ColumnModel(BaseModel):
     no mask -- means every row is valid, and an all-``True`` mask *is* no
     mask: it is normalized to ``None``, so the two spellings of "nothing is
     null" are one model.
+
+    ``precision`` is the column's declared precision (``f64`` only). Like
+    ``BoxModel`` materializing its defaults, a validated model holds the
+    **stored** values -- rounded to the precision's binary grid
+    (:func:`molrec.precision.quantize`) -- which is what a writer stores and
+    a reader hands back. A model built from a store (:data:`STORED`) keeps
+    the values exactly as stored.
     """
 
-    model_config = ConfigDict(frozen=True, from_attributes=True)
+    model_config = ConfigDict(
+        frozen=True, from_attributes=True, json_schema_extra=_PRECISION_ON_F64
+    )
 
     dtype: DType
     shape: tuple[int, ...] = Field(min_length=1)
     values: NDArray | None = None
     validity: Annotated[NDArray, WithJsonSchema(_MASK)] | None = None
+    precision: Precision | None = None
 
     @model_validator(mode="after")
-    def _values_match_declaration(self) -> ColumnModel:
+    def _values_match_declaration(self, info: ValidationInfo) -> ColumnModel:
+        _precision_on_f64(self.precision, self.dtype, "a column")
         if self.values is not None:
             if tuple(self.values.shape) != self.shape:
                 raise ValueError(f"values have shape {self.values.shape}, declared {self.shape}")
             carried = values_dtype(self.values)
             if carried != self.dtype:
                 raise ValueError(f"values carry dtype {carried!r}, declared {self.dtype!r}")
+            if self.precision is not None and not _stored(info):
+                object.__setattr__(self, "values", quantize(self.values, self.precision))
         if self.validity is not None:
             mask = np.asarray(self.validity)
             if mask.dtype != np.bool_:
@@ -305,7 +347,11 @@ class ColumnModel(BaseModel):
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, ColumnModel):
             return NotImplemented
-        if self.dtype != other.dtype or self.shape != other.shape:
+        if (
+            self.dtype != other.dtype
+            or self.shape != other.shape
+            or self.precision != other.precision
+        ):
             return False
         return arrays_equal(self.values, other.values) and arrays_equal(
             self.validity, other.validity
@@ -645,9 +691,15 @@ class SequenceColumnModel(BaseModel):
     the run -- a column masked in any frame is nullable for all of them -- and
     a frame that masks a column the declaration pins non-nullable is refused:
     landing its values without the mask would lose which rows hold nothing.
+
+    ``precision`` is the column's declared precision (``f64`` only): on a
+    trajectory the declaration is the only place it is stated, and every
+    frame's values are rounded to it.
     """
 
-    model_config = ConfigDict(frozen=True, from_attributes=True)
+    model_config = ConfigDict(
+        frozen=True, from_attributes=True, json_schema_extra=_PRECISION_ON_F64
+    )
 
     dtype: DType
     trailing: list[Annotated[int, Field(ge=0)]] = Field(default_factory=list)
@@ -655,12 +707,23 @@ class SequenceColumnModel(BaseModel):
         default=False,
         description="Whether the column may carry a validity mask; written only when true.",
     )
+    precision: Precision | None = Field(
+        default=None,
+        description="The column's declared precision (f64 only); written only when declared.",
+    )
+
+    @model_validator(mode="after")
+    def _precision_on_f64_only(self) -> SequenceColumnModel:
+        _precision_on_f64(self.precision, self.dtype, "a sequence column")
+        return self
 
     @model_serializer(mode="wrap")
-    def _nullable_only_when_true(self, handler: Any) -> dict[str, Any]:
+    def _omit_defaults(self, handler: Any) -> dict[str, Any]:
         data = handler(self)
         if not self.nullable:
             data.pop("nullable", None)
+        if self.precision is None:
+            data.pop("precision", None)
         return data
 
 
@@ -701,6 +764,7 @@ def declare_block(block: BlockModel) -> SequenceBlockModel:
                 dtype=column.dtype,
                 trailing=list(column.shape[1:]),
                 nullable=column.validity is not None,
+                precision=column.precision,
             )
             for name, column in block.columns.items()
         },
@@ -948,6 +1012,27 @@ class TrajectoryModel(BaseModel):
                             }
                         }
                     )
+                for column, spec in presented.columns.items():
+                    held = pinned.columns[column].precision
+                    if spec.precision is None or spec.precision == held:
+                        continue
+                    if held is not None or stated:
+                        raise ValueError(
+                            f"frame {ordinal}: column {column!r} of block {name!r} states "
+                            f"precision {spec.precision}, the sequence declares {held}; a "
+                            "trajectory declares a column's precision once"
+                        )
+                    # Derived: the first stated precision is the column's.
+                    declared[name] = pinned = pinned.model_copy(
+                        update={
+                            "columns": {
+                                **pinned.columns,
+                                column: pinned.columns[column].model_copy(
+                                    update={"precision": spec.precision}
+                                ),
+                            }
+                        }
+                    )
                 # S4: a grid block's row count is fixed. ``BlockModel`` already
                 # holds each presentation to ``count == prod(structural_shape)``,
                 # so pinning the shape pins the count.
@@ -958,6 +1043,44 @@ class TrajectoryModel(BaseModel):
                         "count is fixed for the run"
                     )
         object.__setattr__(self, "blocks", declared)
+        # The declaration is now the only statement of each column's precision
+        # (the frames give theirs up below), so it counts as stated: a model
+        # validated again re-derives nothing it could no longer see.
+        self.__pydantic_fields_set__.add("blocks")
+        return self
+
+    @model_validator(mode="after")
+    def _declared_precision_rounds_every_frame(self, info: ValidationInfo) -> TrajectoryModel:
+        """Every frame holds the stored values: rounded to its column's declared
+        precision, which the declaration then states for the run and the
+        frames no longer do. A model built from a store (:data:`STORED`)
+        keeps the values exactly as stored."""
+        declared = self.blocks or {}
+        if not any(
+            spec.precision is not None
+            for block in declared.values()
+            for spec in block.columns.values()
+        ):
+            return self
+        rounding = not _stored(info)
+        resolved: list[FrameModel] = []
+        for frame in self.frames:
+            blocks: dict[str, BlockModel] = {}
+            for name, block in frame.blocks.items():
+                columns = {}
+                for column_name, column in block.columns.items():
+                    precision = declared[name].columns[column_name].precision
+                    values = column.values
+                    if rounding and precision is not None and values is not None:
+                        values = quantize(values, precision)
+                    columns[column_name] = (
+                        column
+                        if values is column.values and column.precision is None
+                        else column.model_copy(update={"values": values, "precision": None})
+                    )
+                blocks[name] = block.model_copy(update={"columns": columns})
+            resolved.append(frame.model_copy(update={"blocks": blocks}))
+        object.__setattr__(self, "frames", resolved)
         return self
 
     @model_validator(mode="after")
@@ -1483,7 +1606,7 @@ class CollectionModel(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _one_declaration(self) -> CollectionModel:
+    def _one_declaration(self, info: ValidationInfo) -> CollectionModel:
         """Every record's trajectory uses the collection's one declaration.
 
         A record's frames may present a **subset** of it -- a record that
@@ -1526,7 +1649,8 @@ class CollectionModel(BaseModel):
                     {
                         **trajectory.model_dump(exclude_unset=True),
                         "blocks": schema.blocks,
-                    }
+                    },
+                    context=info.context,
                 )
             except ValueError as exc:
                 raise ValueError(

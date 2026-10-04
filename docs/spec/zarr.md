@@ -39,9 +39,10 @@ the top of that directory.
   extents at trajectory creation — see [Chunking](chunking.md).
 - **One codec pipeline.** A single `codecs` list (endian, transpose, gzip,
   sharding, …). The contract names a small must-decode set — `bytes`,
-  `gzip`, `crc32c`, `vlen-utf8`, `sharding_indexed`, `transpose` — that
-  every reader of these stores, wasm32 included, decodes; `zstd` should be
-  decodable. Nothing lossy. See [Chunking](chunking.md#normative).
+  `gzip`, `zstd`, `numcodecs.shuffle`, `crc32c`, `vlen-utf8`,
+  `sharding_indexed`, `transpose` — that every reader of these stores,
+  wasm32 included, decodes. Nothing lossy: a declared precision rounds
+  values before they are encoded. See [Chunking](chunking.md#normative).
 - **Rust and wasm.** molrs is a Rust implementation. zarrs, zarr-python, and
   JavaScript/wasm readers exist for V3. New codecs extend the pipeline
   in-place.

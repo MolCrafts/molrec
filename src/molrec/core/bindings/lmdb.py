@@ -37,6 +37,7 @@ from molrec.core.model import (
     DTYPES,
     NUMPY_DTYPE,
     RESERVED_INDEX_COLUMNS,
+    STORED,
     BlockModel,
     BoxModel,
     BoxUpdateModel,
@@ -152,6 +153,8 @@ def encode_frame(
                 entry["offset"] = land(array.tobytes())
             if column.validity is not None:
                 entry["validity"] = land(np.ascontiguousarray(column.validity, "bool").tobytes())
+            if column.precision is not None:
+                entry["precision"] = column.precision
             columns[column_name] = entry
         header_blocks[name] = {
             "count": block.count,
@@ -233,8 +236,16 @@ def decode_frame(value: bytes | memoryview) -> FrameBytes:
             validity = None
             if "validity" in spec:
                 validity = _buffer(view, payload, int(spec["validity"]), "bool", (shape[0],))
-            columns[column_name] = ColumnModel(
-                dtype=dtype, shape=shape, values=values, validity=validity
+            # Stored values come back exactly: a reader never re-rounds.
+            columns[column_name] = ColumnModel.model_validate(
+                {
+                    "dtype": dtype,
+                    "shape": shape,
+                    "values": values,
+                    "validity": validity,
+                    "precision": spec.get("precision"),
+                },
+                context=STORED,
             )
         grid = entry.get("structural_shape")
         blocks[name] = BlockModel(
@@ -448,11 +459,14 @@ class LmdbCollectionCodec(Codec):
             for name, column in index.columns.items()
             if name not in RESERVED_INDEX_COLUMNS
         }
-        return CollectionModel(
-            meta=CollectionMetaModel.model_validate(meta["collection"]),
-            sequence_schema=schema if (schema.blocks or schema.meta) else None,
-            index=BlockModel(count=n_records, columns=own),
-            records=records,
+        return CollectionModel.model_validate(
+            {
+                "meta": CollectionMetaModel.model_validate(meta["collection"]),
+                "sequence_schema": schema if (schema.blocks or schema.meta) else None,
+                "index": BlockModel(count=n_records, columns=own),
+                "records": records,
+            },
+            context=STORED,
         )
 
     def _record(
@@ -494,13 +508,16 @@ class LmdbCollectionCodec(Codec):
                 if decoded.box is not None:
                     cells.append(decoded.box)
                     ordinals.append(j)
-            trajectory = TrajectoryModel(
-                frames=frames,
-                step=steps,
-                time=None if all(t is None for t in times) else times,
-                blocks=schema.blocks,
-                meta=schema.meta,
-                box=_cell_section(r, ordinals, cells),
+            trajectory = TrajectoryModel.model_validate(
+                {
+                    "frames": frames,
+                    "step": steps,
+                    "time": None if all(t is None for t in times) else times,
+                    "blocks": schema.blocks,
+                    "meta": schema.meta,
+                    "box": _cell_section(r, ordinals, cells),
+                },
+                context=STORED,
             )
         raw = txn.get(key(RECORD_META_PREFIX, r))
         meta = MetaModel.model_validate(json.loads(bytes(raw)) if raw is not None else {})

@@ -274,9 +274,11 @@ The rules that follow from this:
 - A block is absent only before its first update. Once present it is
   **never absent again**: there are no tombstones. To clear a block, write a
   zero-row update.
-- A writer compares a presented block with its previous update **bitwise**;
-  an identical presentation writes no update. A repeated `NaN` therefore
-  counts as unchanged.
+- A writer compares a presented block with its previous update **bitwise**,
+  after rounding every column that declares a
+  [precision](frame.md#declared-precision); an identical presentation writes
+  no update. A repeated `NaN` therefore counts as unchanged, and so does a
+  change smaller than half the quantum.
 - A reader resolving a zero-row update hands back a block with the declared
   columns and zero rows, and that block appears in the frame.
 
@@ -323,11 +325,17 @@ The declaration is pinned as the `trajectory/` group attribute
 `sequence_schema`, published as
 [`schema/binding/sequence-schema.schema.json`](../../schema/binding/sequence-schema.schema.json):
 
-- `blocks`: a map of block name to `{columns, structural_shape?}`, each
-  column `{dtype, trailing, nullable?}`. Column `dtype`s are the closed record
-  dtype set; `trailing` is the per-entity shape after the leading count
-  axis; `nullable: true` declares a [nullable column](#nullable-columns) and
-  is written only when true (absent means `false`).
+- `blocks`: a map of block name to `{columns, structural_shape?, targets?,
+  aligned_with?}`, each column `{dtype, trailing, nullable?, precision?}`.
+  Column `dtype`s are the closed record dtype set; `trailing` is the
+  per-entity shape after the leading count axis; `nullable: true` declares a
+  [nullable column](#nullable-columns) and is written only when true (absent
+  means `false`); `precision` is the column's
+  [declared precision](frame.md#declared-precision), the only place a
+  trajectory states it, written only when declared; `targets` is the
+  block's [row references](frame.md#row-references); `aligned_with` makes it
+  an [aligned block](#aligned-blocks). Each of the last three is written only
+  when set.
 - `meta`: a map of key to `{dtype, fill?}`, `dtype` drawn from the per-step
   tag set above.
 

@@ -264,10 +264,13 @@ def test_a_writer_that_widens_u8_fails() -> None:
 def test_a_writer_that_narrows_i64_fails() -> None:
     report = _run("core", NarrowsI64Writer)
 
+    # Rebuilding the i64 column also drops the precision it declared, so the
+    # writer no longer refuses it either.
     assert _failed(report, "write") == {
         "every-dtype",
         "block-named-meta",
         "unknown-names-preserved",
+        "reject-precision-on-non-f64",
     }, report.table()
     assert not _failed(report, "read")
 
@@ -465,3 +468,24 @@ def test_a_report_of_skips_only_is_not_ok() -> None:
     )
     assert not report.ok
     assert not molrec.Report(implementation="x", version="0").ok
+
+
+class DeclaresTwoCasesUnsupported(RaisesNotImplemented):
+    """Out of scope by declaration: those cases are skipped with the reason,
+    every other case is still judged."""
+
+    unsupported: ClassVar[dict[str, str]] = {
+        "coordinates": "no door for it yet (Frame.coordinates)",
+        "reject-row-count-mismatch": "no door for it yet (Block.count)",
+    }
+
+
+def test_a_declared_unsupported_case_is_a_skip_with_its_reason() -> None:
+    report = _run("core", DeclaresTwoCasesUnsupported)
+
+    skipped = {r.case_id: r.message for r in report.results if r.status == "skip"}
+    assert skipped == DeclaresTwoCasesUnsupported.unsupported
+    judged = {r.case_id for r in report.results if r.status != "skip"}
+    assert "coordinates" not in judged
+    assert judged == {case.id for case in FrameSuite().cases()} - set(skipped)
+    assert not report.ok  # everything else still errors

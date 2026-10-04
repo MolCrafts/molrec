@@ -44,7 +44,8 @@ says, for every record in it. Other keys are preserved.
 `sequence_schema`
 
 The [sequence declaration](ragged.md) — blocks, columns, dtypes, trailing
-shapes, nullability, per-step meta tags and fills — that **every** record's
+shapes, nullability, precisions, row references, alignments, per-step meta
+tags and fills — that **every** record's
 trajectory uses. One declaration for the collection is what makes its records
 interchangeable: a reader can size a batch of them without opening any.
 

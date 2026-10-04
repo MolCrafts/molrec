@@ -113,6 +113,50 @@ All arrays are stored in C-order (row-major). A column's leading axis is the
 block count; trailing axes are per-entity structure and are never split
 across chunks in the reference binding.
 
+## Declared precision
+
+An `f64` column may declare a **precision** `p`: an absolute tolerance in the
+column's own units (`1e-3` on coordinates in Å keeps them to a thousandth of
+an ångström). It is the writer's statement about the values it stored, not a
+codec and not a dtype: the column is `f64`, a reader decodes it knowing
+nothing of `p`, and the values it returns are exactly the stored ones.
+
+From `p` a writer derives the **quantum** `q`, the largest power of two not
+above `p`: with `p = m · 2^e` and `0.5 ≤ m < 1`,
+
+```text
+q = 2^(e − 1)
+```
+
+and stores, for each value `x`,
+
+```text
+stored(x) = x                              when x is NaN or ±∞, or |x| ≥ 2^52 · q
+stored(x) = roundTiesToEven(x / q) · q     otherwise
+```
+
+in binary64. Both operations are exact (`q` is a power of two), so two
+writers store the same bits; a writer **MUST** store exactly `stored(x)`.
+Every finite stored value is an integer multiple of `q`, and
+`|x − stored(x)| ≤ q/2 ≤ p/2`. A null row (its validity flag false) is
+unconstrained.
+
+The grid is binary on purpose: a multiple of `2^−10` has zero low-order
+mantissa bits, which a byte shuffle gathers into runs a lossless compressor
+removes ([Chunking](chunking.md)); a multiple of `10^−3` has a full mantissa
+and compresses no better than raw data.
+
+- `p` is a finite binary64 with `2^−1000 ≤ p ≤ 2^1000`. Only an `f64`
+  column declares one; a writer refuses any other.
+- On a frame-shaped section `p` is the column array's attribute
+  `precision`. On a trajectory it is the column's entry in the pinned
+  [`sequence_schema`](ragged.md#the-pinned-declaration) and nowhere else.
+- Absent means the values are stored as given.
+- A reader preserves the declaration: a record read and written back
+  declares the same `p`.
+- A reader does not re-round, re-check or refuse. A stored value off the grid
+  is the writer's defect; a validator **SHOULD** report it.
+
 ## Simulation box
 
 The specification of the simulation cell is stored in the group `box`.

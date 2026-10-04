@@ -82,9 +82,13 @@ def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -
         native = molrs.Block()
         native.resize(block.count)
         for column, payload in block.columns.items():
+            # The values as the producer handed them: rounding to a declared
+            # precision is the writer's job, not the adapter's.
             native.insert(column, payload.values)
             if payload.validity is not None:
                 native.set_validity(column, payload.validity)
+            if getattr(payload, "precision", None) is not None:
+                native.set_precision(column, payload.precision)
         if block.structural_shape is not None:
             native.set_shape(list(block.structural_shape))
         frame[name] = native
@@ -96,7 +100,13 @@ def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -
     return frame
 
 
-def _from_frame(frame: molrs.Frame | None) -> dict[str, Any] | None:
+def _from_frame(frame: molrs.Frame | None, *, in_trajectory: bool = False) -> dict[str, Any] | None:
+    """The frame as molrec's duck.
+
+    A column's declared precision is reported for a frame-shaped section; a
+    trajectory states it in its declaration only, never per frame, so a
+    trajectory frame's columns report none.
+    """
     if frame is None:
         return None
 
@@ -112,6 +122,7 @@ def _from_frame(frame: molrs.Frame | None) -> dict[str, Any] | None:
                 "shape": tuple(values.shape),
                 "values": values,
                 "validity": None if validity is None else np.asarray(validity, dtype=bool),
+                "precision": None if in_trajectory else native.precision(column),
             }
         structural = native.structural_shape
         blocks[name] = {
@@ -212,6 +223,8 @@ def _declared_schema(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSch
             schema.declare_block(name)
             for column, declared in block.columns.items():
                 schema.declare_column(name, column, _tag(declared.dtype), list(declared.trailing))
+                if declared.precision is not None:
+                    schema.declare_precision(name, column, declared.precision)
             if block.structural_shape is not None:
                 schema.declare_structural_shape(name, list(block.structural_shape))
     else:
@@ -225,6 +238,8 @@ def _declared_schema(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSch
                 for column, declared in block.columns.items():
                     trailing = list(getattr(declared, "shape", ()) or ())[1:]
                     schema.declare_column(name, column, _tag(declared.dtype), trailing)
+                    if getattr(declared, "precision", None) is not None:
+                        schema.declare_precision(name, column, declared.precision)
                 if block.structural_shape is not None:
                     schema.declare_structural_shape(name, list(block.structural_shape))
     for key, series in model.meta.items():
@@ -377,7 +392,7 @@ class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
         for frame in frames:
             # The cell is the sequence's section, never the frame's: molrec
             # refuses a trajectory whose frames carry one of their own.
-            described.append({**_from_frame(frame), "box": None})
+            described.append({**_from_frame(frame, in_trajectory=True), "box": None})
 
         # A store with no committed frame reads back with no step series at
         # all; that is the empty sequence. Step numbers missing beside frames
