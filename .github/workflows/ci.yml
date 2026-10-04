@@ -14,13 +14,13 @@ on:
 # `molrec/`. molrs-python is a maturin (Rust) package, built with the exact
 # toolchain molrs pins in its rust-toolchain.toml.
 #
-# MOLRS_REF pins the molrs commit the suite judges. It is the MolCrafts/molrs
-# `dev` head this branch was written against. The conformance cases need the
-# molrs side of the alignment -- feat/mrec-alignment @ 096a402405783686aab82
-# 34fb12965a8c092bcc8, not yet pushed -- so the molrs-marked tests stay red
-# until that branch is merged and this pin is bumped to the merged commit.
+# MOLRS_REPO / MOLRS_REF pin the molrs commit the suite judges: the head of
+# MolCrafts/molrs#91 (0.15 release prep, which carries the molrs side of this
+# alignment), on its fork. Once #91 is merged, switch to MolCrafts/molrs and
+# the merged commit.
 env:
-  MOLRS_REF: 8d6685a92d40dfe991ab72f8d74d3a1f60c22976
+  MOLRS_REPO: Roy-Kid/molrs
+  MOLRS_REF: e438d0252b10e065ada30e85dfd520159d158445
   RUFF: ruff@0.16.5
 
 defaults:
@@ -80,7 +80,7 @@ jobs:
       # The sibling checkout `../molrs` that [tool.uv.sources] points at.
       - uses: actions/checkout@v4
         with:
-          repository: MolCrafts/molrs
+          repository: ${{ env.MOLRS_REPO }}
           ref: ${{ env.MOLRS_REF }}
           path: molrs
       # molrs's own rust-toolchain.toml names the toolchain; rustup reads it.
