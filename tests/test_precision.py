@@ -94,6 +94,34 @@ class TestModels:
             context=STORED,
         )
         assert column.values.tolist() == [0.1234]
+        # pydantic runs a model's after-validators again when the instance is
+        # handed to another model; the stored values must survive that.
+        frame = FrameModel(blocks={"atoms": BlockModel(count=1, columns={"x": column})})
+        assert frame.blocks["atoms"].columns["x"].values.tolist() == [0.1234]
+
+    def test_a_trajectory_reader_keeps_what_it_read(self, tmp_path) -> None:
+        declared = {
+            "atoms": SequenceBlockModel(
+                columns={"x": SequenceColumnModel(dtype="f64", precision=1e-3)}
+            )
+        }
+        frame = FrameModel(
+            blocks={
+                "atoms": BlockModel(
+                    count=1,
+                    columns={"x": ColumnModel(dtype="f64", shape=(1,), values=np.array([0.5]))},
+                )
+            }
+        )
+        store = ZarrTrajectoryStore(tmp_path / "t.mrec")
+        ZarrTrajectoryCodec().write(
+            TrajectoryModel(frames=[frame], step=[0], blocks=declared), store
+        )
+        zarr.open_group(store=store.path, mode="r+")["trajectory/atoms/x"][...] = [0.1234]
+        read = ZarrTrajectoryCodec().read(store)
+        assert read.frames[0].blocks["atoms"].columns["x"].values.tolist() == [0.1234]
+        record = RecordModel(meta=MetaModel(), trajectory=read)
+        assert record.trajectory.frames[0].blocks["atoms"].columns["x"].values.tolist() == [0.1234]
 
     def test_only_f64_declares_one(self) -> None:
         with pytest.raises(ValueError, match="only an f64"):

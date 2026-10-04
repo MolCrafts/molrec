@@ -28,6 +28,7 @@ from pydantic import (
     ConfigDict,
     Field,
     NonNegativeInt,
+    PrivateAttr,
     StrictInt,
     ValidationInfo,
     WithJsonSchema,
@@ -360,6 +361,18 @@ def _stored(info: ValidationInfo | None) -> bool:
     return bool(info is not None and info.context and info.context.get("stored"))
 
 
+def _as_stored(model: BaseModel, info: ValidationInfo | None) -> bool:
+    """Whether ``model`` holds stored values that must not be rounded again.
+
+    Built from a store (:data:`STORED`), or already rounded once: pydantic
+    runs a model's after-validators again whenever the instance is handed to
+    another model, so the first verdict is remembered on the instance.
+    """
+    settled = model._as_stored or _stored(info)
+    model._as_stored = True
+    return settled
+
+
 #: The published form of "only an f64 column declares a precision".
 _PRECISION_ON_F64 = {
     "if": {"required": ["precision"], "properties": {"precision": {"type": "number"}}},
@@ -402,6 +415,7 @@ class ColumnModel(BaseModel):
     values: NDArray | None = None
     validity: Annotated[NDArray, WithJsonSchema(_MASK)] | None = None
     precision: Precision | None = None
+    _as_stored: bool = PrivateAttr(default=False)
 
     @model_validator(mode="after")
     def _values_match_declaration(self, info: ValidationInfo) -> ColumnModel:
@@ -412,7 +426,7 @@ class ColumnModel(BaseModel):
             carried = values_dtype(self.values)
             if carried != self.dtype:
                 raise ValueError(f"values carry dtype {carried!r}, declared {self.dtype!r}")
-            if self.precision is not None and not _stored(info):
+            if not _as_stored(self, info) and self.precision is not None:
                 object.__setattr__(self, "values", quantize(self.values, self.precision))
         if self.validity is not None:
             mask = np.asarray(self.validity)
@@ -1162,6 +1176,7 @@ class TrajectoryModel(BaseModel):
     blocks: dict[str, SequenceBlockModel] | None = None
     meta: dict[str, MetaSeriesModel] = Field(default_factory=dict)
     box: TrajectoryBoxModel | None = None
+    _as_stored: bool = PrivateAttr(default=False)
 
     def state_of(self, name: str, ordinal: int) -> BlockState:
         """The three-state answer for block ``name`` at frame ``ordinal``."""
@@ -1342,7 +1357,7 @@ class TrajectoryModel(BaseModel):
             block.targets is not None for frame in self.frames for block in frame.blocks.values()
         ):
             return self
-        rounding = not _stored(info)
+        rounding = not _as_stored(self, info)
         resolved: list[FrameModel] = []
         for frame in self.frames:
             blocks: dict[str, BlockModel] = {}
