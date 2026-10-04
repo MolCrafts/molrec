@@ -48,10 +48,11 @@ that root):
  \-- (status)                       # group attributes = status document
  \-- (method)                       # group attributes = method document
  \-- (metrics)
- |    +-- (catalog attributes)
+ |    +-- (catalog attributes)      # series summaries + the WAL watermark
  |    \-- (series)
  |    |    \-- <safe_name>          # dense float64 values (when densified)
- |    \-- (metrics.jsonl)           # live WAL (when a stream exists)
+ |    \-- (steps), (wall_time)      # per-point step / time, aligned with series
+ |    \-- (metrics.jsonl)           # live WAL, a plain file (when a stream exists)
  \-- (system)
  \-- (frame)
  \-- (trajectory)                   # step, time, meta, box, <block> (CSR)
@@ -108,8 +109,8 @@ No pure-JSON filesystem package is part of the reference binding.
 | `method` | Scientific / training context | Zarr group attributes on `method/` |
 | `metrics` (live) | Append-only events | JSONL WAL — Record: `metrics/metrics.jsonl`; host: `artifacts/<stem>.mlp.jsonl` |
 | `metrics` (closed) | Dense series catalog | Zarr arrays — Record: `metrics/`. A host keeps only the WAL; leftover `*.mlp.zarr/` is ignored |
-| `system` | Definition (topology, types, params) | Zarr array groups |
-| `frame` | Instantaneous snapshot | Zarr array groups |
+| `system` | Definition (topology, types) | a [frame-shaped group](#frame-shaped-group) |
+| `frame` | Instantaneous snapshot | a [frame-shaped group](#frame-shaped-group) |
 | `trajectory` | Ordered frames | Zarr array groups; [CSR + `step_index`, elided while regular](ragged.md) |
 | `observables` | Named scientific results | Zarr arrays + per-name attribute metadata |
 
