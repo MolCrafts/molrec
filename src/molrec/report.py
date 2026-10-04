@@ -10,8 +10,11 @@ Status = Literal["pass", "fail", "skip", "error"]
 
 #: Every kind the harness emits, and nothing else. ``compare.py`` produces the
 #: located field differences; ``suite.py`` produces ``model_mismatch`` (the
-#: implementation's duck did not validate as the model) and ``not_rejected``
-#: (a negative case was accepted).
+#: implementation's duck did not validate as the model), ``not_rejected`` (a
+#: negative case was accepted), ``wrong_refusal`` (a negative case was refused
+#: for a reason other than the one it pins), ``refused`` (a conforming input was
+#: refused) and ``unreadable`` (the official codec cannot read what the
+#: implementation wrote).
 ViolationKind = Literal[
     "missing_field",
     "missing_key",
@@ -24,6 +27,9 @@ ViolationKind = Literal[
     "value_mismatch",
     "model_mismatch",
     "not_rejected",
+    "wrong_refusal",
+    "refused",
+    "unreadable",
 ]
 
 
@@ -67,8 +73,19 @@ class Report(BaseModel):
     results: tuple[CaseResult, ...] = ()
 
     @property
+    def ran(self) -> bool:
+        """Whether any case was actually judged -- every result a skip is not a run."""
+        return any(r.status != "skip" for r in self.results)
+
+    @property
     def ok(self) -> bool:
-        return not any(r.status in ("fail", "error") for r in self.results)
+        """Something ran, and nothing failed or errored.
+
+        A report in which every module was skipped (no adapter, no binding
+        for the declared backends) says nothing about the implementation, so
+        it is not a green one.
+        """
+        return self.ran and not self.failures
 
     @property
     def failures(self) -> tuple[CaseResult, ...]:
@@ -76,6 +93,8 @@ class Report(BaseModel):
 
     def table(self) -> str:
         lines = [f"molrec conformance -- {self.implementation} {self.version}"]
+        if not self.ran:
+            lines.append("  nothing ran -- no case was judged")
         seen: dict[tuple[str, str], list[CaseResult]] = {}
         for result in self.results:
             seen.setdefault((result.module, result.backend), []).append(result)
@@ -92,7 +111,13 @@ class Report(BaseModel):
             for result in group:
                 if result.status in ("fail", "error"):
                     detail = result.message or "; ".join(str(v) for v in result.violations)
-                    lines.append(f"      FAIL {result.case_id:<28} {detail}")
+                    status = result.status.upper()
+                    where = (
+                        f"{result.case_id} [{result.direction}]"
+                        if result.direction
+                        else (result.case_id)
+                    )
+                    lines.append(f"      {status:<5} {where:<36} {detail}")
         return "\n".join(lines)
 
     def report(self) -> None:

@@ -133,6 +133,10 @@ class FrameSuite(Suite):
             id="reject-block-named-box",
             exercises="box names the cell; a block taking it must be refused, not silently lost",
             expect_violation="reserved_block_name",
+            # A write-direction rule: no layout can hold a block named box
+            # beside the cell, so there is no malformed store to hand a
+            # reader -- the writer is the door that must refuse.
+            rejects_on="write",
             model=FrameModel(
                 blocks={"box": BlockModel(count=1, columns={"whatever": _column("i64", [1])})},
                 box=BoxModel(vectors=np.eye(3, dtype="float64")),
@@ -794,10 +798,15 @@ class RecordSuite(Suite):
         """
         meta = MetaModel()
         for case in FrameSuite().cases():
+            if case.tamper is not None:
+                # A frame case's tamper addresses a bare frame root, not the
+                # frame section of a record; it cannot be carried over blind.
+                continue
             yield Case(
                 id=f"frame/{case.id}",
                 exercises=case.exercises,
                 expect_violation=case.expect_violation,
+                rejects_on=case.rejects_on,
                 backends=case.backends,
                 model=RecordModel.model_construct(meta=meta, frame=case.model, system=None),
             )
@@ -816,14 +825,9 @@ class RecordSuite(Suite):
         )
 
         yield Case(
-            id="structure",
-            exercises="the minimum interchange unit: an (empty) meta document plus one frame",
-            model=RecordModel(meta=MetaModel(), frame=atoms),
-        )
-
-        yield Case(
             id="no-version",
-            exercises="molrec_version is optional: a store without it opens and validates",
+            exercises="the minimum interchange unit, an empty meta document plus one frame -- "
+            "molrec_version is optional, so a store without it opens and validates",
             model=RecordModel(meta=MetaModel(), frame=atoms),
         )
 

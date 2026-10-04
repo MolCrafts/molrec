@@ -909,9 +909,7 @@ class CollectionModel(BaseModel):
         if self.index is None:
             object.__setattr__(self, "index", BlockModel(count=len(self.records)))
         if self.index.count != len(self.records):
-            raise ValueError(
-                f"index has {self.index.count} rows for {len(self.records)} records"
-            )
+            raise ValueError(f"index has {self.index.count} rows for {len(self.records)} records")
         reserved = sorted(RESERVED_INDEX_COLUMNS & set(self.index.columns))
         if reserved:
             raise ValueError(f"index columns {reserved} are reserved for the binding")

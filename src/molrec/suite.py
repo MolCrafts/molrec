@@ -18,6 +18,11 @@ malformed content with the codec (optionally tampering with the store
 afterwards) and requires the implementation to refuse it; a write-direction
 negative hands the implementation a model the contract forbids and requires
 it to refuse to write.
+
+Only a *refusal* passes a negative case (see :mod:`molrec.refusal`): an
+adapter that raises for any other reason -- an unimplemented door, a missing
+attribute -- is reported as ``error``, and so is a case the harness could not
+prepare. Nothing passes by proxy.
 """
 
 from __future__ import annotations
@@ -34,6 +39,7 @@ from molrec.adapter import Adapter, Implementation
 from molrec.binding import Binding, Codec
 from molrec.case import Case
 from molrec.compare import diff
+from molrec.refusal import as_refusal
 from molrec.registry import REGISTRY
 from molrec.report import CaseResult, Report, Violation
 
@@ -77,15 +83,73 @@ class Suite(ABC):
             **kwargs,
         )
 
+    def _error(self, case: Case, binding: Binding, direction: str, why: str) -> CaseResult:
+        return self._result(case, binding, direction, status="error", message=why)
+
+    def _fail(self, case: Case, binding: Binding, direction: str, *found: Violation) -> CaseResult:
+        return self._result(case, binding, direction, status="fail", violations=found)
+
+    def _raised(
+        self, case: Case, adapter: Adapter, binding: Binding, direction: str, exc: Exception
+    ) -> CaseResult:
+        """An adapter raised on a *positive* case.
+
+        A refusal of conforming content is a conformance failure; anything
+        else the adapter raises is a defect.
+        """
+        refusal = as_refusal(exc, adapter.refusal_types)
+        if refusal is None:
+            return self._error(case, binding, direction, _why(exc))
+        return self._fail(
+            case,
+            binding,
+            direction,
+            Violation(kind="refused", detail=f"conforming input refused: {_why(exc)}"),
+        )
+
+    def _judged(
+        self, case: Case, adapter: Adapter, binding: Binding, direction: str, exc: Exception
+    ) -> CaseResult:
+        """An adapter raised on a *negative* case: was it the refusal asked for?"""
+        refusal = as_refusal(exc, adapter.refusal_types)
+        if refusal is None:
+            return self._error(case, binding, direction, f"not a refusal: {_why(exc)}")
+        if refusal.kind and refusal.kind != case.expect_violation:
+            return self._fail(
+                case,
+                binding,
+                direction,
+                Violation(
+                    kind="wrong_refusal",
+                    detail=f"expected {case.expect_violation}, refused as {refusal.kind}: "
+                    f"{refusal}",
+                ),
+            )
+        return self._result(case, binding, direction, status="pass", message=_why(exc))
+
     def _write_direction(
         self, case: Case, adapter: Adapter, binding: Binding, codec: Codec, workdir: Path
     ) -> CaseResult:
         try:
             store = binding.new_store(workdir / f"{case.id}.write")
+        except Exception as exc:
+            return self._error(case, binding, "write", f"could not prepare the case: {_why(exc)}")
+        try:
             adapter.write(case.model, store)
+        except Exception as exc:
+            return self._raised(case, adapter, binding, "write", exc)
+        try:
             recovered = codec.read(store)
-        except Exception as exc:  # an implementation crash is a conformance failure
-            return self._result(case, binding, "write", status="error", message=_why(exc))
+        except Exception as exc:
+            return self._fail(
+                case,
+                binding,
+                "write",
+                Violation(
+                    kind="unreadable",
+                    detail=f"the official codec cannot read what was written: {_why(exc)}",
+                ),
+            )
 
         violations = self.compare(case.model, recovered)
         return self._result(
@@ -102,9 +166,12 @@ class Suite(ABC):
         try:
             store = binding.new_store(workdir / f"{case.id}.read")
             codec.write(case.model, store)
+        except Exception as exc:
+            return self._error(case, binding, "read", f"could not prepare the case: {_why(exc)}")
+        try:
             returned = adapter.read(store)
         except Exception as exc:
-            return self._result(case, binding, "read", status="error", message=_why(exc))
+            return self._raised(case, adapter, binding, "read", exc)
 
         # The adapter may return any duck -- a dict, a dataclass, its own
         # native object. Failing to be shaped like the model is itself a
@@ -112,12 +179,8 @@ class Suite(ABC):
         try:
             recovered = self.model_type.model_validate(returned, from_attributes=True)
         except ValidationError as exc:
-            return self._result(
-                case,
-                binding,
-                "read",
-                status="fail",
-                violations=(Violation(kind="model_mismatch", detail=str(exc)),),
+            return self._fail(
+                case, binding, "read", Violation(kind="model_mismatch", detail=str(exc))
             )
 
         violations = self.compare(case.model, recovered)
@@ -132,27 +195,34 @@ class Suite(ABC):
     def _rejects(
         self, case: Case, adapter: Adapter, binding: Binding, codec: Codec, workdir: Path
     ) -> CaseResult:
+        """Lay the malformed content down, then require the implementation to refuse it.
+
+        The content is laid down by the official codec and, for what the
+        models cannot express, the case's ``tamper`` hook. Either one failing
+        means the implementation was never shown the malformation, so that is
+        a harness ``error`` -- never a pass by proxy.
+        """
         try:
             store = binding.new_store(workdir / f"{case.id}.reject")
             codec.write(case.model, store)
         except Exception as exc:
-            # The codec would not lay the malformed content down at all. That
-            # is a refusal too, just one step earlier than the case expected.
-            return self._result(case, binding, "read", status="pass", message=_why(exc))
+            return self._error(
+                case, binding, "read", f"could not lay the malformed store down: {_why(exc)}"
+            )
         if case.tamper is not None:
-            case.tamper(store)
+            try:
+                case.tamper(store)
+            except Exception as exc:
+                return self._error(case, binding, "read", f"tamper failed: {_why(exc)}")
         try:
             adapter.read(store)
-        except Exception:
-            return self._result(case, binding, "read", status="pass")
-        return self._result(
+        except Exception as exc:
+            return self._judged(case, adapter, binding, "read", exc)
+        return self._fail(
             case,
             binding,
             "read",
-            status="fail",
-            violations=(
-                Violation(kind="not_rejected", detail=f"expected {case.expect_violation}"),
-            ),
+            Violation(kind="not_rejected", detail=f"expected {case.expect_violation}"),
         )
 
     def _rejects_on_write(
@@ -160,17 +230,17 @@ class Suite(ABC):
     ) -> CaseResult:
         try:
             store = binding.new_store(workdir / f"{case.id}.reject")
+        except Exception as exc:
+            return self._error(case, binding, "write", f"could not prepare the case: {_why(exc)}")
+        try:
             adapter.write(case.model, store)
-        except Exception:
-            return self._result(case, binding, "write", status="pass")
-        return self._result(
+        except Exception as exc:
+            return self._judged(case, adapter, binding, "write", exc)
+        return self._fail(
             case,
             binding,
             "write",
-            status="fail",
-            violations=(
-                Violation(kind="not_rejected", detail=f"expected {case.expect_violation}"),
-            ),
+            Violation(kind="not_rejected", detail=f"expected {case.expect_violation}"),
         )
 
 
@@ -222,6 +292,17 @@ class ConformanceSuite:
                     backend="",
                     status="skip",
                     message="no adapter declared",
+                )
+            ]
+
+        if not adapter.backends:
+            return [
+                CaseResult(
+                    case_id="*",
+                    module=module,
+                    backend="",
+                    status="error",
+                    message=f"{type(adapter).__name__} declares no backends -- it can run nothing",
                 )
             ]
 

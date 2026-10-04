@@ -24,6 +24,9 @@ class CodecFrameAdapter(molrec.FrameAdapter):
     """Delegates to the official codec -- the self-check."""
 
     backends = ("zarr",)
+    # The codec refuses malformed content with ValueError (pydantic's
+    # ValidationError included).
+    refusal_types = (ValueError,)
 
     def write(self, model: molrec.FrameModel, store: ZarrFrameStore) -> None:
         ZarrFrameCodec().write(model, store)
@@ -135,8 +138,10 @@ def test_a_module_without_an_adapter_is_skipped_not_failed():
         version = "0"
 
     report = molrec.ConformanceSuite(Nothing(), modules=["core"]).run()
-    assert report.ok
     assert [r.status for r in report.results] == ["skip"]
+    assert not report.failures
+    # ...but a run that judged nothing is not a green run either.
+    assert not report.ok
 
 
 def test_silent_float_widening_is_caught():
@@ -175,6 +180,7 @@ class _CodecAdapter(molrec.Adapter):
     """
 
     backends: ClassVar[tuple[str, ...]] = ("zarr", "lmdb")
+    refusal_types: ClassVar[tuple[type[Exception], ...]] = (ValueError,)
 
     def _codec(self, store: molrec.Store) -> molrec.Codec:
         return REGISTRY.bindings_for(self.module)[store.backend]().codec()

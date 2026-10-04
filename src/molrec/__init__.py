@@ -78,6 +78,7 @@ from molrec.observables import (
     Source,
 )
 from molrec.ref import Ref
+from molrec.refusal import Refusal
 from molrec.registry import REGISTRY
 from molrec.report import CaseResult, Report, Violation
 from molrec.sequence_schema import (
@@ -133,6 +134,7 @@ __all__ = [
     "ObservableStore",
     "ObservablesModel",
     "Ref",
+    "Refusal",
     "Source",
     "Suite",
     "Timing",

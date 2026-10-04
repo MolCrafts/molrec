@@ -10,6 +10,10 @@ Two methods per module, and both directions are exercised:
 ``read`` may return anything duck-compatible: a dict, a dataclass, your own
 native object. The suite validates it with ``from_attributes=True``. What it
 must *not* do is assert -- every assertion belongs to the suite.
+
+A negative case is passed only by a *refusal*: a :class:`~molrec.Refusal`, or
+an exception of a type the adapter declares in ``refusal_types``. Any other
+exception is a defect and is reported as ``error``.
 """
 
 from __future__ import annotations
@@ -27,6 +31,10 @@ class Adapter(ABC):
 
     module: ClassVar[str]
     backends: ClassVar[tuple[str, ...]] = ()
+    #: The native exception types the implementation refuses malformed input
+    #: with (``(ValueError,)`` for most Python bindings). The harness counts
+    #: them, and :class:`~molrec.Refusal`, as a refusal; nothing else.
+    refusal_types: ClassVar[tuple[type[Exception], ...]] = ()
 
     @abstractmethod
     def write(self, model: BaseModel, store: Store) -> None:

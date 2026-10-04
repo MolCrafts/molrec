@@ -18,7 +18,10 @@
         "wrong_length",
         "value_mismatch",
         "model_mismatch",
-        "not_rejected"
+        "not_rejected",
+        "wrong_refusal",
+        "refused",
+        "unreadable"
       ],
       "title": "Kind",
       "type": "string"

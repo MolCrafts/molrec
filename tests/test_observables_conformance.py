@@ -24,6 +24,7 @@ class CodecObservableAdapter(molrec.ObservableAdapter):
     """Delegates to whichever official codec the backend calls for."""
 
     backends = ("jsonl", "zarr")
+    refusal_types = (ValueError,)
 
     def _codec(self, store):
         return JsonlObservableCodec() if store.backend == "jsonl" else ZarrObservableCodec()
