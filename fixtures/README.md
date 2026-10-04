@@ -1,17 +1,20 @@
 # MolRec fixtures
 
-Golden records for cross-repo alignment. Paths are conventional; binary Zarr
-payloads may be added without changing names.
+Golden records for cross-repo alignment. Only what is listed here exists;
+paths are conventional so new goldens can be added without renaming.
 
 | Path | Shape | Expected sections |
 |------|--------|-------------------|
-| `fixtures/structure-minimal/` | Structure | `meta`, `frame` (with `box` if present) |
-| `fixtures/system-frame-minimal/` | System + snapshot | `meta`, `system`, `frame` |
-| `fixtures/trajectory-coords-only/` | Trajectory without system | `meta`, `trajectory` (frames may carry coords) |
 | `fixtures/run-minimal/` | Run | `meta`, `status`, `metrics` buffer (no `frame`) |
 
-All new fixtures: `meta.molrec_version = 1` (the sole version key), no root `parameters/`, cell
-key `box` only. Physical forms follow [docs/spec/storage.md](../docs/spec/storage.md):
+Binary `*.mrec/` goldens (structure, system + frame, trajectory) are
+**produced by molrs**, the reference writer, and land here from its
+regression output — they are not hand-built in this repository, so that a
+golden is always something a real writer emitted.
+
+Fixture rules: no root `parameters/`, cell key `box` only,
+`meta.molrec_version` optional (an integer ≥ 1 when present). Physical forms
+follow [docs/spec/storage.md](../docs/spec/storage.md):
 
 - Documents → Zarr **group attributes** (payloads under `attrs/` for text goldens)
 - Closed metrics → **dense Zarr series** under `metrics/`
@@ -19,7 +22,7 @@ key `box` only. Physical forms follow [docs/spec/storage.md](../docs/spec/storag
 
 ### `run-minimal`
 
-Text golden for a Run-shaped record without shipping a full Zarr hierarchy yet:
+Text golden for a Run-shaped record without shipping a full Zarr hierarchy:
 
 ```text
 fixtures/run-minimal/

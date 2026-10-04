@@ -47,9 +47,9 @@ codes invent different formats. MolRec provides one language-agnostic contract:
 
 ```text
 /
-+-- meta                  # required — identity, schema version
-+-- system                # recommended — system definition (no required xyz)
-+-- frame                 # recommended — instantaneous snapshot
++-- meta                  # required — identity document (may be empty)
++-- system                # optional — system definition (no required xyz)
++-- frame                 # optional — instantaneous snapshot
 +-- trajectory            # optional — frame sequence
 +-- observables           # optional — scientific results
 +-- status                # optional — lifecycle / progress (run surface)
@@ -59,12 +59,15 @@ codes invent different formats. MolRec provides one language-agnostic contract:
 
 Parameters live under `system/parameters` or `method`.
 
-`meta` is mandatory. A record also includes **at least one of** `frame`,
-`system`, `trajectory`, or `status`. A **Run**-shaped record (`meta` +
-`status`) is valid on its own; a trajectory-only record (`meta` +
-`trajectory`) is equally valid, and trajectory may omit `system/`. The cell
-is **Box**; the sole version key is **`meta["molrec_version"]` (1)**. See
-the [format specification](docs/spec/specification.md).
+`meta` is mandatory (an empty document is valid); `system` and `frame` are
+optional. A record also includes **at least one of** `frame`, `system`,
+`trajectory`, or `status`. A **Run**-shaped record (`meta` + `status`) is
+valid on its own; a trajectory-only record (`meta` + `trajectory`) is
+equally valid, and trajectory may omit `system/`. The cell is **Box**.
+`meta["molrec_version"]` is **optional** while the contract is in
+development: writers do not emit it, readers validate it only when present
+(integer ≥ 1). A record is identified by its `*.mrec` path suffix plus its
+Zarr root. See the [format specification](docs/spec/specification.md).
 
 ## Key design principles
 
@@ -73,9 +76,9 @@ the [format specification](docs/spec/specification.md).
 - **System and state.** `system/` defines the system; coordinates live on `frame` / `trajectory`.
 - **Run surface.** Training and jobs use `status` + `metrics` + `method` as one surface.
 - **Box.** The cell contract name is `Box` / `box`.
-- **One schema version.** `meta["molrec_version"]` (starts at 1).
+- **One schema version, optional for now.** `meta["molrec_version"]` (integer, starts at 1) is validated when present and not emitted during development.
 - **Zarr + metrics WAL.** One Zarr V3 root holds arrays and document sections (group attributes). Closed metrics densify to Zarr series; live metrics use an append-only JSONL WAL (`metrics/metrics.jsonl`). The trajectory encoding is the [ragged CSR layout](docs/spec/ragged.md).
-- **Hard cut.** Writers emit the current keys; migrate older files offline.
+- **Hard cut.** Writers emit the current keys (`sequence_schema`, `meta_dtype`, no vendor prefixes); migrate older files offline.
 - **Collections.** Named blocks carry any entity set.
 - **Preserve the unknown.** Readers keep sections, blocks, and columns they do not interpret.
 - **Backend-neutral.** Semantics are independent of the store; the Zarr root + JSONL buffer is the reference binding.

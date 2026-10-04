@@ -41,8 +41,8 @@ hero:
 ## One standard, one root
 
 A record is the unit of interchange. Heterogeneous payload — definition,
-state, time series, observables, and run logs — under a single versioned
-root. A reader walks it from the groups on disk.
+state, time series, observables, and run logs — under a single
+self-describing root. A reader walks it from the groups on disk.
 
 </div>
 
@@ -85,7 +85,7 @@ root
   </a>
   <a href="spec/zarr/">
     <strong>FAIR</strong>
-    <em>Self-describing, versioned, open, reusable.</em>
+    <em>Self-describing, open, reusable.</em>
   </a>
 </div>
 
@@ -130,7 +130,7 @@ root
   <a href="spec/ragged/">
     <span>06</span>
     <strong>Ragged trajectory</strong>
-    <em>CSR layout, sparse updates, pinned sequence schema, growth example.</em>
+    <em>CSR layout, present / empty / absent blocks, pinned <code>sequence_schema</code>, growth example.</em>
   </a>
 </nav>
 

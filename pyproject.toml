@@ -18,10 +18,12 @@ dependencies = [
 # conformance harness must not be forced to install every store backend.
 [project.optional-dependencies]
 zarr = ["zarr>=3.0"]
+lmdb = ["lmdb>=1.4"]
 dev = [
   "pytest>=8.0",
   "ruff>=0.11",
   "zarr>=3.0",
+  "lmdb>=1.4",
   # The reference implementation, so the conformance suite can actually judge
   # it. molrec's own codec passing molrec's own suite proves very little.
   "molcrafts-molrs",
@@ -31,10 +33,10 @@ docs = [
   "molcrafts-zensical-theme>=0.2.5",
 ]
 
-# Built from the sibling checkout because the trajectory layout the suite
-# judges is not in any published wheel yet. This flips to a plain
-# `molcrafts-molrs>=0.14` pin in the dev extra once molrs 0.14 ships, and this
-# section goes away with it.
+# The reference implementation is built from the sibling checkout
+# (MolCrafts/molrs, branch dev) so the suite judges the layout molrs writes
+# *now*, not the last published wheel. CI clones the sibling next to this
+# repository (see .github/workflows/ci.yml); locally, keep ../molrs on dev.
 [tool.uv.sources]
 molcrafts-molrs = { path = "../molrs/molrs-python" }
 

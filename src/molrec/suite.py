@@ -13,8 +13,11 @@ Each positive case runs in both directions:
   is exactly how two implementations end up unable to open each other's
   files.
 
-Negative cases run in the read direction only: the codec lays down malformed
-content and the implementation is required to refuse it.
+Negative cases run in one direction each. A read-direction negative lays down
+malformed content with the codec (optionally tampering with the store
+afterwards) and requires the implementation to refuse it; a write-direction
+negative hands the implementation a model the contract forbids and requires
+it to refuse to write.
 """
 
 from __future__ import annotations
@@ -56,7 +59,10 @@ class Suite(ABC):
             if not case.applies_to(binding.backend):
                 continue
             if case.expect_violation:
-                results.append(self._rejects(case, adapter, binding, codec, workdir))
+                if case.rejects_on == "write":
+                    results.append(self._rejects_on_write(case, adapter, binding, workdir))
+                else:
+                    results.append(self._rejects(case, adapter, binding, codec, workdir))
                 continue
             results.append(self._write_direction(case, adapter, binding, codec, workdir))
             results.append(self._read_direction(case, adapter, binding, codec, workdir))
@@ -133,6 +139,8 @@ class Suite(ABC):
             # The codec would not lay the malformed content down at all. That
             # is a refusal too, just one step earlier than the case expected.
             return self._result(case, binding, "read", status="pass", message=_why(exc))
+        if case.tamper is not None:
+            case.tamper(store)
         try:
             adapter.read(store)
         except Exception:
@@ -141,6 +149,24 @@ class Suite(ABC):
             case,
             binding,
             "read",
+            status="fail",
+            violations=(
+                Violation(kind="not_rejected", detail=f"expected {case.expect_violation}"),
+            ),
+        )
+
+    def _rejects_on_write(
+        self, case: Case, adapter: Adapter, binding: Binding, workdir: Path
+    ) -> CaseResult:
+        try:
+            store = binding.new_store(workdir / f"{case.id}.reject")
+            adapter.write(case.model, store)
+        except Exception:
+            return self._result(case, binding, "write", status="pass")
+        return self._result(
+            case,
+            binding,
+            "write",
             status="fail",
             violations=(
                 Violation(kind="not_rejected", detail=f"expected {case.expect_violation}"),

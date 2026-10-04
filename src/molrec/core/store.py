@@ -29,3 +29,7 @@ class TrajectoryStore(Store):
 
 class RecordStore(Store):
     """Where a whole record root lands."""
+
+
+class CollectionStore(Store):
+    """Where a collection of records lands (``docs/spec/collection.md``)."""

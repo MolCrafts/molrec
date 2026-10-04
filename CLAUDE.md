@@ -42,7 +42,9 @@ Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract.
 
 ## Spec hygiene
 
-- Sole schema key: `meta["molrec_version"]` (integer, starts at 1).
+- Version key `meta["molrec_version"]` (integer, starts at 1) is **optional**
+  during development: writers do not emit it; readers validate it only when
+  present. Identity = `*.mrec` suffix + Zarr root; `meta/` always exists.
 - Scientific paths are `*.mrec/` / `*.mrec.zip`. Host metrics stay on the
   filename-gated `*.mlp.*` surface (live WAL `*.mlp.jsonl`; leftover
   `*.mlp.zarr` is ignored).

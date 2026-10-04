@@ -4,17 +4,26 @@ Two methods per module and no assertions. The conversions report what molrs
 actually returns -- they never repair it. An adapter that quietly fixed up a
 narrowed integer or a widened float would turn a red suite green while the
 files on disk stayed wrong, which is the one failure mode this whole harness
-exists to prevent.
+exists to prevent. For the same reason nothing here touches the store behind
+molrs's back: the store molrs is asked to read is exactly the one the codec
+wrote.
+
+The molrs surface used here is the one the maintainer rulings name:
+``molrs.io.mrec.write_frame`` / ``write_system`` / ``read_*`` for records,
+``SequenceSchema.from_frames`` + ``declare_meta_with_fill`` and
+``TrajectoryWriter(path, schema)`` (``flush_every`` / ``compression`` /
+``durable`` left at their defaults: durable, spec-following) for the streaming
+trajectory door, ``read_trajectory`` for the eager reading door.
 """
 
 from __future__ import annotations
 
+from importlib import metadata
 from pathlib import Path
 from typing import Any
 
 import molrs
 import numpy as np
-import zarr
 
 import molrec
 
@@ -42,6 +51,14 @@ def _dtype_of(values: np.ndarray) -> str:
     return _NUMPY_TO_MOLREC[values.dtype.name]
 
 
+def _to_box(box: molrec.BoxModel) -> molrs.Box:
+    return molrs.Box(
+        box.vectors,
+        box.origin,
+        None if box.boundary is None else np.array(box.boundary),
+    )
+
+
 def _to_frame(model: molrec.FrameModel) -> molrs.Frame:
     frame = molrs.Frame()
     for name, block in model.blocks.items():
@@ -53,11 +70,7 @@ def _to_frame(model: molrec.FrameModel) -> molrs.Frame:
             native.set_shape(list(block.structural_shape))
         frame[name] = native
     if model.box is not None:
-        frame.box = molrs.Box(
-            model.box.vectors,
-            model.box.origin,
-            None if model.box.boundary is None else np.array(model.box.boundary),
-        )
+        frame.box = _to_box(model.box)
     if model.meta:
         frame.meta = model.meta
     return frame
@@ -91,6 +104,7 @@ def _from_frame(frame: molrs.Frame | None) -> dict[str, Any] | None:
             "vectors": np.asarray(frame.box.h),
             "origin": np.asarray(frame.box.origin),
             "boundary": tuple(bool(flag) for flag in np.asarray(frame.box.pbc)),
+            "cell_defined": bool(frame.box.cell_defined),
         }
 
     raw_meta = dict(frame.meta) if frame.meta else {}
@@ -98,6 +112,50 @@ def _from_frame(frame: molrs.Frame | None) -> dict[str, Any] | None:
         key: (value.value if hasattr(value, "value") else value) for key, value in raw_meta.items()
     }
     return {"blocks": blocks, "box": box, "meta": meta}
+
+
+def _tag(dtype: Any) -> str:
+    """The closed dtype tag as text, whatever enum the model spells it with."""
+    return str(getattr(dtype, "value", dtype))
+
+
+def _declared_schema(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSchema:
+    """The pinned declaration molrs is asked to hold the frames to.
+
+    ``blocks`` stated on the model is the declaration; left unstated, the
+    first presentation of each block fixes its columns (the model's own rule),
+    so a later frame that widens a block is refused rather than absorbed. Meta
+    keys are only ever what ``model.meta`` declares -- a key a frame carries
+    without a declaration is the ``undeclared_meta_key`` violation, not a
+    derivation.
+    """
+    schema = molrs.io.mrec.SequenceSchema()
+    if model.blocks:
+        for name, block in model.blocks.items():
+            schema.declare_block(name)
+            for column, declared in block.columns.items():
+                schema.declare_column(name, column, _tag(declared.dtype), list(declared.trailing))
+            if block.structural_shape is not None:
+                schema.declare_structural_shape(name, list(block.structural_shape))
+    else:
+        seen: set[str] = set()
+        for frame in model.frames:
+            for name, block in frame.blocks.items():
+                if name in seen:
+                    continue
+                seen.add(name)
+                schema.declare_block(name, rows=block.count)
+                for column, declared in block.columns.items():
+                    trailing = list(getattr(declared, "shape", ()) or ())[1:]
+                    schema.declare_column(name, column, _tag(declared.dtype), trailing)
+                if block.structural_shape is not None:
+                    schema.declare_structural_shape(name, list(block.structural_shape))
+    for key, series in model.meta.items():
+        if series.fill is not None:
+            schema.declare_meta_with_fill(key, series.fill, dtype=_tag(series.dtype))
+        else:
+            schema.declare_meta(key, _tag(series.dtype))
+    return schema
 
 
 class MolrsRecordAdapter(molrec.RecordAdapter):
@@ -129,36 +187,6 @@ class MolrsRecordAdapter(molrec.RecordAdapter):
             "frame": frame,
             "system": system,
         }
-
-
-#: molrs's per-step meta dtype tag -> the molrec dtype and trailing shape it
-#: declares. molrs carries the tag on the value itself, so the declaration is
-#: read off what molrs returns rather than guessed from the Python type -- a
-#: `1.0` that arrived as f32 must not be declared f64.
-_META_DTYPE: dict[str, tuple[str, tuple[int, ...]]] = {
-    "f32": ("f32", ()),
-    "f64": ("f64", ()),
-    "i32": ("i32", ()),
-    "i64": ("i64", ()),
-    "u32": ("u32", ()),
-    "u64": ("u64", ()),
-    "bool": ("bool", ()),
-    "string": ("string", ()),
-    "f64x3": ("f64", (3,)),
-    "f64x6": ("f64", (6,)),
-    "f64x9": ("f64", (9,)),
-    "i64x3": ("i64", (3,)),
-    "u64x3": ("u64", (3,)),
-    "bool3": ("bool", (3,)),
-}
-
-
-def _to_box(box: molrec.BoxModel) -> molrs.Box:
-    return molrs.Box(
-        box.vectors,
-        box.origin,
-        None if box.boundary is None else np.array(box.boundary),
-    )
 
 
 def _resolved_cells(model: molrec.TrajectoryModel) -> list[molrs.Box | None]:
@@ -218,49 +246,31 @@ def _same_cell(left: dict[str, Any], right: dict[str, Any]) -> bool:
 
 
 def _meta_series(frames: list[molrs.Frame]) -> dict[str, dict[str, Any]]:
-    """The per-step meta declaration molrs hands back.
+    """The per-step meta declaration molrs hands back: the tag on each value.
 
-    ``fill`` is absent on purpose: it is not something molrs returns. See the
-    note on :class:`MolrsTrajectoryAdapter`.
+    molrs carries the tag on the value itself, so the declaration is read off
+    what molrs returns rather than guessed from the Python type -- a ``1.0``
+    that arrived as f32 must not be declared f64. The tag vocabulary is the
+    contract's closed set; a tag outside it fails validation in the suite.
+    No ``fill`` is reported: molrs's reading door surfaces values, not the
+    declaration, and the suite compares a fill only when it is returned.
     """
     declared: dict[str, dict[str, Any]] = {}
     for frame in frames:
         for key, value in dict(frame.meta).items():
-            tag = str(value.dtype)
-            if tag not in _META_DTYPE:
-                raise ValueError(f"per-step meta key {key!r} came back as molrs dtype {tag!r}")
-            dtype, shape = _META_DTYPE[tag]
-            declared.setdefault(key, {"dtype": dtype, "shape": shape})
+            declared.setdefault(key, {"dtype": str(value.dtype)})
     return declared
 
 
-def _record_shaped(store: molrec.TrajectoryStore) -> str:
-    """The store path, with the identity document molrs's doors require.
-
-    molrs has no bare-trajectory door: ``read_trajectory`` refuses a root without
-    ``meta/`` -- "not a MolRec record: missing required 'meta' section" --
-    while the suite mints a store holding ``trajectory/`` alone. Adding the
-    minimal meta group is a store-shape graft, hand-built the same way the
-    absent-boundary fixture is; it touches nothing in the sequence and
-    repairs nothing molrs returns.
-    """
-    root = zarr.open_group(store=Path(store.uri), mode="a")
-    if "meta" not in root:
-        root.create_group("meta").attrs.update({"molrec_version": 1})
-    return store.uri
-
-
 class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
-    """A sequence of frames, through molrs's eager trajectory door.
+    """A sequence of frames: written through the streaming door, read eagerly.
 
-    ``write_trajectory`` / ``read_trajectory`` are the public doors:
-    ``TrajectoryReader`` yields one frame at a time and does not surface
-    ``step`` / ``time``, so the adapter reads the trajectory eagerly.
-    The streaming surface -- and with it ``declare_meta``, the only place a
-    per-step meta **fill** can be stated -- is unreachable from here. A
-    declared fill therefore does not survive either direction, and this
-    adapter reports that rather than filling it in from the store behind
-    molrs's back.
+    Writing goes frame by frame through ``TrajectoryWriter`` so that every
+    rule the layout places on the writer -- a reserved name refused at
+    declaration, a step that does not increase, a ``time`` that comes and
+    goes -- is molrs's to refuse, not the adapter's. Reading goes through
+    ``read_trajectory``, which yields the resolved frames with ``step`` /
+    ``time`` beside them.
     """
 
     backends = ("zarr",)
@@ -273,17 +283,15 @@ class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
                 native.box = cell
             frames.append(native)
 
-        molrs.io.mrec.write_trajectory(
-            Path(store.uri),
-            molrs.Trajectory.from_frames(
-                frames,
-                step=np.asarray(model.step, dtype="int64"),
-                time=None if model.time is None else np.asarray(model.time, dtype="float64"),
-            ),
-        )
+        schema = _declared_schema(model)
+
+        times = model.time if model.time is not None else [None] * len(frames)
+        with molrs.io.mrec.TrajectoryWriter(Path(store.uri), schema) as writer:
+            for native, step, time in zip(frames, model.step, times, strict=True):
+                writer.append(native, step=int(step), time=None if time is None else float(time))
 
     def read(self, store: molrec.TrajectoryStore) -> Any:
-        trajectory = molrs.io.mrec.read_trajectory(Path(_record_shaped(store)))
+        trajectory = molrs.io.mrec.read_trajectory(Path(store.uri))
         frames = list(trajectory.frames)
         described = []
         for frame in frames:
@@ -301,9 +309,19 @@ class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
         }
 
 
+def _installed_version() -> str:
+    version = getattr(molrs, "__version__", None)
+    if version:
+        return str(version)
+    try:
+        return metadata.version("molcrafts-molrs")
+    except metadata.PackageNotFoundError:
+        return "unknown"
+
+
 class Molrs(molrec.Implementation):
     name = "molrs"
-    version = "0.14.0"
+    version = _installed_version()
     # Frame cases run inside records: molrs.write_frame writes Structure
     # (meta + frame/), not a bare frame at the store root.
     record = MolrsRecordAdapter()

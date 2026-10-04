@@ -25,6 +25,11 @@ than silently narrow it: a `u64` identifier column must not be read back as
 
 Type does not carry unit, description, or axis meaning.
 
+`json` is **not** a column dtype. It exists only as a per-step `meta` tag on
+a [trajectory](ragged.md#per-step-metadata), where one UTF-8 JSON document
+per step is stored as a `string` array. Structured facts on a frame go in
+the frame's `meta` document, not in a column.
+
 ## Column, block and frame
 
 A *column* is a typed N-dimensional array. Its leading axis length equals the
@@ -76,31 +81,32 @@ absent (an open, non-periodic system).
 
 ```text
 box
- \-- vectors: f64[D][D]
- \-- (origin: f64[D])
- \-- (boundary: bool[D])
+ \-- vectors: f64[3][3]
+ \-- (origin: f64[3])
+ \-- (boundary: bool[3])
  +-- (cell_defined: bool[])
 ```
 
 `vectors`
 
-A `D` × `D` matrix of `f64` type. Columns are lattice vectors.
+A `3` × `3` matrix of `f64` type. Columns are lattice vectors.
 
 `origin`
 
-An optional `D`-vector. Absent means `[0, 0, 0]` — the cell is anchored at
-the coordinate origin.
+An optional `f64[3]` array. Absent means `[0, 0, 0]` — the cell is anchored
+at the coordinate origin.
 
 `boundary`
 
-An optional per-axis periodic-boundary flag. Absent means
-`[true, true, true]` — periodic on every axis.
+An optional `bool[3]` **array** — on the frame path and, one update per row,
+on the [trajectory path](ragged.md#the-cell) alike; it is never an
+attribute. Absent means `[true, true, true]` — periodic on every axis.
 
 `cell_defined`
 
-An optional boolean. `boundary` says which axes wrap; `cell_defined` says
-whether there is a cell at all. Absent means `true`. A writer emits it only
-when it is `false`.
+An optional boolean **attribute** of the `box` group. `boundary` says which
+axes wrap; `cell_defined` says whether there is a cell at all. Absent means
+`true`. A writer emits it only when it is `false`.
 
 The cell applies to the whole frame. For a trajectory, each frame carries
 its own box, so fixed-cell and variable-cell runs are both natural.

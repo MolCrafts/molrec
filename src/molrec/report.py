@@ -8,6 +8,24 @@ from pydantic import BaseModel, ConfigDict
 
 Status = Literal["pass", "fail", "skip", "error"]
 
+#: Every kind the harness emits, and nothing else. ``compare.py`` produces the
+#: located field differences; ``suite.py`` produces ``model_mismatch`` (the
+#: implementation's duck did not validate as the model) and ``not_rejected``
+#: (a negative case was accepted).
+ViolationKind = Literal[
+    "missing_field",
+    "missing_key",
+    "unexpected_key",
+    "missing_values",
+    "unexpected_values",
+    "wrong_type",
+    "wrong_shape",
+    "wrong_length",
+    "value_mismatch",
+    "model_mismatch",
+    "not_rejected",
+]
+
 
 class Violation(BaseModel):
     """One named conformance failure.
@@ -19,7 +37,7 @@ class Violation(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    kind: str
+    kind: ViolationKind
     path: str = ""
     detail: str = ""
 

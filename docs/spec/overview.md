@@ -1,7 +1,8 @@
 # Overview
 
 The root of a MolRec package holds named **sections**. `meta` is always
-present. Every other section is optional: take the ones that match the data,
+present (an empty document is a valid one). Every other section — `system`
+and `frame` included — is optional: take the ones that match the data,
 leave the rest off.
 
 ```text
@@ -107,7 +108,7 @@ contents are group attributes (one JSON object):
 
 ```text
 meta
- +-- molrec_version: i64[]
+ +-- (molrec_version: i64[])
  +-- (creator)
  |    +-- name: string[]
  |    +-- (version: string[])
@@ -123,14 +124,20 @@ meta
 
 `molrec_version`
 
-An attribute of integer type. It is the sole version key for the whole
-package — layout, containers, dtypes, and the trajectory sequence
-declaration. It starts at 1. The current value is 1. The scientific path
-brand is `*.mrec/` / `*.mrec.zip`. Writers emit `molrec_version`; readers
-decode that key.
+An optional integer attribute. While the contract is in development writers
+do not emit it. A reader that finds it absent performs no version check; a
+reader that finds it present requires an integer `>= 1` and no greater than
+the newest version it supports, and refuses anything else. When it is
+emitted it covers the whole package — layout, containers, dtypes, and the
+trajectory sequence declaration — and starts at 1.
 
-A bump indicates a change to a normative rule. Additive content that older
-readers can carry through unrecognised needs no bump.
+Identity of a record is the path brand `*.mrec/` / `*.mrec.zip` plus a Zarr
+root, not this key. A bump indicates a change to a normative rule. Additive
+content that older readers can carry through unrecognised needs no bump.
+
+`record_id`, `content_hash`
+
+Optional provenance: a producer-chosen identifier and a content digest.
 
 `creator`, `author`, `created_at`, `source`
 

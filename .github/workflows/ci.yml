@@ -2,9 +2,20 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [master, dev]
   pull_request:
-    branches: [master]
+    branches: [master, dev]
+
+# molrec's dev extra depends on the reference implementation from the sibling
+# checkout: pyproject.toml pins `molcrafts-molrs` to `../molrs/molrs-python`
+# ([tool.uv.sources]). CI reproduces that layout inside $GITHUB_WORKSPACE --
+# this repository under `molrec/`, MolCrafts/molrs@dev under `molrs/` -- so the
+# relative path resolves, and runs every command from `molrec/`. molrs-python
+# is a maturin (Rust) package, hence the Rust toolchain.
+
+defaults:
+  run:
+    working-directory: molrec
 
 jobs:
   lint:
@@ -12,9 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: molrec
       - uses: astral-sh/setup-uv@v5
       - run: uvx ruff format --check .
-      # full ruff check deferred until suite is cleaned for molrs 0.9 API
+      # full ruff check deferred until the suite is cleaned for it
 
   test:
     name: Test on Python ${{ matrix.python-version }}
@@ -25,6 +38,15 @@ jobs:
         python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: molrec
+      # The sibling checkout `../molrs` that [tool.uv.sources] points at.
+      - uses: actions/checkout@v4
+        with:
+          repository: MolCrafts/molrs
+          ref: dev
+          path: molrs
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}

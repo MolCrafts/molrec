@@ -17,6 +17,7 @@ nav = [
     { "Overview" = "spec/overview.md" },
     { "Containers" = "spec/frame.md" },
     { "Trajectory" = "spec/trajectory.md" },
+    { "Collection" = "spec/collection.md" },
     { "System" = "spec/system.md" },
     { "Observables" = "spec/observables.md" },
     { "Run" = [
@@ -33,6 +34,7 @@ nav = [
     { "Chunking and packing" = "spec/chunking.md" },
     { "Metrics WAL" = "spec/metrics-wal.md" },
     { "Ragged trajectory" = "spec/ragged.md" },
+    { "LMDB binding" = "spec/lmdb.md" },
   ] },
 ]
 

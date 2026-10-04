@@ -39,7 +39,7 @@
       "type": "object"
     },
     "BoxModel": {
-      "description": "The triclinic cell. Columns of ``vectors`` are the lattice vectors.\n\nA box belongs to a frame, so fixed-cell and variable-cell runs are both\nnatural -- each frame in a trajectory carries its own.",
+      "description": "The triclinic cell. Columns of ``vectors`` are the lattice vectors.\n\nA box belongs to a frame, so fixed-cell and variable-cell runs are both\nnatural -- each frame in a trajectory carries its own.\n\n``cell_defined`` is not periodicity -- ``boundary`` says which axes wrap,\n``cell_defined`` says whether there is a cell at all. Absent means\n``True``; a writer records it only to say ``False``.",
       "properties": {
         "boundary": {
           "anyOf": [
@@ -47,6 +47,8 @@
               "items": {
                 "type": "boolean"
               },
+              "maxItems": 3,
+              "minItems": 3,
               "type": "array"
             },
             {
@@ -56,10 +58,26 @@
           "default": null,
           "title": "Boundary"
         },
+        "cell_defined": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cell Defined"
+        },
         "origin": {
           "anyOf": [
             {
-              "items": {},
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
               "type": "array"
             },
             {
@@ -70,7 +88,16 @@
           "title": "Origin"
         },
         "vectors": {
-          "items": {},
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "maxItems": 3,
+          "minItems": 3,
           "title": "Vectors",
           "type": "array"
         }
@@ -155,7 +182,7 @@
     },
     "FrameModel": {
       "additionalProperties": true,
-      "description": "A map of names to blocks, plus free-form meta and an optional box.\n\nA frame enforces no relationship between blocks: block counts are\nindependent and any block name is legal.",
+      "description": "A map of names to blocks, plus free-form meta and an optional box.\n\nA frame enforces no relationship between its blocks: block counts are\nindependent and any block name is legal.",
       "properties": {
         "blocks": {
           "additionalProperties": {
@@ -185,7 +212,119 @@
       "type": "object"
     },
     "MetaSeriesModel": {
-      "description": "One per-step meta key, declared once for the whole sequence.\n\nThe declaration is what makes the value exact: two runs both handing back\n``1.0`` are not the same run if one wrote f32 and the other f64, and\nnothing in the value itself says which.\n\n``fill`` is the only thing that lets a frame omit the key. A key declared\nwithout one must be supplied by every frame -- there is **no implicit\nNaN**, so a gap a producer did not declare is refused rather than\ninvented.\n\n``fill`` is **write-side only**. The value is materialized into the array\nat the omitting step and no attribute records that it was a fill, so a\nreader cannot distinguish a filled value from a written one -- both are\nsimply the value at that step -- and hands back no fill at all. The\ndeclaration does not survive the round trip, and is therefore not compared\non read-back.",
+      "description": "One per-step meta key, declared once for the whole sequence.\n\n``dtype`` is a tag from the closed per-step set (:data:`META_TAGS`): a\ncolumn dtype for a scalar, ``f64x3`` / ``bool3`` / ... for a fixed-width\nvector, ``json`` for one JSON document per step. The tag is what makes\nthe value exact: two runs both handing back ``1.0`` are not the same run\nif one wrote f32 and the other f64, and nothing in the value says which.\n\n``fill`` is the only thing that lets a frame omit the key. A key declared\nwithout one must be supplied by every frame -- there is **no implicit\nNaN**, so a gap a producer did not declare is refused rather than\ninvented. The fill is materialized into the array at the omitting step\n*and* recorded in the pinned sequence declaration\n(``trajectory`` attribute ``sequence_schema``), so a reader that opens the\ndeclaration can hand it back.",
+      "properties": {
+        "dtype": {
+          "enum": [
+            "f16",
+            "f32",
+            "f64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "bool",
+            "string",
+            "c64",
+            "c128",
+            "f16x3",
+            "f16x6",
+            "f16x9",
+            "f32x3",
+            "f32x6",
+            "f32x9",
+            "f64x3",
+            "f64x6",
+            "f64x9",
+            "i8x3",
+            "i8x6",
+            "i8x9",
+            "i16x3",
+            "i16x6",
+            "i16x9",
+            "i32x3",
+            "i32x6",
+            "i32x9",
+            "i64x3",
+            "i64x6",
+            "i64x9",
+            "u8x3",
+            "u8x6",
+            "u8x9",
+            "u16x3",
+            "u16x6",
+            "u16x9",
+            "u32x3",
+            "u32x6",
+            "u32x9",
+            "u64x3",
+            "u64x6",
+            "u64x9",
+            "c64x3",
+            "c64x6",
+            "c64x9",
+            "c128x3",
+            "c128x6",
+            "c128x9",
+            "bool3",
+            "json"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "fill": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fill"
+        }
+      },
+      "required": [
+        "dtype"
+      ],
+      "title": "MetaSeriesModel",
+      "type": "object"
+    },
+    "SequenceBlockModel": {
+      "additionalProperties": true,
+      "description": "One block's declaration: its columns and, when it is a grid, its shape.\n\nA block that declares ``structural_shape`` is a fixed-size object: every\nupdate of it holds exactly ``prod(structural_shape)`` rows, and a writer\nrefuses one that does not.",
+      "properties": {
+        "columns": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SequenceColumnModel"
+          },
+          "title": "Columns",
+          "type": "object"
+        },
+        "structural_shape": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Structural Shape"
+        }
+      },
+      "title": "SequenceBlockModel",
+      "type": "object"
+    },
+    "SequenceColumnModel": {
+      "description": "One column's type in a sequence declaration.\n\nA column is fixed for the run by its ``dtype`` -- the same closed\nvocabulary as :class:`ColumnModel` -- and its ``trailing`` axes, the\nper-entity structure after the leading count axis. A ``Float[count][3]``\ncolumn declares ``trailing = [3]``; a scalar column declares\n``trailing = []``.",
       "properties": {
         "dtype": {
           "enum": [
@@ -208,33 +347,23 @@
           "title": "Dtype",
           "type": "string"
         },
-        "fill": {
-          "anyOf": [
-            {},
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Fill"
-        },
-        "shape": {
-          "default": [],
+        "trailing": {
           "items": {
+            "minimum": 0,
             "type": "integer"
           },
-          "title": "Shape",
+          "title": "Trailing",
           "type": "array"
         }
       },
       "required": [
         "dtype"
       ],
-      "title": "MetaSeriesModel",
+      "title": "SequenceColumnModel",
       "type": "object"
     },
     "TrajectoryBoxModel": {
-      "description": "The cell section: one box, indexed by the ordinals it changed at.\n\nA fixed-cell run holds exactly one update. There is no absence marker\nhere: once a run states a cell every later frame resolves to the most\nrecent one, so a frame that drops its cell mid-run reads back carrying the\nprevious cell.\n\n``cell_defined`` is not periodicity -- ``boundary`` says which axes wrap,\n``cell_defined`` says whether there is a cell at all -- and absence means\n``True``, resolved here for the same reason ``BoxModel`` resolves its own.",
+      "description": "The cell section: one box, indexed by the ordinals it changed at.\n\nA fixed-cell run holds exactly one update. There is no absence marker\nhere: once a run states a cell every later frame resolves to the most\nrecent one, so a frame that drops its cell mid-run reads back carrying the\nprevious cell.\n\n``cell_defined`` is the section's flag; every update's box carries the\nsame value, resolved here so the two cannot disagree.",
       "properties": {
         "cell_defined": {
           "anyOf": [
@@ -265,8 +394,23 @@
     }
   },
   "additionalProperties": true,
-  "description": "An ordered sequence of frames -- the time evolution of the system.\n\nThis is the *logical* content, the thing a reader hands back. The physical\nform is the binding's: one CSR row range per section update, a sparse\nindex of the ordinals a section changed at, and each section written again\nonly when it changed. Two conforming stores of one trajectory are expected\nto differ byte for byte, so none of that appears here.\n\nTwo integers index a trajectory and they are not the same one. A frame's\n**ordinal** is its position in ``frames``; its **step number** is the\nproducer's own iteration counter at ``step[ordinal]``, which may start\nanywhere and may skip values.\n\nSparsity is block-level: a frame may omit a whole block, which is how a\nheterogeneous run is expressed. It may not omit one column of a block it\npresents -- all columns of a block share one row range, so a missing\ncolumn has no representation at all.",
+  "description": "An ordered sequence of frames -- the time evolution of the system.\n\nThis is the *logical* content, the thing a reader hands back. The physical\nform is the binding's: one CSR row range per section update, a sparse\nindex of the ordinals a section changed at, and each section written again\nonly when it changed. Two conforming stores of one trajectory are expected\nto differ byte for byte, so none of that appears here.\n\nTwo integers index a trajectory and they are not the same one. A frame's\n**ordinal** is its position in ``frames``; its **step number** is the\nproducer's own iteration counter at ``step[ordinal]``, which may start\nanywhere and may skip values.\n\n``blocks`` and ``meta`` are the pinned declaration. ``blocks`` may be left\nunstated, in which case it is derived from the frames (first presentation\nwins); stated, every frame is held to it. After validation every frame\ncarries every block's carried-forward state (see :class:`BlockState`) and\nevery declared meta key, which is also what a reader hands back.",
   "properties": {
+    "blocks": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/SequenceBlockModel"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Blocks"
+    },
     "box": {
       "anyOf": [
         {

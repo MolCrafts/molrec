@@ -28,6 +28,9 @@ atoms
  \-- (vx: f64[N])
  \-- (vy: f64[N])
  \-- (vz: f64[N])
+ \-- (fx: f64[N])
+ \-- (fy: f64[N])
+ \-- (fz: f64[N])
  \-- (id: u64[N])
  \-- (atomic_number: u64[N])
  \-- (element: string[N])
@@ -35,6 +38,8 @@ atoms
  \-- (type_id: u64[N])
  \-- (name: string[N])
  \-- (charge: f64[N])
+ \-- (formal_charge: i64[N])
+ \-- (atom_map: u64[N])
  \-- (mass: f64[N])
  \-- (mol_id: u64[N])
  \-- (res_id: u64[N])
@@ -49,6 +54,11 @@ Cartesian coordinates.
 `vx`, `vy`, `vz`
 
 Cartesian velocity components.
+
+`fx`, `fy`, `fz`
+
+Cartesian force components on each particle: the negative gradient of the
+state's potential energy (`pe`), as a producer computed or labelled it.
 
 `id`
 
@@ -82,6 +92,22 @@ Format-specific aliases (LAMMPS `q`, `mol`) exist only at the I/O boundary.
 Readers canonicalize them to `charge` and `mol_id`.
 
 The same `atoms` block may appear under `system` without coordinate columns.
+When it does and `trajectory/atoms` exists too, the two are aligned 1:1 by
+row order — every trajectory update has exactly the `system` row count — and
+an `id` column present on both sides is equal row for row. A ragged
+trajectory block never shares a name with a `system` block
+([Trajectory](trajectory.md#with-and-without-system)).
+
+`formal_charge`
+
+Integer formal charge of each atom in the bonding pattern, in `e`. Distinct
+from `charge`, the (partial) charge an energy model assigns.
+
+`atom_map`
+
+The atom-map number of each atom in a mapped SMILES string
+(`mapped_smiles`), `0` for an unmapped atom. Row `i` of `atoms` is the atom
+mapped `atom_map[i]`.
 
 ## Relations
 
@@ -119,3 +145,40 @@ The naming conventions do not change with the record section. An `atoms`
 block under `trajectory` carries the same columns it carries under `frame`.
 The [box](frame.md#simulation-box) identifiers (`vectors`, `origin`,
 `boundary`, `cell_defined`) are part of the cell, not of these blocks.
+
+## Per-step scalars
+
+Per-step scalars of a trajectory land under `trajectory/meta/<key>`
+([Ragged trajectory](ragged.md#per-step-metadata)). The standard keys are
+all `f64`:
+
+| Key | Meaning |
+|-----|---------|
+| `pe` | potential energy |
+| `ke` | kinetic energy |
+| `etotal` | total energy |
+| `temp` | temperature |
+| `press` | pressure |
+| `volume` | cell volume |
+
+As with columns, the tag carries no unit; producers add other keys freely
+and readers preserve them.
+
+## Composition and identity keys
+
+Keys of a `system` (or `frame`) meta document that say what the particles
+*are*, as opposed to what state they are in. Recommended; a reader
+preserves others.
+
+| Key | Type | Meaning |
+|-----|------|---------|
+| `total_charge` | integer | net charge of the system, in `e` |
+| `spin` | integer | spin multiplicity `2S + 1` |
+| `smiles` | string | SMILES of the system |
+| `mapped_smiles` | string | atom-mapped SMILES; `atoms.atom_map` indexes it |
+| `molecule_id` | string | identity of the molecule, shared by every record of it |
+| `source_record_id` | string | the record's identifier in the upstream source |
+
+`molecule_id` is what keeps two records of one molecule on the same side of
+a train/test split. Two records carry equal `molecule_id` exactly when they
+describe the same molecule.

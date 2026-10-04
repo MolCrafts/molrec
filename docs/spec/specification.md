@@ -5,14 +5,19 @@ of molecular and operational data that independent tools may exchange without
 guessing private layouts. It covers molecular systems, snapshots and
 trajectories, scientific observables, and run logs (status, metrics, method).
 
-MolRec names layout and semantics. Implementations may expose APIs such as
-`open_record`; the contract is the structure in the chapters that follow.
+MolRec names layout and semantics. Implementations expose their own APIs
+(the reference implementation's are `molrs.io.mrec.write_frame`,
+`write_trajectory` and the streaming `TrajectoryWriter`); the contract is
+the structure in the chapters that follow.
 
 The unit of interchange is the *record*. A `frame` section *is* a frame; a
 `trajectory` section *is* an ordered series of frames. Time-dependent data is
 a record section.
 
-The current version is **1**, stored as `meta["molrec_version"]`.
+The contract is under development. `meta["molrec_version"]` is optional:
+writers do not emit it yet, and a reader validates it only when present
+(integer `>= 1`; see [Metadata](overview.md#metadata)). A record is
+identified by its `*.mrec` path suffix and its Zarr root.
 
 ## Storage format
 
@@ -73,8 +78,9 @@ allowing the storage and description of subsystems.
 The record is allowed to possess non-specified groups, arrays, or attributes
 that contain additional information such as application-specific parameters
 or data structures, leaving scope for future extensions. Only the `meta`
-group is mandatory at the root. All other root groups are optional, allowing
-the user to store only relevant data. A record must nevertheless contain at
+group is mandatory at the root, and it may be an empty document. All other
+root groups — `system` and `frame` included — are optional, allowing the
+user to store only relevant data. A record must nevertheless contain at
 least one of `frame`, `system`, `trajectory`, or `status` besides `meta`.
 Inside each group, every group or array is again optional, unless specified
 differently.

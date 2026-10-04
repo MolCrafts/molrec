@@ -1,8 +1,90 @@
 {
   "$defs": {
+    "MetaSeriesModel": {
+      "description": "One per-step meta key, declared once for the whole sequence.\n\n``dtype`` is a tag from the closed per-step set (:data:`META_TAGS`): a\ncolumn dtype for a scalar, ``f64x3`` / ``bool3`` / ... for a fixed-width\nvector, ``json`` for one JSON document per step. The tag is what makes\nthe value exact: two runs both handing back ``1.0`` are not the same run\nif one wrote f32 and the other f64, and nothing in the value says which.\n\n``fill`` is the only thing that lets a frame omit the key. A key declared\nwithout one must be supplied by every frame -- there is **no implicit\nNaN**, so a gap a producer did not declare is refused rather than\ninvented. The fill is materialized into the array at the omitting step\n*and* recorded in the pinned sequence declaration\n(``trajectory`` attribute ``sequence_schema``), so a reader that opens the\ndeclaration can hand it back.",
+      "properties": {
+        "dtype": {
+          "enum": [
+            "f16",
+            "f32",
+            "f64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "bool",
+            "string",
+            "c64",
+            "c128",
+            "f16x3",
+            "f16x6",
+            "f16x9",
+            "f32x3",
+            "f32x6",
+            "f32x9",
+            "f64x3",
+            "f64x6",
+            "f64x9",
+            "i8x3",
+            "i8x6",
+            "i8x9",
+            "i16x3",
+            "i16x6",
+            "i16x9",
+            "i32x3",
+            "i32x6",
+            "i32x9",
+            "i64x3",
+            "i64x6",
+            "i64x9",
+            "u8x3",
+            "u8x6",
+            "u8x9",
+            "u16x3",
+            "u16x6",
+            "u16x9",
+            "u32x3",
+            "u32x6",
+            "u32x9",
+            "u64x3",
+            "u64x6",
+            "u64x9",
+            "c64x3",
+            "c64x6",
+            "c64x9",
+            "c128x3",
+            "c128x6",
+            "c128x9",
+            "bool3",
+            "json"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "fill": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fill"
+        }
+      },
+      "required": [
+        "dtype"
+      ],
+      "title": "MetaSeriesModel",
+      "type": "object"
+    },
     "SequenceBlockModel": {
       "additionalProperties": true,
-      "description": "One block's declaration: its columns, each pinned by dtype and trailing shape.",
+      "description": "One block's declaration: its columns and, when it is a grid, its shape.\n\nA block that declares ``structural_shape`` is a fixed-size object: every\nupdate of it holds exactly ``prod(structural_shape)`` rows, and a writer\nrefuses one that does not.",
       "properties": {
         "columns": {
           "additionalProperties": {
@@ -10,13 +92,28 @@
           },
           "title": "Columns",
           "type": "object"
+        },
+        "structural_shape": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Structural Shape"
         }
       },
       "title": "SequenceBlockModel",
       "type": "object"
     },
     "SequenceColumnModel": {
-      "description": "One column's type in a sequence declaration.\n\nA column is fixed for the run by its ``dtype`` -- the same closed\nvocabulary as :class:`~molrec.core.model.ColumnModel` -- and its\n``trailing`` axes, the per-entity structure after the leading count axis. A\n``Float[count][3]`` column declares ``trailing = [3]``; a scalar column\ndeclares ``trailing = []``.",
+      "description": "One column's type in a sequence declaration.\n\nA column is fixed for the run by its ``dtype`` -- the same closed\nvocabulary as :class:`ColumnModel` -- and its ``trailing`` axes, the\nper-entity structure after the leading count axis. A ``Float[count][3]``\ncolumn declares ``trailing = [3]``; a scalar column declares\n``trailing = []``.",
       "properties": {
         "dtype": {
           "enum": [
@@ -56,7 +153,7 @@
     }
   },
   "additionalProperties": true,
-  "description": "The ``trajectory/`` group attribute ``molrs_sequence_schema``.\n\n``blocks`` mirrors the frame blocks; ``meta`` declares each per-step meta\nkey by its dtype tag (the ``molrs_meta_dtype`` an array carries), drawn from\nthe same closed dtype vocabulary as everywhere else.\n\nThe attribute carries no version of its own. Like the rest of the record it\nis versioned by the sole ``meta[\"molrec_version\"]`` -- MolRec has no\nparallel version key, so a change to how the sequence declares itself is a\nbump of that one integer. The literal key ``molrs_sequence_schema`` is the\nreference writer's and is not renamed here. This schema describes the\nsequence declaration only. Record identity lives in\n:class:`~molrec.core.model.MetaModel` (``molrec_version``), not in this\nattribute.",
+  "description": "The ``trajectory/`` group attribute ``sequence_schema``.\n\nThe set of blocks, columns, dtypes, trailing shapes and per-step meta keys\na trajectory may carry, declared when it is created and fixed for its\nlifetime. ``blocks`` mirrors the frame blocks; ``meta`` declares each\nper-step key as ``{dtype, fill?}`` -- the tag the array's ``meta_dtype``\nattribute repeats, and the fill an omitting frame is completed with.\n\nThe attribute carries no version of its own; the record's optional\n``meta[\"molrec_version\"]`` covers it.",
   "properties": {
     "blocks": {
       "additionalProperties": {
@@ -67,24 +164,7 @@
     },
     "meta": {
       "additionalProperties": {
-        "enum": [
-          "f16",
-          "f32",
-          "f64",
-          "i8",
-          "i16",
-          "i32",
-          "i64",
-          "u8",
-          "u16",
-          "u32",
-          "u64",
-          "bool",
-          "string",
-          "c64",
-          "c128"
-        ],
-        "type": "string"
+        "$ref": "#/$defs/MetaSeriesModel"
       },
       "title": "Meta",
       "type": "object"

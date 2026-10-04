@@ -1,7 +1,7 @@
 {
   "$defs": {
     "BoxModel": {
-      "description": "The triclinic cell. Columns of ``vectors`` are the lattice vectors.\n\nA box belongs to a frame, so fixed-cell and variable-cell runs are both\nnatural -- each frame in a trajectory carries its own.",
+      "description": "The triclinic cell. Columns of ``vectors`` are the lattice vectors.\n\nA box belongs to a frame, so fixed-cell and variable-cell runs are both\nnatural -- each frame in a trajectory carries its own.\n\n``cell_defined`` is not periodicity -- ``boundary`` says which axes wrap,\n``cell_defined`` says whether there is a cell at all. Absent means\n``True``; a writer records it only to say ``False``.",
       "properties": {
         "boundary": {
           "anyOf": [
@@ -9,6 +9,8 @@
               "items": {
                 "type": "boolean"
               },
+              "maxItems": 3,
+              "minItems": 3,
               "type": "array"
             },
             {
@@ -18,10 +20,26 @@
           "default": null,
           "title": "Boundary"
         },
+        "cell_defined": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cell Defined"
+        },
         "origin": {
           "anyOf": [
             {
-              "items": {},
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
               "type": "array"
             },
             {
@@ -32,7 +50,16 @@
           "title": "Origin"
         },
         "vectors": {
-          "items": {},
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "maxItems": 3,
+          "minItems": 3,
           "title": "Vectors",
           "type": "array"
         }
@@ -63,7 +90,7 @@
       "type": "object"
     }
   },
-  "description": "The cell section: one box, indexed by the ordinals it changed at.\n\nA fixed-cell run holds exactly one update. There is no absence marker\nhere: once a run states a cell every later frame resolves to the most\nrecent one, so a frame that drops its cell mid-run reads back carrying the\nprevious cell.\n\n``cell_defined`` is not periodicity -- ``boundary`` says which axes wrap,\n``cell_defined`` says whether there is a cell at all -- and absence means\n``True``, resolved here for the same reason ``BoxModel`` resolves its own.",
+  "description": "The cell section: one box, indexed by the ordinals it changed at.\n\nA fixed-cell run holds exactly one update. There is no absence marker\nhere: once a run states a cell every later frame resolves to the most\nrecent one, so a frame that drops its cell mid-run reads back carrying the\nprevious cell.\n\n``cell_defined`` is the section's flag; every update's box carries the\nsame value, resolved here so the two cannot disagree.",
   "properties": {
     "cell_defined": {
       "anyOf": [

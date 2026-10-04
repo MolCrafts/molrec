@@ -35,8 +35,10 @@ the top of that directory.
   `nstep` stays off that axis. The reference writer freezes chunk and shard
   extents at trajectory creation — see [Chunking](chunking.md).
 - **One codec pipeline.** A single `codecs` list (endian, transpose, gzip,
-  sharding, …). The reference binding uses lossless `gzip` on inner chunks,
-  which every reader of these stores — wasm32 included — can decode.
+  sharding, …). The contract names a small must-decode set — `bytes`,
+  `gzip`, `crc32c`, `vlen-utf8`, `sharding_indexed`, `transpose` — that
+  every reader of these stores, wasm32 included, decodes; `zstd` should be
+  decodable. Nothing lossy. See [Chunking](chunking.md#normative).
 - **Rust and wasm.** molrs is a Rust implementation. zarrs, zarr-python, and
   JavaScript/wasm readers exist for V3. New codecs extend the pipeline
   in-place.
@@ -44,8 +46,9 @@ the top of that directory.
 ## Path brand
 
 The scientific path brand is `*.mrec/` (packed: `*.mrec.zip`). Discovery of
-a record is that suffix plus `meta["molrec_version"]`. The path *is* the
-brand.
+a record is that suffix plus a Zarr root at the top of the directory. The
+path *is* the brand; `meta["molrec_version"]` is optional and, when present,
+only validated.
 
 Host metrics use the filename-gated `*.mlp.*` surface (live WAL
 `*.mlp.jsonl`). They are a separate concern from the record.

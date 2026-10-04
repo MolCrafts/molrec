@@ -6,8 +6,8 @@ from abc import abstractmethod
 from typing import Any, ClassVar
 
 from molrec.adapter import Adapter
-from molrec.core.model import FrameModel, RecordModel, TrajectoryModel
-from molrec.core.store import FrameStore, RecordStore, TrajectoryStore
+from molrec.core.model import CollectionModel, FrameModel, RecordModel, TrajectoryModel
+from molrec.core.store import CollectionStore, FrameStore, RecordStore, TrajectoryStore
 
 
 class FrameAdapter(Adapter):
@@ -61,3 +61,15 @@ class RecordAdapter(Adapter):
 
     @abstractmethod
     def read(self, store: RecordStore) -> Any: ...
+
+
+class CollectionAdapter(Adapter):
+    """Same contract for many records under one declaration."""
+
+    module: ClassVar[str] = "collection"
+
+    @abstractmethod
+    def write(self, model: CollectionModel, store: CollectionStore) -> None: ...
+
+    @abstractmethod
+    def read(self, store: CollectionStore) -> Any: ...

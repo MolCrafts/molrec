@@ -153,15 +153,10 @@ def test_both_directions_run_for_every_positive_case():
 # ---------------------------------------------------------------------------
 # ac-029 -- the (suite x implementation) matrix, actually collected.
 #
-# Two holes closed here. `tests/molrs_adapter.py` was imported by no collected
-# test, so molrs was never judged by the suite that exists to judge it; and
-# there was no trajectory suite at all, so the section `docs/spec/trajectory.md`
-# specifies was pinned by nothing.
-#
-# The imports that can fail -- `molrs` and the trajectory symbols -- are made
-# inside test bodies deliberately. At module level either one turns this file
-# into a collection error, which would hide the tests above instead of failing
-# the tests below.
+# The codec-only rows import nothing optional. The molrs rows reach the
+# reference implementation through the ``molrs_implementation`` fixture in
+# ``conftest.py`` (``pytest.importorskip``): absent molrs skips *only* them,
+# and a stale molrs build fails them -- it never hides the codec-only rows.
 # ---------------------------------------------------------------------------
 
 #: The registry key the trajectory suite claims. `docs/spec/trajectory.md`
@@ -176,11 +171,10 @@ class _CodecAdapter(molrec.Adapter):
 
     The codec is fetched from the registry by ``(module, backend)`` rather
     than imported by class name, so one adapter serves core, record and
-    trajectory -- and no test here pins a binding class name that the
-    trajectory binding has not been given yet.
+    trajectory.
     """
 
-    backends: ClassVar[tuple[str, ...]] = ("zarr",)
+    backends: ClassVar[tuple[str, ...]] = ("zarr", "lmdb")
 
     def _codec(self, store: molrec.Store) -> molrec.Codec:
         return REGISTRY.bindings_for(self.module)[store.backend]().codec()
@@ -192,14 +186,7 @@ class _CodecAdapter(molrec.Adapter):
         return self._codec(store).read(store)
 
 
-def _implementation(name: str, module: str) -> molrec.Implementation:
-    if name == "molrs":
-        # pytest puts `tests/` on sys.path, so the sibling adapter module is
-        # importable by name. This import is the whole point of ac-029.
-        import molrs_adapter
-
-        return molrs_adapter.Molrs()
-
+def _codec_implementation(module: str) -> molrec.Implementation:
     bound = type(f"{module}CodecAdapter", (_CodecAdapter,), {"module": module})()
     return type(
         "MolrecCodec",
@@ -208,30 +195,34 @@ def _implementation(name: str, module: str) -> molrec.Implementation:
     )()
 
 
-#: ("core", "molrs") is deliberately absent: molrs ships no door for a bare
-#: frame at a store root, and `tests/molrs_adapter.py` says so in as many
-#: words. The frame cases reach molrs inside records instead.
-MATRIX = [
-    ("core", "molrec-codec"),
-    ("record", "molrec-codec"),
-    (TRAJECTORY_MODULE, "molrec-codec"),
-    ("record", "molrs"),
-    (TRAJECTORY_MODULE, "molrs"),
-]
-
-
-@pytest.mark.parametrize(("module", "implementation"), MATRIX, ids=lambda value: value)
-def test_the_suite_runs_clean(module: str, implementation: str) -> None:
-    """One (suite x implementation) pair, run end to end with zero violations."""
-    report = molrec.ConformanceSuite(
-        _implementation(implementation, module), modules=[module]
-    ).run()
-
+def _assert_clean(report: molrec.Report, module: str, implementation: str) -> None:
     assert report.results, f"module {module!r} registered no suite -- nothing ran"
     assert [r.status for r in report.results] != ["skip"], (
         f"{implementation} declares no adapter for module {module!r}"
     )
     assert report.ok, report.table()
+
+
+CODEC_MATRIX = ["core", "record", TRAJECTORY_MODULE, "collection"]
+
+#: ``core`` is deliberately absent: molrs ships no door for a bare frame at a
+#: store root, and `tests/molrs_adapter.py` says so in as many words. The
+#: frame cases reach molrs inside records instead.
+MOLRS_MATRIX = ["record", TRAJECTORY_MODULE]
+
+
+@pytest.mark.parametrize("module", CODEC_MATRIX)
+def test_the_suite_runs_clean(module: str) -> None:
+    """One (suite x molrec-codec) pair, run end to end with zero violations."""
+    report = molrec.ConformanceSuite(_codec_implementation(module), modules=[module]).run()
+    _assert_clean(report, module, "molrec-codec")
+
+
+@pytest.mark.parametrize("module", MOLRS_MATRIX)
+def test_molrs_runs_clean(module: str, molrs_implementation: molrec.Implementation) -> None:
+    """One (suite x molrs) pair, run end to end with zero violations."""
+    report = molrec.ConformanceSuite(molrs_implementation, modules=[module]).run()
+    _assert_clean(report, module, "molrs")
 
 
 def test_the_trajectory_suite_judges_the_trajectory_model() -> None:
@@ -246,20 +237,41 @@ def test_the_trajectory_suite_judges_the_trajectory_model() -> None:
     assert list(TrajectorySuite().cases()), "a suite with no cases judges nothing"
 
 
-def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path) -> None:
+def test_every_ragged_must_has_a_negative_case() -> None:
+    """The MUSTs of ``docs/spec/ragged.md``, each pinned by a refusal case."""
+    from molrec.core.suite import TrajectorySuite
+
+    negatives = {case.id: case for case in TrajectorySuite().cases() if case.expect_violation}
+    on_write = {name for name, case in negatives.items() if case.rejects_on == "write"}
+    assert {
+        "reject-reserved-block-name",
+        "reject-reserved-column-name",
+        "reject-undeclared-block",
+        "reject-undeclared-column",
+        "reject-undeclared-meta-key",
+        "reject-omitted-meta-without-fill",
+        "reject-duplicate-step",
+        "reject-decreasing-step",
+        "reject-time-gained-midway",
+        "reject-time-dropped-midway",
+        "reject-structural-shape-row-count",
+    } <= on_write
+    assert negatives["reject-non-monotonic-offset"].rejects_on == "read"
+    assert negatives["reject-non-monotonic-offset"].tamper is not None
+
+
+def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path, molrs) -> None:
     """ac-030 (a), the molrs half -- the two implementations must agree.
 
     The store is built by hand because no model can produce it: ``BoxModel``
-    materializes ``boundary`` on validation, so the suite structurally cannot
-    lay down a box group without the attribute. A foreign writer can, and the
-    two implementations used to read it as two different physical systems --
-    periodic here, vacuum in Rust.
+    materializes ``boundary`` on validation, and the codec then omits the
+    array only at its default. A foreign writer can lay down a box group with
+    no ``boundary`` at all, and the two implementations used to read it as
+    two different physical systems -- periodic here, vacuum in Rust.
 
     The molrec-codec half of this claim is
     ``tests/test_core/test_bindings/test_zarr.py``.
     """
-    import molrs
-
     path = tmp_path / "absent-boundary.mrec"
     root = zarr.open_group(store=path, mode="w")
     root.create_group("meta").attrs.update({"molrec_version": 1})
@@ -272,7 +284,7 @@ def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path) -> None:
     box = frame.create_group("box")
     box.create_array("vectors", shape=(3, 3), dtype="float64")[...] = np.eye(3)
     box.create_array("origin", shape=(3,), dtype="float64")[...] = np.zeros(3)
-    assert "boundary" not in box.attrs, "the store under test must not carry the attribute"
+    assert "boundary" not in box, "the store under test must not carry the array"
 
     frame = molrs.io.mrec.read_frame(str(path))
     assert [bool(flag) for flag in np.asarray(frame.box.pbc)] == [True, True, True]
