@@ -14,7 +14,7 @@ import numpy as np
 from pydantic import BaseModel
 
 from molrec.case import Case
-from molrec.compare import diff
+from molrec.compare import diff, lookup
 from molrec.core.model import (
     NUMPY_DTYPE,
     BlockModel,
@@ -280,6 +280,22 @@ def _break_offset(store: Any) -> None:
     offset[...] = values
 
 
+def _undeclared_as_returned(expected: TrajectoryModel, actual: Any) -> TrajectoryModel:
+    """``expected`` without the parts of the declaration ``actual`` does not surface."""
+    update: dict[str, Any] = {}
+    if lookup(actual, "blocks") is None:
+        update["blocks"] = None
+    returned_meta = lookup(actual, "meta")
+    declared = {}
+    for key, series in expected.meta.items():
+        returned = lookup(returned_meta, key)
+        surfaced = returned is None or lookup(returned, "fill") is not None
+        declared[key] = series if surfaced else series.model_copy(update={"fill": None})
+    if declared != expected.meta:
+        update["meta"] = declared
+    return expected.model_copy(update=update) if update else expected
+
+
 @REGISTRY.suite
 class TrajectorySuite(Suite):
     """What a sequence of frames is pinned down by.
@@ -302,22 +318,17 @@ class TrajectorySuite(Suite):
     model_type: ClassVar[type[TrajectoryModel]] = TrajectoryModel
 
     def compare(self, expected: BaseModel, actual: Any) -> tuple[Violation, ...]:
-        """Everything is compared exactly; a declared fill is compared when returned.
+        """Everything is compared exactly; the declaration is compared when returned.
 
-        The fill is recorded in the pinned ``sequence_schema`` attribute, so a
-        reader *can* hand it back and the reference codec does. An
-        implementation whose reading door surfaces the values but not the
-        declaration is not failed for that -- the values it produced at the
-        omitting steps are compared like any other.
+        The declaration -- each meta key's fill, and the ``blocks`` it pins --
+        is recorded in the ``sequence_schema`` attribute, so a reader *can*
+        hand it back and the reference codec does. An implementation whose
+        reading door surfaces the frames but not the declaration is not
+        failed for that: the frames themselves -- every carried-forward block
+        and every filled value -- are compared like anything else.
         """
-        if isinstance(expected, TrajectoryModel) and isinstance(actual, TrajectoryModel):
-            declared = {}
-            for key, series in expected.meta.items():
-                returned = actual.meta.get(key)
-                surfaced = returned is None or returned.fill is not None
-                declared[key] = series if surfaced else series.model_copy(update={"fill": None})
-            if declared != expected.meta:
-                expected = expected.model_copy(update={"meta": declared})
+        if isinstance(expected, TrajectoryModel):
+            expected = _undeclared_as_returned(expected, actual)
         return diff(expected, actual)
 
     def cases(self) -> Iterable[Case]:

@@ -180,17 +180,25 @@ class Suite(ABC):
         except Exception as exc:
             return self._raised(case, adapter, binding, "read", exc)
 
+        # What the reader returned is compared *as returned*. Validating it
+        # into the model first would let the model's own normalizers -- the
+        # box defaults, carried-forward blocks, declared fills, the section's
+        # cell_defined -- supply on the reader's behalf exactly the values a
+        # broken reader drops.
+        verdict = self._verdict(case, binding, "read", returned)
+        if verdict.status != "pass":
+            return verdict
+
         # The adapter may return any duck -- a dict, a dataclass, its own
         # native object. Failing to be shaped like the model is itself a
         # conformance failure, not a harness error.
         try:
-            recovered = self.model_type.model_validate(returned, from_attributes=True)
+            self.model_type.model_validate(returned, from_attributes=True)
         except ValidationError as exc:
             return self._fail(
                 case, binding, "read", Violation(kind="model_mismatch", detail=str(exc))
             )
-
-        return self._verdict(case, binding, "read", recovered)
+        return verdict
 
     def _rejects(
         self, case: Case, adapter: Adapter, binding: Binding, codec: Codec, workdir: Path

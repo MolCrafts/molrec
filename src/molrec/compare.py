@@ -38,6 +38,16 @@ def diff(expected: Any, actual: Any, path: str = "") -> tuple[Violation, ...]:
     return _diff_scalar(expected, actual, path)
 
 
+def lookup(value: Any, name: str, default: Any = None) -> Any:
+    """``value.name`` or ``value[name]`` -- however the duck spells it -- else ``default``."""
+    try:
+        return getattr(value, name)
+    except AttributeError:
+        if isinstance(value, Mapping):
+            return value.get(name, default)
+        return default
+
+
 def _at(path: str, key: Any) -> str:
     return f"{path}/{key}" if path else f"/{key}"
 
@@ -51,6 +61,11 @@ def _diff_model(expected: BaseModel, actual: Any, path: str) -> tuple[Violation,
         except AttributeError:
             if isinstance(actual, Mapping) and name in actual:
                 got = actual[name]
+            elif want is None:
+                # Absent is how a duck says "none here" -- a record without a
+                # status section, a series without a fill. Only a field the
+                # model actually holds has to be handed back.
+                continue
             else:
                 found.append(Violation(kind="missing_field", path=_at(path, name), detail="absent"))
                 continue

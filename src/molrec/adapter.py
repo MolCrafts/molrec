@@ -8,8 +8,12 @@ Two methods per module, and both directions are exercised:
   codec; hand back something shaped like the model.
 
 ``read`` may return anything duck-compatible: a dict, a dataclass, your own
-native object. The suite validates it with ``from_attributes=True``. What it
-must *not* do is assert -- every assertion belongs to the suite.
+native object. It is compared *as returned*, before any model validation
+could fill a default, carry a block forward or resolve a fill on its behalf:
+a reader hands back every value the model holds (a field the model holds as
+``None`` may be left out). Only then is it validated with
+``from_attributes=True``. What it must *not* do is assert -- every assertion
+belongs to the suite.
 
 A negative case is passed only by a *refusal*: a :class:`~molrec.Refusal`, or
 an exception of a type the adapter declares in ``refusal_types``. Any other
