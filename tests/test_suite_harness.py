@@ -192,7 +192,12 @@ class DropsBoxDefaults(CodecAdapter):
 def test_a_reader_that_leaves_the_box_defaults_to_the_model_fails() -> None:
     report = _run("core", DropsBoxDefaults)
 
-    assert _failed(report, "read") == {"block-named-meta", "triclinic-box"}, report.table()
+    assert _failed(report, "read") == {
+        "block-named-meta",
+        "triclinic-box",
+        "undefined-cell",
+        "undefined-cell-ignores-vectors",
+    }, report.table()
 
 
 class ReturnsAnEmptyFrame(CodecAdapter):

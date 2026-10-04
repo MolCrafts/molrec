@@ -20,6 +20,7 @@ from molrec.core.model import (
     BlockModel,
     BoxModel,
     BoxUpdateModel,
+    CellModel,
     ColumnModel,
     FrameModel,
     MetaModel,
@@ -43,6 +44,7 @@ PUBLISHED: dict[str, tuple[type[BaseModel], ...]] = {
     "core": (
         ColumnModel,
         BlockModel,
+        CellModel,
         BoxModel,
         FrameModel,
         MetaSeriesModel,

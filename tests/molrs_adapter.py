@@ -51,12 +51,12 @@ def _dtype_of(native: molrs.Block, column: str) -> str:
     return _MOLRS_DTYPE.get(dtype, dtype)
 
 
-def _to_box(box: molrec.BoxModel) -> molrs.Box:
+def _to_box(box: molrec.CellModel, cell_defined: bool) -> molrs.Box:
     return molrs.Box(
         box.vectors,
         box.origin,
         None if box.boundary is None else np.array(box.boundary),
-        cell_defined=bool(box.cell_defined),
+        cell_defined=cell_defined,
     )
 
 
@@ -89,7 +89,7 @@ def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -
             native.set_shape(list(block.structural_shape))
         frame[name] = native
     if model.box is not None:
-        frame.box = _to_box(model.box)
+        frame.box = _to_box(model.box, bool(model.box.cell_defined))
     tags = tags or {}
     for key, value in model.meta.items():
         frame.meta[key] = molrs.MetaValue(tags[key], value) if key in tags else value
@@ -275,11 +275,12 @@ def _resolved_cells(model: molrec.TrajectoryModel) -> list[molrs.Box | None]:
     either -- and it is pure bookkeeping: no geometry is recomputed.
     """
     updates = {} if model.box is None else {u.step_index: u.box for u in model.box.updates}
+    defined = model.box is None or bool(model.box.cell_defined)
     cells: list[molrs.Box | None] = []
     current: molrs.Box | None = None
     for ordinal in range(len(model.frames)):
         if ordinal in updates:
-            current = _to_box(updates[ordinal])
+            current = _to_box(updates[ordinal], defined)
         cells.append(current)
     return cells
 
@@ -306,8 +307,6 @@ def _cell_section(frames: list[molrs.Frame]) -> dict[str, Any] | None:
         }
         if previous is not None and _same_cell(previous, current):
             continue
-        # Every update carries the section's flag, as the resolved model does.
-        current["cell_defined"] = bool(frame.box.cell_defined)
         updates.append({"step_index": ordinal, "box": current})
         previous = current
     if not updates:

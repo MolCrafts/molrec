@@ -163,8 +163,11 @@ removes the `vectors` / `origin` / `boundary` attributes. A reader that finds
 no `box/vectors` array reads the attributes: one update at ordinal `0`.
 
 The group **MAY** carry the boolean attribute `cell_defined`. Absent means
-`true`. A writer emits it only to record `false` (see
-[Simulation box](frame.md#simulation-box)).
+`true`. A writer emits it only to record `false`. It is the section's one
+flag, covering every update — an update carries no flag of its own, so the
+two cannot disagree — and an undefined cell's updates follow the
+[undefined-cell rules](frame.md#simulation-box): identity `vectors` (ignored
+by a reader), all-`false` `boundary`.
 
 The cell carries forward like a block: once a run writes a cell, every later
 frame resolves to the most recent update. A frame that drops its cell

@@ -1,5 +1,5 @@
 {
-  "description": "A frame's cell: its geometry plus whether there is a cell at all.\n\n``cell_defined`` is not periodicity -- ``boundary`` says which axes wrap,\n``cell_defined`` says whether there is a cell at all. Absent means\n``True``; a writer records it only to say ``False``. An undefined cell's\n``vectors`` mean nothing: a writer writes the identity and a reader\nignores what it finds (:func:`resolve_cell`).",
+  "description": "The geometry of a triclinic cell. Columns of ``vectors`` are the lattice\nvectors.\n\nWhat a cell's absent parts mean depends on whether there is a cell at\nall, which the owner says -- a frame's :class:`BoxModel`, or a\ntrajectory's :class:`TrajectoryBoxModel` for every update at once -- so\nthe owner resolves them (:func:`resolve_cell`). On its own a cell only\nholds its parts to their shapes and to ``f64``.",
   "properties": {
     "boundary": {
       "anyOf": [
@@ -17,18 +17,6 @@
       ],
       "default": null,
       "title": "Boundary"
-    },
-    "cell_defined": {
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Cell Defined"
     },
     "origin": {
       "anyOf": [
@@ -65,6 +53,6 @@
   "required": [
     "vectors"
   ],
-  "title": "BoxModel",
+  "title": "CellModel",
   "type": "object"
 }

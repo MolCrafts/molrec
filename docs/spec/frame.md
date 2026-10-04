@@ -118,10 +118,10 @@ absent (an open, non-periodic system).
 
 ```text
 box
+ +-- (cell_defined: bool[])
  \-- vectors: f64[3][3]
  \-- (origin: f64[3])
  \-- (boundary: bool[3])
- +-- (cell_defined: bool[])
 ```
 
 `vectors`
@@ -144,6 +144,25 @@ attribute. Absent means `[true, true, true]` — periodic on every axis.
 An optional boolean **attribute** of the `box` group. `boundary` says which
 axes wrap; `cell_defined` says whether there is a cell at all. Absent means
 `true`. A writer emits it only when it is `false`.
+
+**An undefined cell.** A box with `cell_defined: false` records that the
+system has an origin but no cell — a molecule in vacuum that still carries a
+reference point. Its parts follow from that:
+
+- `vectors` mean nothing. A writer **MUST** write the identity matrix; a
+  reader **MUST** ignore whatever `vectors` it finds (zeros included — it
+  never inverts them) and hands back the identity.
+- `origin` keeps its ordinary meaning and default.
+- It is periodic on **no** axis. A writer **MUST** write `boundary` as the
+  all-`false` array — explicitly, because the omitted default is
+  all-periodic — and a reader treats an undefined cell as non-periodic: an
+  omitted `boundary` on an undefined cell reads as all-`false`, and a
+  `boundary` with a `true` flag on one is malformed and **SHOULD** be
+  refused.
+
+On a trajectory, `cell_defined` is the `box/` section's one attribute and
+covers every update; an update carries no flag of its own
+([Ragged trajectory](ragged.md#the-cell)).
 
 The cell applies to the whole frame. For a trajectory, each frame carries
 its own box, so fixed-cell and variable-cell runs are both natural.

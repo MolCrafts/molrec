@@ -22,6 +22,7 @@ from molrec.core.model import (
     BlockModel,
     BoxModel,
     BoxUpdateModel,
+    CellModel,
     CollectionMetaModel,
     CollectionModel,
     ColumnModel,
@@ -364,6 +365,32 @@ class FrameSuite(Suite):
             ),
         )
 
+        undefined = FrameModel(
+            blocks={"atoms": BlockModel(count=1, columns={"x": _column("f64", [0.5])})},
+            box=BoxModel(
+                vectors=np.zeros((3, 3)),
+                origin=np.array([1.0, 2.0, 3.0]),
+                boundary=(False, False, False),
+                cell_defined=False,
+            ),
+        )
+        yield Case(
+            id="undefined-cell",
+            exercises="an undefined cell keeps its origin, is periodic on no axis, and carries "
+            "the identity as its vectors",
+            model=undefined,
+        )
+
+        yield Case(
+            id="undefined-cell-ignores-vectors",
+            exercises="a reader ignores an undefined cell's vectors: zeros there open, and read "
+            "back as the identity",
+            model=undefined,
+            directions=("read",),
+            backends=("zarr",),
+            tamper=_replace_array(f"{prefix}box/vectors", np.zeros((3, 3))),
+        )
+
         yield Case(
             id="unknown-names-preserved",
             exercises="a reader must preserve blocks and columns it does not recognize",
@@ -565,7 +592,7 @@ class TrajectorySuite(Suite):
                     updates=[
                         BoxUpdateModel(
                             step_index=0,
-                            box=BoxModel(
+                            box=CellModel(
                                 vectors=np.diag([10.0, 10.0, 12.0]),
                                 boundary=(True, True, False),
                             ),
@@ -573,6 +600,43 @@ class TrajectorySuite(Suite):
                     ]
                 ),
             ),
+        )
+
+        undefined = TrajectoryModel(
+            frames=[FrameModel(blocks={"atoms": _atoms(shift)}) for shift in (0.0, 0.1, 0.2)],
+            step=[0, 1, 2],
+            box=TrajectoryBoxModel(
+                cell_defined=False,
+                updates=[
+                    BoxUpdateModel(
+                        step_index=0,
+                        box=CellModel(vectors=np.zeros((3, 3)), boundary=(False, False, False)),
+                    ),
+                    BoxUpdateModel(
+                        step_index=2,
+                        box=CellModel(
+                            vectors=np.zeros((3, 3)),
+                            origin=np.array([1.0, 0.0, 0.0]),
+                            boundary=(False, False, False),
+                        ),
+                    ),
+                ],
+            ),
+        )
+        yield Case(
+            id="undefined-cell",
+            exercises="the section's one cell_defined covers every update; an undefined cell "
+            "carries the identity and is periodic on no axis",
+            model=undefined,
+        )
+
+        yield Case(
+            id="undefined-cell-ignores-vectors",
+            exercises="a reader ignores an undefined cell's vectors on the trajectory path too",
+            model=undefined,
+            directions=("read",),
+            backends=("zarr",),
+            tamper=_replace_array("trajectory/box/vectors", np.zeros((2, 3, 3))),
         )
 
         yield Case(

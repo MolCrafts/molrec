@@ -38,6 +38,7 @@ from molrec.core.model import (
     BlockModel,
     BoxModel,
     BoxUpdateModel,
+    CellModel,
     CollectionMetaModel,
     CollectionModel,
     ColumnModel,
@@ -383,7 +384,12 @@ class LmdbCollectionCodec(Codec):
     def _updates(trajectory: TrajectoryModel, schema: SequenceSchemaModel) -> list[bytes]:
         """One value per frame: the blocks that changed there, plus step, meta, box."""
         cells = {
-            update.step_index: update.box
+            update.step_index: BoxModel(
+                vectors=update.box.vectors,
+                origin=update.box.origin,
+                boundary=update.box.boundary,
+                cell_defined=trajectory.box.cell_defined,
+            )
             for update in (trajectory.box.updates if trajectory.box else [])
         }
         values: list[bytes] = []
@@ -456,7 +462,7 @@ class LmdbCollectionCodec(Codec):
             system = FrameModel(blocks=decoded.blocks, meta=decoded.meta, box=decoded.box)
         trajectory = None
         if count:
-            frames, steps, times, cells = [], [], [], []
+            frames, steps, times, cells, ordinals = [], [], [], [], []
             for j in range(count):
                 raw = txn.get(key(FRAME_PREFIX, first + j))
                 if raw is None:
@@ -477,16 +483,15 @@ class LmdbCollectionCodec(Codec):
                 steps.append(int(decoded.step))
                 times.append(decoded.time)
                 if decoded.box is not None:
-                    cells.append(BoxUpdateModel(step_index=j, box=decoded.box))
+                    cells.append(decoded.box)
+                    ordinals.append(j)
             trajectory = TrajectoryModel(
                 frames=frames,
                 step=steps,
                 time=None if all(t is None for t in times) else times,
                 blocks=schema.blocks,
                 meta=schema.meta,
-                box=TrajectoryBoxModel(updates=cells, cell_defined=cells[0].box.cell_defined)
-                if cells
-                else None,
+                box=_cell_section(r, ordinals, cells),
             )
         raw = txn.get(key(RECORD_META_PREFIX, r))
         meta = MetaModel.model_validate(json.loads(bytes(raw)) if raw is not None else {})
@@ -502,6 +507,25 @@ def _check_layout_version(version: Any, path: Path) -> None:
             f"{path}: layout_version {version!r} is not one this reader supports "
             f"(1..={LAYOUT_VERSION})"
         )
+
+
+def _cell_section(r: int, ordinals: list[int], cells: list[BoxModel]) -> TrajectoryBoxModel | None:
+    """A record's cell updates as one section: one ``cell_defined`` for all."""
+    if not cells:
+        return None
+    defined = {cell.cell_defined for cell in cells}
+    if len(defined) != 1:
+        raise ValueError(f"record {r}: cell updates disagree on cell_defined")
+    return TrajectoryBoxModel(
+        updates=[
+            BoxUpdateModel(
+                step_index=j,
+                box=CellModel(vectors=cell.vectors, origin=cell.origin, boundary=cell.boundary),
+            )
+            for j, cell in zip(ordinals, cells, strict=True)
+        ],
+        cell_defined=defined.pop(),
+    )
 
 
 class LmdbTrajectoryCodec(Codec):

@@ -349,3 +349,36 @@ class TestCanonicalDtypes:
                 step=[0],
                 meta={"pe": MetaSeriesModel(dtype="i64")},
             )
+
+
+class TestUndefinedCell:
+    def test_an_undefined_cell_carries_the_identity(self) -> None:
+        from molrec.core.model import BoxModel
+
+        box = BoxModel(vectors=np.zeros((3, 3)), cell_defined=False)
+        assert np.array_equal(box.vectors, np.eye(3))
+        assert box.boundary == (False, False, False)
+
+    def test_an_undefined_cell_is_periodic_on_no_axis(self) -> None:
+        from molrec.core.model import BoxModel
+
+        with pytest.raises(ValidationError, match="periodic on no axis"):
+            BoxModel(vectors=np.eye(3), boundary=(True, False, False), cell_defined=False)
+
+    def test_a_cell_is_f64(self) -> None:
+        from molrec.core.model import BoxModel
+
+        with pytest.raises(ValidationError, match="f64"):
+            BoxModel(vectors=np.eye(3, dtype="float32"))
+        assert BoxModel(vectors=np.eye(3, dtype="int64")).vectors.dtype == np.float64
+
+    def test_an_update_has_no_flag_of_its_own(self) -> None:
+        from molrec.core.model import BoxUpdateModel, CellModel, TrajectoryBoxModel
+
+        assert "cell_defined" not in BoxUpdateModel.model_fields["box"].annotation.model_fields
+        section = TrajectoryBoxModel(
+            cell_defined=False,
+            updates=[BoxUpdateModel(step_index=0, box=CellModel(vectors=np.zeros((3, 3))))],
+        )
+        assert np.array_equal(section.updates[0].box.vectors, np.eye(3))
+        assert section.updates[0].box.boundary == (False, False, False)

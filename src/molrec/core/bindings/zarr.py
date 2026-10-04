@@ -62,6 +62,7 @@ from molrec.core.model import (
     BlockModel,
     BoxModel,
     BoxUpdateModel,
+    CellModel,
     ColumnModel,
     DType,
     FrameModel,
@@ -302,13 +303,22 @@ class ZarrFrameCodec(Codec):
     def _read_box(self, group: zarr.Group) -> BoxModel:
         origin = group["origin"][...] if "origin" in group else None
         boundary = group["boundary"][...] if "boundary" in group else None
-        defined = group.attrs.get(CELL_DEFINED_ATTR)
+        defined = _cell_defined(group)
         return BoxModel(
-            vectors=group["vectors"][...],
+            # An undefined cell's vectors mean nothing and are not read.
+            vectors=group["vectors"][...] if defined else np.eye(3),
             origin=origin,
             boundary=tuple(bool(flag) for flag in boundary) if boundary is not None else None,
-            cell_defined=None if defined is None else bool(defined),
+            cell_defined=defined,
         )
+
+
+def _cell_defined(group: zarr.Group) -> bool:
+    """The ``box`` group's ``cell_defined`` attribute: absent is a defined cell."""
+    defined = group.attrs.get(CELL_DEFINED_ATTR, True)
+    if not isinstance(defined, bool):
+        raise ValueError(f"{group.name}: cell_defined is a boolean, found {defined!r}")
+    return defined
 
 
 def _read_masks(block: zarr.Group, rows: int | None) -> dict[str, np.ndarray]:
@@ -786,7 +796,7 @@ class ZarrTrajectoryCodec(Codec):
             group.attrs[CELL_DEFINED_ATTR] = False
 
     def _read_box(self, group: zarr.Group, nstep: int) -> TrajectoryBoxModel | None:
-        defined = group.attrs.get(CELL_DEFINED_ATTR)
+        defined = _cell_defined(group)
         if "vectors" not in group:
             # A fixed cell from ordinal 0 lives in the group attributes: no
             # arrays at all until it changes.
@@ -801,14 +811,14 @@ class ZarrTrajectoryCodec(Codec):
                 updates=[
                     BoxUpdateModel(
                         step_index=0,
-                        box=BoxModel(
-                            vectors=np.asarray(vectors, dtype="float64"),
+                        box=CellModel(
+                            vectors=np.asarray(vectors, dtype="float64") if defined else np.eye(3),
                             origin=None if origin is None else np.asarray(origin, dtype="float64"),
                             boundary=None if boundary is None else tuple(bool(f) for f in boundary),
                         ),
                     )
                 ],
-                cell_defined=None if defined is None else bool(defined),
+                cell_defined=defined,
             )
         # A trivial ``step_index`` (exactly one update at ordinal 0 -- the
         # fixed-cell case) may be omitted; absence reads back as ``[0]``. The
@@ -832,8 +842,8 @@ class ZarrTrajectoryCodec(Codec):
             updates=[
                 BoxUpdateModel(
                     step_index=ordinal,
-                    box=BoxModel(
-                        vectors=vectors[index],
+                    box=CellModel(
+                        vectors=vectors[index] if defined else np.eye(3),
                         origin=None if origin is None else origin[index],
                         boundary=None
                         if boundary is None
@@ -842,7 +852,7 @@ class ZarrTrajectoryCodec(Codec):
                 )
                 for index, ordinal in enumerate(ordinals)
             ],
-            cell_defined=None if defined is None else bool(defined),
+            cell_defined=defined,
         )
 
     def _write_meta(self, group: zarr.Group, model: TrajectoryModel) -> None:

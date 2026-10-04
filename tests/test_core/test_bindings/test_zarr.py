@@ -104,21 +104,17 @@ def test_a_box_group_without_boundary_reads_all_periodic(tmp_path: Path) -> None
 def test_boundary_is_an_array_on_the_frame_path(tmp_path: Path) -> None:
     store = ZarrFrameStore(tmp_path / "boundary.mrec")
     ZarrFrameCodec().write(
-        FrameModel(
-            box=BoxModel(vectors=np.eye(3), boundary=(True, True, False), cell_defined=False)
-        ),
+        FrameModel(box=BoxModel(vectors=np.eye(3), boundary=(True, True, False))),
         store,
     )
     box = store.root(mode="r")["box"]
     assert isinstance(box["boundary"], zarr.Array)
     assert box["boundary"][...].tolist() == [True, True, False]
     assert "boundary" not in box.attrs
-    assert box.attrs["cell_defined"] is False
+    assert "cell_defined" not in box.attrs
     assert (
         ZarrFrameCodec().read(store).box
-        == FrameModel(
-            box=BoxModel(vectors=np.eye(3), boundary=(True, True, False), cell_defined=False)
-        ).box
+        == FrameModel(box=BoxModel(vectors=np.eye(3), boundary=(True, True, False))).box
     )
 
 

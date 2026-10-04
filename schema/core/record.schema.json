@@ -66,7 +66,7 @@
       "type": "object"
     },
     "BoxModel": {
-      "description": "The triclinic cell. Columns of ``vectors`` are the lattice vectors.\n\nA box belongs to a frame, so fixed-cell and variable-cell runs are both\nnatural -- each frame in a trajectory carries its own.\n\n``cell_defined`` is not periodicity -- ``boundary`` says which axes wrap,\n``cell_defined`` says whether there is a cell at all. Absent means\n``True``; a writer records it only to say ``False``.",
+      "description": "A frame's cell: its geometry plus whether there is a cell at all.\n\n``cell_defined`` is not periodicity -- ``boundary`` says which axes wrap,\n``cell_defined`` says whether there is a cell at all. Absent means\n``True``; a writer records it only to say ``False``. An undefined cell's\n``vectors`` mean nothing: a writer writes the identity and a reader\nignores what it finds (:func:`resolve_cell`).",
       "properties": {
         "boundary": {
           "anyOf": [
@@ -136,10 +136,10 @@
       "type": "object"
     },
     "BoxUpdateModel": {
-      "description": "The cell as of one frame ordinal.\n\n``step_index`` is a frame **ordinal** -- a position in the sequence -- and\nnever a step number.",
+      "description": "The cell as of one frame ordinal: its geometry, never its definedness.\n\n``step_index`` is a frame **ordinal** -- a position in the sequence -- and\nnever a step number. Whether there is a cell at all is the section's one\nflag (:attr:`TrajectoryBoxModel.cell_defined`), so an update cannot\ndisagree with it.",
       "properties": {
         "box": {
-          "$ref": "#/$defs/BoxModel"
+          "$ref": "#/$defs/CellModel"
         },
         "step_index": {
           "minimum": 0,
@@ -152,6 +152,64 @@
         "box"
       ],
       "title": "BoxUpdateModel",
+      "type": "object"
+    },
+    "CellModel": {
+      "description": "The geometry of a triclinic cell. Columns of ``vectors`` are the lattice\nvectors.\n\nWhat a cell's absent parts mean depends on whether there is a cell at\nall, which the owner says -- a frame's :class:`BoxModel`, or a\ntrajectory's :class:`TrajectoryBoxModel` for every update at once -- so\nthe owner resolves them (:func:`resolve_cell`). On its own a cell only\nholds its parts to their shapes and to ``f64``.",
+      "properties": {
+        "boundary": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Boundary"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Origin"
+        },
+        "vectors": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Vectors",
+          "type": "array"
+        }
+      },
+      "required": [
+        "vectors"
+      ],
+      "title": "CellModel",
       "type": "object"
     },
     "ColumnModel": {
@@ -578,7 +636,7 @@
       "type": "object"
     },
     "TrajectoryBoxModel": {
-      "description": "The cell section: one box, indexed by the ordinals it changed at.\n\nA fixed-cell run holds exactly one update. There is no absence marker\nhere: once a run states a cell every later frame resolves to the most\nrecent one, so a frame that drops its cell mid-run reads back carrying the\nprevious cell.\n\n``cell_defined`` is the section's flag; every update's box carries the\nsame value, resolved here so the two cannot disagree.",
+      "description": "The cell section: one cell, indexed by the ordinals it changed at.\n\nA fixed-cell run holds exactly one update. There is no absence marker\nhere: once a run states a cell every later frame resolves to the most\nrecent one, so a frame that drops its cell mid-run reads back carrying the\nprevious cell.\n\n``cell_defined`` is the section's flag, stated once for every update;\neach update's absent parts are resolved against it (:func:`resolve_cell`).",
       "properties": {
         "cell_defined": {
           "anyOf": [

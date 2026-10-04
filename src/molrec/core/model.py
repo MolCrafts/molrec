@@ -362,15 +362,26 @@ _FLAGS3 = {"type": "array", "items": {"type": "boolean"}, "minItems": 3, "maxIte
 BOX_NDIM = 3
 
 
-class BoxModel(BaseModel):
-    """The triclinic cell. Columns of ``vectors`` are the lattice vectors.
+def _float64(value: np.ndarray, what: str) -> np.ndarray:
+    """``value`` as binary64: an integer array converts exactly, anything else
+    that is not already ``f64`` (a narrow float, a bool, a string) is refused."""
+    array = np.asarray(value)
+    if array.dtype == np.float64:
+        return array
+    if array.dtype.kind in "iu":
+        return array.astype("float64")
+    raise ValueError(f"{what} is f64, found {array.dtype}")
 
-    A box belongs to a frame, so fixed-cell and variable-cell runs are both
-    natural -- each frame in a trajectory carries its own.
 
-    ``cell_defined`` is not periodicity -- ``boundary`` says which axes wrap,
-    ``cell_defined`` says whether there is a cell at all. Absent means
-    ``True``; a writer records it only to say ``False``.
+class CellModel(BaseModel):
+    """The geometry of a triclinic cell. Columns of ``vectors`` are the lattice
+    vectors.
+
+    What a cell's absent parts mean depends on whether there is a cell at
+    all, which the owner says -- a frame's :class:`BoxModel`, or a
+    trajectory's :class:`TrajectoryBoxModel` for every update at once -- so
+    the owner resolves them (:func:`resolve_cell`). On its own a cell only
+    holds its parts to their shapes and to ``f64``.
     """
 
     model_config = ConfigDict(frozen=True, from_attributes=True)
@@ -378,47 +389,83 @@ class BoxModel(BaseModel):
     vectors: Annotated[NDArray, WithJsonSchema(_MATRIX3)]
     origin: Annotated[NDArray, WithJsonSchema(_VECTOR3)] | None = None
     boundary: Annotated[tuple[bool, ...], WithJsonSchema(_FLAGS3)] | None = None
-    cell_defined: bool | None = None
 
     @model_validator(mode="after")
-    def _square_and_filled_in(self) -> BoxModel:
-        """Shape check, then materialize the defaults.
-
-        Leaving ``origin`` and ``boundary`` absent looks harmless until two
-        implementations disagree about what absent means -- one writes zeros
-        and all-periodic, the other writes nothing, and a round trip that
-        should be lossless reports a difference. So absence is resolved here,
-        once: an unstated origin is the coordinate origin, an unstated
-        boundary is periodic on every axis, and an unstated ``cell_defined``
-        is a defined cell.
-        """
-        shape = tuple(self.vectors.shape)
-        if shape != (BOX_NDIM, BOX_NDIM):
-            raise ValueError(f"vectors must be [{BOX_NDIM}][{BOX_NDIM}], found {shape}")
-
-        if self.origin is None:
-            object.__setattr__(self, "origin", np.zeros(BOX_NDIM, dtype="float64"))
-        elif tuple(self.origin.shape) != (BOX_NDIM,):
-            raise ValueError(f"origin must be [{BOX_NDIM}], found {tuple(self.origin.shape)}")
-
-        if self.boundary is None:
-            object.__setattr__(self, "boundary", (True,) * BOX_NDIM)
-        elif len(self.boundary) != BOX_NDIM:
+    def _three_dimensional_f64(self) -> CellModel:
+        vectors = _float64(self.vectors, "vectors")
+        if vectors.shape != (BOX_NDIM, BOX_NDIM):
+            raise ValueError(f"vectors must be [{BOX_NDIM}][{BOX_NDIM}], found {vectors.shape}")
+        object.__setattr__(self, "vectors", vectors)
+        if self.origin is not None:
+            origin = _float64(self.origin, "origin")
+            if origin.shape != (BOX_NDIM,):
+                raise ValueError(f"origin must be [{BOX_NDIM}], found {origin.shape}")
+            object.__setattr__(self, "origin", origin)
+        if self.boundary is not None and len(self.boundary) != BOX_NDIM:
             raise ValueError(f"boundary must have {BOX_NDIM} flags, found {len(self.boundary)}")
-
-        if self.cell_defined is None:
-            object.__setattr__(self, "cell_defined", True)
         return self
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, BoxModel):
+        if not isinstance(other, CellModel):
             return NotImplemented
         return (
             arrays_equal(self.vectors, other.vectors)
             and arrays_equal(self.origin, other.origin)
             and self.boundary == other.boundary
-            and self.cell_defined == other.cell_defined
         )
+
+    __hash__ = None  # type: ignore[assignment]
+
+
+def resolve_cell(cell: CellModel, defined: bool) -> dict[str, Any]:
+    """A cell's parts with the normative meaning of every absence filled in.
+
+    Two readers that default an absent part differently turn one store into
+    two physical systems, so absence is resolved here, once:
+
+    * an absent ``origin`` is the coordinate origin;
+    * an absent ``boundary`` is periodic on every axis -- for a defined cell;
+    * an **undefined** cell (``defined`` false) has no geometry: its
+      ``vectors`` are ignored and carried as the identity, and it is periodic
+      on no axis -- an absent ``boundary`` is all-``False``, and a periodic
+      flag on it is refused.
+    """
+    origin = np.zeros(BOX_NDIM, dtype="float64") if cell.origin is None else cell.origin
+    if defined:
+        boundary = (True,) * BOX_NDIM if cell.boundary is None else tuple(cell.boundary)
+        return {"vectors": cell.vectors, "origin": origin, "boundary": boundary}
+    boundary = (False,) * BOX_NDIM if cell.boundary is None else tuple(cell.boundary)
+    if any(boundary):
+        raise ValueError(
+            f"an undefined cell is periodic on no axis; boundary {boundary} says otherwise"
+        )
+    return {"vectors": np.eye(BOX_NDIM), "origin": origin, "boundary": boundary}
+
+
+class BoxModel(CellModel):
+    """A frame's cell: its geometry plus whether there is a cell at all.
+
+    ``cell_defined`` is not periodicity -- ``boundary`` says which axes wrap,
+    ``cell_defined`` says whether there is a cell at all. Absent means
+    ``True``; a writer records it only to say ``False``. An undefined cell's
+    ``vectors`` mean nothing: a writer writes the identity and a reader
+    ignores what it finds (:func:`resolve_cell`).
+    """
+
+    cell_defined: bool | None = None
+
+    @model_validator(mode="after")
+    def _absences_resolved(self) -> BoxModel:
+        if self.cell_defined is None:
+            object.__setattr__(self, "cell_defined", True)
+        for name, value in resolve_cell(self, self.cell_defined).items():
+            object.__setattr__(self, name, value)
+        return self
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, BoxModel):
+            return NotImplemented
+        return CellModel.__eq__(self, other) and self.cell_defined == other.cell_defined
 
     __hash__ = None  # type: ignore[assignment]
 
@@ -636,28 +683,30 @@ class BlockState(StrEnum):
 
 
 class BoxUpdateModel(BaseModel):
-    """The cell as of one frame ordinal.
+    """The cell as of one frame ordinal: its geometry, never its definedness.
 
     ``step_index`` is a frame **ordinal** -- a position in the sequence -- and
-    never a step number.
+    never a step number. Whether there is a cell at all is the section's one
+    flag (:attr:`TrajectoryBoxModel.cell_defined`), so an update cannot
+    disagree with it.
     """
 
     model_config = ConfigDict(frozen=True, from_attributes=True)
 
     step_index: int = Field(ge=0)
-    box: BoxModel
+    box: CellModel
 
 
 class TrajectoryBoxModel(BaseModel):
-    """The cell section: one box, indexed by the ordinals it changed at.
+    """The cell section: one cell, indexed by the ordinals it changed at.
 
     A fixed-cell run holds exactly one update. There is no absence marker
     here: once a run states a cell every later frame resolves to the most
     recent one, so a frame that drops its cell mid-run reads back carrying the
     previous cell.
 
-    ``cell_defined`` is the section's flag; every update's box carries the
-    same value, resolved here so the two cannot disagree.
+    ``cell_defined`` is the section's flag, stated once for every update;
+    each update's absent parts are resolved against it (:func:`resolve_cell`).
     """
 
     model_config = ConfigDict(frozen=True, from_attributes=True)
@@ -674,15 +723,14 @@ class TrajectoryBoxModel(BaseModel):
             )
         if self.cell_defined is None:
             object.__setattr__(self, "cell_defined", True)
-        aligned = [
-            update
-            if update.box.cell_defined == self.cell_defined
-            else update.model_copy(
-                update={"box": update.box.model_copy(update={"cell_defined": self.cell_defined})}
+        resolved = [
+            BoxUpdateModel(
+                step_index=update.step_index,
+                box=CellModel(**resolve_cell(update.box, self.cell_defined)),
             )
             for update in self.updates
         ]
-        object.__setattr__(self, "updates", aligned)
+        object.__setattr__(self, "updates", resolved)
         return self
 
 
