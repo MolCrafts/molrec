@@ -4,15 +4,48 @@ The containers have no special fields. The identifiers below restore
 interoperability. They follow the Frame/Block naming that molpy documents as
 the interchange representation — the same names molrs serializes.
 
-The identifiers are recommended. A reader preserves blocks and columns
-outside this list. Reserved names (`box`, `meta`, `atoms`, `atomi`, …) keep
-their conventional meaning.
+The identifiers are recommended: a producer need not use them, and a reader
+preserves blocks and columns outside this list. A producer that **does** use
+one uses it with its canonical dtype and shape (below). Names reserved by
+the layout itself — `box` and `_validity` among a frame's children, the
+trajectory's own children — are listed in
+[Root layout](storage.md#frame-shaped-group) and
+[Ragged trajectory](ragged.md#reserved-names).
 
 MolRec specifies the Frame/Block interchange representation. MolPy's Entity
 graph (`itom` / `jtom` object references) is a construction API.
 
 Block names are lowercase and plural. Field names are lowercase with
 underscores for multi-word names.
+
+## Canonical dtypes
+
+A canonical column key has **one dtype and one shape wherever it appears** —
+in any block, under `frame`, `system` or `trajectory`, on the frame path
+and the trajectory path alike. Every key in this chapter is one value per
+row (`<dtype>[N]`, no trailing axes), at the dtype the trees below give it.
+
+| Keys | dtype |
+|------|-------|
+| `x` `y` `z` `vx` `vy` `vz` `fx` `fy` `fz` `charge` `mass` | `f64` |
+| `id` `atomic_number` `type_id` `mol_id` `res_id` `atom_map` | `u64` |
+| `atomi` `atomj` `atomk` `atoml` `bond_type` `bond_number` | `u64` |
+| `formal_charge` | `i64` |
+| `element` `type` `name` `res_name` `bead_type` | `string` |
+
+- A writer **MUST NOT** store a canonical key at any other dtype or shape.
+  A writer whose producer hands it a narrower unsigned array under one of
+  these keys may widen it exactly (a `u32` `atomi` becomes `u64`) and
+  write the canonical dtype.
+- The unsigned identifiers and relation endpoints — `id`, `atomic_number`,
+  `type_id`, `mol_id`, `res_id`, `atomi`, `atomj`, `atomk`, `atoml`,
+  `bond_type`, `bond_number` — are **exactly `u64`**. A reader **MUST**
+  refuse one stored at any other width or signedness rather than widen it on
+  read: a store that holds one narrower came from a writer that broke the
+  contract, and reading it back as `u64` would hide that.
+- A reader **SHOULD** refuse any other canonical key at another dtype too.
+- The [per-step scalars](#per-step-scalars) are canonical the same way: a
+  declared `pe`, `ke`, `etotal`, `temp`, `press` or `volume` key is `f64`.
 
 ## `atoms`
 

@@ -265,6 +265,54 @@ class ColumnModel(BaseModel):
     __hash__ = None  # type: ignore[assignment]
 
 
+#: The unsigned identifiers and relation endpoints: exactly ``u64`` wherever
+#: they appear. This is the set the reference implementation refuses at any
+#: other width on read (``docs/spec/conventions.md``, canonical dtypes).
+CANONICAL_U64: frozenset[str] = frozenset(
+    {
+        "id",
+        "atomic_number",
+        "type_id",
+        "mol_id",
+        "res_id",
+        "atomi",
+        "atomj",
+        "atomk",
+        "atoml",
+        "bond_type",
+        "bond_number",
+    }
+)
+
+#: Every canonical column key and the one dtype it has wherever it appears,
+#: in any block of any section, always one value per row (no trailing axes).
+CANONICAL_COLUMNS: dict[str, DType] = {
+    **dict.fromkeys(("x", "y", "z", "vx", "vy", "vz", "fx", "fy", "fz"), "f64"),
+    **dict.fromkeys(("charge", "mass"), "f64"),
+    **dict.fromkeys(CANONICAL_U64, "u64"),
+    "atom_map": "u64",
+    "formal_charge": "i64",
+    **dict.fromkeys(("element", "type", "name", "res_name", "bead_type"), "string"),
+}
+
+#: The per-step meta keys with a canonical tag (``docs/spec/conventions.md``).
+CANONICAL_META: dict[str, str] = dict.fromkeys(
+    ("pe", "ke", "etotal", "temp", "press", "volume"), "f64"
+)
+
+
+def check_canonical(name: str, dtype: str, trailing: tuple[int, ...] | list[int]) -> None:
+    """Refuse a canonical column key at any dtype or shape but its own."""
+    expected = CANONICAL_COLUMNS.get(name)
+    if expected is None:
+        return
+    if dtype != expected or tuple(trailing):
+        raise ValueError(
+            f"column {name!r} is canonical: {expected}[N] wherever it appears, found "
+            f"{dtype}[N]{''.join(f'[{n}]' for n in trailing)}"
+        )
+
+
 class BlockModel(BaseModel):
     """Named columns sharing one count, plus an optional structural shape.
 
@@ -272,7 +320,9 @@ class BlockModel(BaseModel):
     ``structural_shape = (nx, ny, nz)`` with ``nx * ny * nz == count`` -- the
     only thing that makes a flat column reshapable after a roundtrip.
 
-    A block imposes no meaning on its column names.
+    A block imposes no meaning on its column names beyond one: a
+    :data:`canonical <CANONICAL_COLUMNS>` key has one dtype and shape wherever
+    it appears.
     """
 
     model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
@@ -292,6 +342,7 @@ class BlockModel(BaseModel):
                 raise ValueError(
                     f"column {name!r} has {column.count} rows, block count is {self.count}"
                 )
+            check_canonical(name, column.dtype, column.shape[1:])
         if self.structural_shape is not None:
             product = math.prod(self.structural_shape)
             if product != self.count:
@@ -720,6 +771,8 @@ class TrajectoryModel(BaseModel):
         declared: dict[str, SequenceBlockModel] = dict(self.blocks or {})
         for name, block in declared.items():
             _refuse_reserved(name, block.columns)
+            for column, spec in block.columns.items():
+                check_canonical(column, spec.dtype, spec.trailing)
 
         for ordinal, frame in enumerate(self.frames):
             for name, block in frame.blocks.items():
@@ -806,6 +859,12 @@ class TrajectoryModel(BaseModel):
         validation every frame carries every declared key, which is also what
         a reader hands back: the arrays hold ``nstep`` values either way.
         """
+        for key, series in self.meta.items():
+            canonical = CANONICAL_META.get(key)
+            if canonical is not None and series.dtype != canonical:
+                raise ValueError(
+                    f"per-step key {key!r} is canonical: {canonical}, declared {series.dtype!r}"
+                )
         resolved: list[FrameModel] = []
         for ordinal, frame in enumerate(self.frames):
             undeclared = sorted(set(frame.meta) - set(self.meta))

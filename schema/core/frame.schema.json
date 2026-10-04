@@ -2,7 +2,7 @@
   "$defs": {
     "BlockModel": {
       "additionalProperties": true,
-      "description": "Named columns sharing one count, plus an optional structural shape.\n\nA plain table has implicit shape ``[count]``. A volumetric block declares\n``structural_shape = (nx, ny, nz)`` with ``nx * ny * nz == count`` -- the\nonly thing that makes a flat column reshapable after a roundtrip.\n\nA block imposes no meaning on its column names.",
+      "description": "Named columns sharing one count, plus an optional structural shape.\n\nA plain table has implicit shape ``[count]``. A volumetric block declares\n``structural_shape = (nx, ny, nz)`` with ``nx * ny * nz == count`` -- the\nonly thing that makes a flat column reshapable after a roundtrip.\n\nA block imposes no meaning on its column names beyond one: a\n:data:`canonical <CANONICAL_COLUMNS>` key has one dtype and shape wherever\nit appears.",
       "properties": {
         "columns": {
           "additionalProperties": {

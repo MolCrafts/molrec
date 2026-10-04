@@ -327,3 +327,25 @@ class TestValidity:
             "trailing": [],
         }
         assert SequenceColumnModel(dtype="f64", nullable=True).model_dump(mode="json")["nullable"]
+
+
+class TestCanonicalDtypes:
+    @pytest.mark.parametrize(("name", "dtype"), [("atomi", "u32"), ("id", "i64"), ("x", "i64")])
+    def test_a_canonical_key_has_one_dtype(self, name: str, dtype: str) -> None:
+        from molrec.core.model import NUMPY_DTYPE
+
+        values = np.zeros(2, dtype=NUMPY_DTYPE[dtype])
+        with pytest.raises(ValidationError, match="canonical"):
+            BlockModel(count=2, columns={name: ColumnModel(dtype=dtype, shape=(2,), values=values)})
+
+    def test_a_canonical_key_has_no_trailing_axes(self) -> None:
+        with pytest.raises(ValidationError, match="canonical"):
+            BlockModel(count=2, columns={"x": ColumnModel(dtype="f64", shape=(2, 3))})
+
+    def test_a_canonical_per_step_key_is_f64(self) -> None:
+        with pytest.raises(ValidationError, match="canonical"):
+            TrajectoryModel(
+                frames=[FrameModel(meta={"pe": 1})],
+                step=[0],
+                meta={"pe": MetaSeriesModel(dtype="i64")},
+            )

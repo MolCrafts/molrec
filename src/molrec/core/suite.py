@@ -155,6 +155,33 @@ class FrameSuite(Suite):
             model=masked,
         )
 
+        for case_id, column, dtype in (
+            ("reject-narrow-identifier", "atomi", "u32"),
+            ("reject-signed-identifier", "atomic_number", "i64"),
+        ):
+            values = np.array([0, 1], dtype=NUMPY_DTYPE[dtype])
+            yield Case(
+                id=case_id,
+                exercises=f"{column} is u64 wherever it appears; one stored as {dtype} is "
+                "refused, not widened",
+                expect_violation="canonical_dtype",
+                model=FrameModel.model_construct(
+                    blocks={
+                        "bonds": BlockModel.model_construct(
+                            count=2,
+                            columns={
+                                column: ColumnModel.model_construct(
+                                    dtype=dtype, shape=(2,), values=values, validity=None
+                                )
+                            },
+                            structural_shape=None,
+                        )
+                    },
+                    box=None,
+                    meta={},
+                ),
+            )
+
         yield Case(
             id="reject-column-named-validity",
             exercises="_validity names a block's masks; a column taking it is refused, not merged",
@@ -1005,6 +1032,26 @@ class TrajectorySuite(Suite):
 
     def _reader_refusals(self) -> Iterable[Case]:
         """What a reader must refuse on disk."""
+        bonds = BlockModel(
+            count=2,
+            columns={"atomi": _column("u64", [0, 1]), "atomj": _column("u64", [1, 2])},
+        )
+        yield Case(
+            id="reject-narrow-endpoint",
+            exercises="a relation endpoint is u64 on the trajectory path too; one stored as u32 "
+            "is refused, not widened",
+            expect_violation="canonical_dtype",
+            backends=("zarr",),
+            tamper=_narrow("trajectory/bonds/atomi", "uint32"),
+            model=TrajectoryModel(
+                frames=[
+                    FrameModel(blocks={"atoms": _atoms(0.0, 1.0, 2.0), "bonds": bonds}),
+                    FrameModel(blocks={"atoms": _atoms(0.5, 1.5, 2.5)}),
+                ],
+                step=[0, 1],
+            ),
+        )
+
         yield Case(
             id="reject-mask-not-bool",
             exercises="a nullable column's mask is one bool per row, never an integer array",
