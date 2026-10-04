@@ -3,7 +3,10 @@ and what it buys on disk (``docs/spec/frame.md``, ``docs/spec/chunking.md``)."""
 
 from __future__ import annotations
 
+import json
 import math
+import zipfile
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -13,14 +16,19 @@ from molrec.core.bindings.zarr import (
     PRECISION_ATTR,
     ZarrFrameCodec,
     ZarrFrameStore,
+    ZarrRecordCodec,
+    ZarrRecordStore,
     ZarrTrajectoryCodec,
     ZarrTrajectoryStore,
 )
 from molrec.core.model import (
+    MOLREC_VERSION,
     STORED,
     BlockModel,
     ColumnModel,
     FrameModel,
+    MetaModel,
+    RecordModel,
     SequenceBlockModel,
     SequenceColumnModel,
     TrajectoryModel,
@@ -213,3 +221,81 @@ def test_density_bytes_per_atom_per_frame(tmp_path) -> None:
     assert raw > 23.5
     assert milli < 8.0
     assert centi < 6.2
+
+
+# ---------------------------------------------------------------------------
+# fixtures/precision.mrec.zip -- a store another implementation wrote, for
+# molrs's readers (the wasm32 build included) to decode: numcodecs.shuffle +
+# zstd on the frame path and the trajectory path. Regenerate with
+# ``python tests/test_precision.py``.
+# ---------------------------------------------------------------------------
+
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "precision.mrec.zip"
+
+
+def precision_fixture_model() -> RecordModel:
+    """A frame and a trajectory whose coordinates declare a precision of 1e-3."""
+    rng = np.random.default_rng(1)
+    positions = rng.uniform(0.0, 10.0, (8, 3))
+
+    def coordinates(values: np.ndarray, precision: float | None) -> BlockModel:
+        return BlockModel(
+            count=len(values),
+            columns={
+                axis: ColumnModel(
+                    dtype="f64", shape=(len(values),), values=values[:, i], precision=precision
+                )
+                for i, axis in enumerate("xyz")
+            },
+        )
+
+    frames = []
+    for _ in range(4):
+        positions = positions + rng.normal(0.0, 0.05, positions.shape)
+        frames.append(FrameModel(blocks={"atoms": coordinates(positions.copy(), None)}))
+    declared = {
+        "atoms": SequenceBlockModel(
+            columns={axis: SequenceColumnModel(dtype="f64", precision=1e-3) for axis in "xyz"}
+        )
+    }
+    return RecordModel(
+        meta=MetaModel(molrec_version=MOLREC_VERSION),
+        frame=FrameModel(blocks={"atoms": coordinates(positions, 1e-3)}),
+        trajectory=TrajectoryModel(frames=frames, step=[0, 10, 20, 30], blocks=declared),
+    )
+
+
+def pack(directory: Path, archive: Path) -> None:
+    """``*.mrec/`` -> ``*.mrec.zip`` by the at-rest rules of ``docs/spec/chunking.md``:
+    one stored entry per file, paths relative to the root, no directory entries."""
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
+        for path in sorted(p for p in directory.rglob("*") if p.is_file()):
+            zf.write(path, path.relative_to(directory).as_posix())
+
+
+class _ZipRecordStore(ZarrRecordStore):
+    def root(self, mode: str = "r") -> zarr.Group:
+        return zarr.open_group(store=zarr.storage.ZipStore(self.path, mode="r"), mode="r")
+
+
+def test_the_precision_fixture_is_what_the_reference_writer_emits() -> None:
+    model = precision_fixture_model()
+    assert ZarrRecordCodec().read(_ZipRecordStore(FIXTURE)) == model
+    with zipfile.ZipFile(FIXTURE) as zf:
+        names = zf.namelist()
+        assert all(info.compress_type == zipfile.ZIP_STORED for info in zf.infolist())
+        codecs = json.loads(zf.read("trajectory/atoms/x/zarr.json"))["codecs"]
+    assert not any(name.endswith("/") for name in names)
+    inner = codecs[0]["configuration"]["codecs"]
+    assert [codec["name"] for codec in inner] == ["bytes", "numcodecs.shuffle", "zstd", "crc32c"]
+
+
+if __name__ == "__main__":
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        live = ZarrRecordStore(Path(tmp) / "precision.mrec")
+        ZarrRecordCodec().write(precision_fixture_model(), live)
+        FIXTURE.unlink(missing_ok=True)
+        pack(live.path, FIXTURE)
+    print(FIXTURE)

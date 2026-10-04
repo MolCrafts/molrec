@@ -31,7 +31,7 @@ def test_fixtures_readme_lists_only_fixtures_that_exist() -> None:
         for line in text.splitlines()
         if line.startswith("| `fixtures/")
     }
-    on_disk = {p.name for p in (REPO / "fixtures").iterdir() if p.is_dir()}
+    on_disk = {p.name for p in (REPO / "fixtures").iterdir() if p.name != "README.md"}
     assert listed == on_disk
 
 

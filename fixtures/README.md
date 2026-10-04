@@ -7,11 +7,16 @@ paths are conventional so new goldens can be added without renaming.
 |------|--------|-------------------|
 | `fixtures/run-minimal/` | Run | `meta`, `status`, `metrics` buffer (no `frame`) |
 | `fixtures/schema/` | JSON instances | one directory per published schema, `valid-*.json` / `invalid-*.json` |
+| `fixtures/precision.mrec.zip` | Packed record | `meta`, `frame`, `trajectory`; coordinates with a declared precision (`numcodecs.shuffle` + `zstd`) |
 
 Binary `*.mrec/` goldens (structure, system + frame, trajectory) are
 **produced by molrs**, the reference writer, and land here from its
 regression output — they are not hand-built in this repository, so that a
-golden is always something a real writer emitted.
+golden is always something a real writer emitted. The one exception is
+`precision.mrec.zip`: molrec's own codec writes it
+(`python tests/test_precision.py`), so that molrs's readers — the wasm32
+build included — are held to decoding a declared-precision store another
+implementation wrote.
 
 Fixture rules: no root `parameters/`, cell key `box` only,
 `meta.molrec_version` stamped (the integer `1`). Physical forms
