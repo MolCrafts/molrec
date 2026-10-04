@@ -331,6 +331,14 @@ def test_refusal_translation() -> None:
     assert as_refusal(KeyError("no"), declared) is not None
     assert as_refusal(KeyError("no"), (ValueError,)) is None
     assert as_refusal(TypeError("no"), (TypeError,)) is None
+    assert as_refusal(AttributeError("no"), (Exception,)) is None
+    assert as_refusal(ValueError("no"), (Exception,)) is None
+
+    class DtypeError(TypeError):
+        """An implementation's own, deliberate refusal that happens to be a TypeError."""
+
+    assert as_refusal(DtypeError("no"), (DtypeError,)) is not None
+    assert as_refusal(TypeError("no"), (DtypeError,)) is None
     refusal = molrec.Refusal("no", kind="bad_version")
     assert as_refusal(refusal) is refusal
 

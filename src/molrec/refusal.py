@@ -14,6 +14,10 @@ case it was handed. So a refusal is typed:
 Anything else an adapter raises is a defect, reported as ``error`` and never
 as ``pass``. The exceptions in :data:`DEFECTS` are defects even when declared:
 they say the adapter or the implementation is broken, not that the input was.
+So is declaring a base of one of them (``Exception``) -- that would declare
+every defect at once. A *narrower* type that happens to derive from one is
+fine to declare: an implementation's own ``DtypeError(TypeError)`` names a
+deliberate refusal, where a bare ``TypeError`` may be a mis-typed call.
 """
 
 from __future__ import annotations
@@ -55,13 +59,17 @@ def as_refusal(
 ) -> Refusal | None:
     """``exc`` as a :class:`Refusal`, or ``None`` when it is not one.
 
-    A :class:`Refusal` is itself. An exception of a type in ``declared`` (and
-    not in :data:`DEFECTS`) becomes a kind-less refusal carrying its message.
+    A :class:`Refusal` is itself. An exception of a type in ``declared``
+    becomes a kind-less refusal carrying its message -- unless that declared
+    type is one of the :data:`DEFECTS` or a base of one, which is ignored.
     Everything else is not a refusal.
     """
     if isinstance(exc, Refusal):
         return exc
-    if isinstance(exc, DEFECTS) or not declared or not isinstance(exc, declared):
+    honored = tuple(
+        kind for kind in declared if not any(issubclass(defect, kind) for defect in DEFECTS)
+    )
+    if not honored or not isinstance(exc, honored):
         return None
     refusal = Refusal(f"{type(exc).__name__}: {exc}")
     refusal.__cause__ = exc
