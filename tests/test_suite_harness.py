@@ -239,9 +239,9 @@ def _recast(model: FrameModel, source: str, target: str) -> FrameModel:
     return FrameModel.model_construct(blocks=blocks, box=model.box, meta=model.meta)
 
 
-class WidensF32Writer(CodecAdapter):
+class WidensU8Writer(CodecAdapter):
     def write(self, model: BaseModel, store: molrec.Store) -> None:
-        super().write(_recast(model, "f32", "f64"), store)
+        super().write(_recast(model, "u8", "u64"), store)
 
 
 class NarrowsI64Writer(CodecAdapter):
@@ -249,8 +249,8 @@ class NarrowsI64Writer(CodecAdapter):
         super().write(_recast(model, "i64", "i32"), store)
 
 
-def test_a_writer_that_widens_f32_fails() -> None:
-    report = _run("core", WidensF32Writer)
+def test_a_writer_that_widens_u8_fails() -> None:
+    report = _run("core", WidensU8Writer)
 
     assert _failed(report, "write") == {"every-dtype", "no-silent-widening"}, report.table()
     assert not _failed(report, "read")

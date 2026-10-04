@@ -46,8 +46,8 @@ class DropsUnknownAdapter(CodecFrameAdapter):
         return model.model_copy(update={"blocks": kept})
 
 
-class WidensFloatsAdapter(CodecFrameAdapter):
-    """Reads every float column back as f64 -- the classic silent widening."""
+class WidensIntegersAdapter(CodecFrameAdapter):
+    """Reads every i32 column back as i64 -- the classic silent widening."""
 
     def read(self, store: ZarrFrameStore) -> molrec.FrameModel:
         model = super().read(store)
@@ -58,13 +58,13 @@ class WidensFloatsAdapter(CodecFrameAdapter):
                         key: (
                             column.model_copy(
                                 update={
-                                    "dtype": "f64",
+                                    "dtype": "i64",
                                     "values": None
                                     if column.values is None
-                                    else column.values.astype("float64"),
+                                    else column.values.astype("int64"),
                                 }
                             )
-                            if column.dtype in ("f16", "f32")
+                            if column.dtype == "i32"
                             else column
                         )
                         for key, column in block.columns.items()
@@ -106,10 +106,10 @@ class FlattensGrid(molrec.Implementation):
     frame = FlattensGridAdapter()
 
 
-class WidensFloats(molrec.Implementation):
-    name = "widens-floats"
+class WidensIntegers(molrec.Implementation):
+    name = "widens-integers"
     version = "0"
-    frame = WidensFloatsAdapter()
+    frame = WidensIntegersAdapter()
 
 
 def _failed_case_ids(report: molrec.Report) -> set[str]:
@@ -144,8 +144,8 @@ def test_a_module_without_an_adapter_is_skipped_not_failed():
     assert not report.ok
 
 
-def test_silent_float_widening_is_caught():
-    report = molrec.ConformanceSuite(WidensFloats(), modules=["core"]).run()
+def test_silent_integer_widening_is_caught():
+    report = molrec.ConformanceSuite(WidensIntegers(), modules=["core"]).run()
     assert _failed_case_ids(report) == {"every-dtype", "no-silent-widening"}
 
 

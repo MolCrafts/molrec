@@ -87,8 +87,8 @@ def test_a_list_in_the_model_holds_an_array_to_its_element_types() -> None:
 
 
 def test_an_array_of_another_width_is_a_violation() -> None:
-    expected = np.array([1.5, 2.5], dtype="float32")
-    [violation] = molrec.diff(expected, expected.astype("float64"))
+    expected = np.array([1, 2], dtype="int32")
+    [violation] = molrec.diff(expected, expected.astype("int64"))
     assert violation.kind == "wrong_type"
 
 

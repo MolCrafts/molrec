@@ -11,17 +11,22 @@ A column's element type is exactly one member of this closed set:
 
 | dtype | Meaning |
 |-------|---------|
-| `f16`, `f32`, `f64` | IEEE binary16 / binary32 / binary64 |
+| `f64` | IEEE 754 binary64 — the one real-valued dtype |
 | `i8`, `i16`, `i32`, `i64` | signed integer, 8–64 bit |
 | `u8`, `u16`, `u32`, `u64` | unsigned integer, 8–64 bit |
 | `bool` | boolean |
 | `string` | UTF-8 string |
-| `c64`, `c128` | complex pair of `f32` / `f64` |
+| `c64`, `c128` | complex: an interleaved (real, imaginary) pair of binary32 / binary64 |
 
-Every numeric width is explicit: there is no width-abstract `float` / `int` /
-`uint`. A tool that cannot represent a dtype natively must preserve it rather
-than silently narrow it: a `u64` identifier column must not be read back as
-`i64`, and an `f64` must not be narrowed to `f32`.
+Thirteen dtypes, and every integer width is explicit: there is no
+width-abstract `float` / `int` / `uint`. A tool that cannot represent a dtype
+natively must preserve it rather than silently change it: a `u64` identifier
+column must not be read back as `i64`, nor an `i32` as `i64`.
+
+**Floats are `f64` only.** `f16` and `f32` are not column dtypes: a writer
+does not emit them, and a reader **MUST** refuse an array stored as binary16
+or binary32 rather than widen it — widening would hide that a producer
+stored less precision than the record claims.
 
 Type does not carry unit, description, or axis meaning.
 

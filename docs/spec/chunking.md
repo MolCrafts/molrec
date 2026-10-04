@@ -115,7 +115,7 @@ bytes  (+ gzip level 1)  + crc32c
 
 - `gzip` level 1 is applied to every **non-float column** and to **every
   dense array**;
-- **float columns** (`f16` `f32` `f64` `c64` `c128`) are left uncompressed by
+- **float columns** (`f64` `c64` `c128`) are left uncompressed by
   default. The writer knob `Compression::{None, Gzip(level), Zstd(level)}`
   acts on float columns only;
 - `crc32c` closes every inner pipeline;

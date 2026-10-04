@@ -84,8 +84,6 @@ class FrameSuite(Suite):
                     "everything": BlockModel(
                         count=2,
                         columns={
-                            "c_f16": _column("f16", [1.0, -2.0]),
-                            "c_f32": _column("f32", [1.5, -2.5]),
                             "c_f64": _column("f64", [1.008, 15.999]),
                             "c_i8": _column("i8", [-128, 127]),
                             "c_i16": _column("i16", [-32768, 32767]),
@@ -107,14 +105,15 @@ class FrameSuite(Suite):
 
         yield Case(
             id="no-silent-widening",
-            exercises="f32 must come back f32 -- widening doubles the file, narrowing loses data",
+            exercises="an integer comes back at its own width -- i32 stays i32, u8 stays u8",
             model=FrameModel(
                 blocks={
                     "atoms": BlockModel(
                         count=3,
                         columns={
-                            "x": _column("f32", [0.0, 1.5, 3.0]),
+                            "x": _column("f64", [0.0, 1.5, 3.0]),
                             "step": _column("i32", [0, 1, 2]),
+                            "flag": _column("u8", [0, 1, 255]),
                         },
                     )
                 }
@@ -279,6 +278,27 @@ def _break_offset(store: Any) -> None:
     values = offset[...]
     values[1], values[2] = values[2], values[1]
     offset[...] = values
+
+
+def _narrow(path: str, dtype: str = "float32") -> Any:
+    """A tamper that rewrites the float array at ``path`` as a narrow float.
+
+    What a producer that stored less precision than the record claims leaves
+    on disk; the models cannot express it, because a narrow real is not a
+    column dtype.
+    """
+
+    def tamper(store: Any) -> None:
+        import zarr
+
+        root = zarr.open_group(store=store.path, mode="r+")
+        parent, name = path.rsplit("/", 1)
+        values = root[path][...]
+        group = root[parent]
+        del group[name]
+        group.create_array(name, shape=values.shape, dtype=dtype)[...] = values.astype(dtype)
+
+    return tamper
 
 
 def _undeclared_as_returned(expected: TrajectoryModel, actual: Any) -> TrajectoryModel:
@@ -764,6 +784,18 @@ class TrajectorySuite(Suite):
     def _reader_refusals(self) -> Iterable[Case]:
         """What a reader must refuse on disk."""
         yield Case(
+            id="reject-narrow-float-column",
+            exercises="floats are f64 only; a column stored as binary32 is refused, not widened",
+            expect_violation="narrow_float",
+            backends=("zarr",),
+            tamper=_narrow("trajectory/atoms/x"),
+            model=TrajectoryModel(
+                frames=[FrameModel(blocks={"atoms": _atoms(0.0, 1.0)}) for _ in range(2)],
+                step=[0, 1],
+            ),
+        )
+
+        yield Case(
             id="reject-non-monotonic-offset",
             exercises=(
                 "row counts are diff(offset) with checked "
@@ -955,6 +987,16 @@ class RecordSuite(Suite):
         )
 
         yield Case(
+            id="reject-narrow-float",
+            exercises="floats are f64 only; a frame column stored as binary32 is refused, "
+            "not widened",
+            expect_violation="narrow_float",
+            backends=("zarr",),
+            tamper=_narrow("frame/atoms/x"),
+            model=RecordModel(meta=meta, frame=atoms),
+        )
+
+        yield Case(
             id="record-with-box",
             exercises="the cell rides on the frame section, under the name box",
             model=RecordModel(
@@ -1131,7 +1173,9 @@ class CollectionSuite(Suite):
         )
 
         other = TrajectoryModel(
-            frames=[state(0.0, -1.0)], step=[0], meta={"pe": MetaSeriesModel(dtype="f32")}
+            frames=[state(0.0, -1.0)],
+            step=[0],
+            meta={"pe": MetaSeriesModel(dtype="f64", fill=0.0)},
         )
         yield Case(
             id="reject-two-declarations",

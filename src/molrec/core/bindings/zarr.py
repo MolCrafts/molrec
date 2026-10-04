@@ -88,7 +88,7 @@ TO_ZARR: dict[DType, str] = {**NUMPY_DTYPE, "string": "string"}
 #: Float columns are left uncompressed by default (``docs/spec/chunking.md``,
 #: codec policy); every other array takes gzip level 1. crc32c closes every
 #: inner pipeline.
-FLOAT_DTYPES: frozenset[str] = frozenset({"f16", "f32", "f64", "c64", "c128"})
+FLOAT_DTYPES: frozenset[str] = frozenset({"f64", "c64", "c128"})
 
 STRUCTURAL_SHAPE_ATTR = "structural_shape"
 CELL_DEFINED_ATTR = "cell_defined"

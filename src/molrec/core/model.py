@@ -25,8 +25,6 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, WithJsonSchema, mo
 from molrec.arrays import NDArray, arrays_equal
 
 DType = Literal[
-    "f16",
-    "f32",
     "f64",
     "i8",
     "i16",
@@ -42,16 +40,17 @@ DType = Literal[
     "c128",
 ]
 
-#: The dtype set is closed and every numeric width is explicit. A tool that
-#: cannot represent one natively must preserve it rather than silently narrow
-#: it -- reading f32 back as f64 doubles the file and reading f64 back as f32
-#: destroys data, and both are conformance failures.
+#: The dtype set is closed and every integer width is explicit. A tool that
+#: cannot represent one natively must preserve it rather than silently change
+#: it -- reading a u64 identifier back as i64, or an i32 as i64, is a
+#: conformance failure.
 #:
-#: ``bytes`` is deliberately absent: it has no Zarr V3 specification, so a
-#: contract that included it would not be portable.
+#: There is **one float**, ``f64``: a narrow real (``f16`` / ``f32``) is not a
+#: column dtype, and a reader refuses an array stored as one rather than
+#: widening it. ``c64`` / ``c128`` are the complex pairs the reference
+#: implementation stores. ``bytes`` is deliberately absent: it has no Zarr V3
+#: specification, so a contract that included it would not be portable.
 DTYPES: tuple[DType, ...] = (
-    "f16",
-    "f32",
     "f64",
     "i8",
     "i16",
@@ -72,8 +71,6 @@ NUMERIC_DTYPES: tuple[DType, ...] = tuple(d for d in DTYPES if d not in ("bool",
 
 #: The in-memory equivalent of each spec dtype.
 NUMPY_DTYPE: dict[DType, str] = {
-    "f16": "float16",
-    "f32": "float32",
     "f64": "float64",
     "i8": "int8",
     "i16": "int16",
@@ -334,8 +331,8 @@ class MetaSeriesModel(BaseModel):
     ``dtype`` is a tag from the closed per-step set (:data:`META_TAGS`): a
     column dtype for a scalar, ``f64x3`` / ``bool3`` / ... for a fixed-width
     vector, ``json`` for one JSON document per step. The tag is what makes
-    the value exact: two runs both handing back ``1.0`` are not the same run
-    if one wrote f32 and the other f64, and nothing in the value says which.
+    the value exact: two runs both handing back ``1`` are not the same run if
+    one wrote i32 and the other u64, and nothing in the value says which.
 
     ``fill`` is the only thing that lets a frame omit the key. A key declared
     without one must be supplied by every frame -- there is **no implicit

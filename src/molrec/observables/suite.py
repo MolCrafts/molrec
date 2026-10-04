@@ -19,7 +19,7 @@ from molrec.ref import Ref
 from molrec.registry import REGISTRY
 from molrec.suite import Suite
 
-_NUMPY = {"f64": "float64", "f32": "float32", "i64": "int64"}
+_NUMPY = {"f64": "float64", "i32": "int32", "i64": "int64"}
 
 
 def array(dims: tuple[str, ...], data, unit: str | None = None, dtype: str = "f64") -> Array:
@@ -186,10 +186,10 @@ class ObservableSuite(Suite):
 
         yield Case(
             id="width-is-preserved",
-            exercises="f32 values stay f32 -- widening doubles the file, narrowing loses data",
+            exercises="i32 values stay i32 -- an integer comes back at its own width",
             model=ObservablesModel(
                 coordinates={"step": array(("point",), [0, 1], dtype="i64")},
-                observables={"train/loss": _observable(("point",), [0.9, 0.7], dtype="f32")},
+                observables={"train/count": _observable(("point",), [9, 7], dtype="i32")},
             ),
         )
 

@@ -132,8 +132,6 @@
       "properties": {
         "dtype": {
           "enum": [
-            "f16",
-            "f32",
             "f64",
             "i8",
             "i16",
@@ -212,12 +210,10 @@
       "type": "object"
     },
     "MetaSeriesModel": {
-      "description": "One per-step meta key, declared once for the whole sequence.\n\n``dtype`` is a tag from the closed per-step set (:data:`META_TAGS`): a\ncolumn dtype for a scalar, ``f64x3`` / ``bool3`` / ... for a fixed-width\nvector, ``json`` for one JSON document per step. The tag is what makes\nthe value exact: two runs both handing back ``1.0`` are not the same run\nif one wrote f32 and the other f64, and nothing in the value says which.\n\n``fill`` is the only thing that lets a frame omit the key. A key declared\nwithout one must be supplied by every frame -- there is **no implicit\nNaN**, so a gap a producer did not declare is refused rather than\ninvented. The fill is materialized into the array at the omitting step\n*and* recorded in the pinned sequence declaration\n(``trajectory`` attribute ``sequence_schema``), so a reader that opens the\ndeclaration can hand it back.",
+      "description": "One per-step meta key, declared once for the whole sequence.\n\n``dtype`` is a tag from the closed per-step set (:data:`META_TAGS`): a\ncolumn dtype for a scalar, ``f64x3`` / ``bool3`` / ... for a fixed-width\nvector, ``json`` for one JSON document per step. The tag is what makes\nthe value exact: two runs both handing back ``1`` are not the same run if\none wrote i32 and the other u64, and nothing in the value says which.\n\n``fill`` is the only thing that lets a frame omit the key. A key declared\nwithout one must be supplied by every frame -- there is **no implicit\nNaN**, so a gap a producer did not declare is refused rather than\ninvented. The fill is materialized into the array at the omitting step\n*and* recorded in the pinned sequence declaration\n(``trajectory`` attribute ``sequence_schema``), so a reader that opens the\ndeclaration can hand it back.",
       "properties": {
         "dtype": {
           "enum": [
-            "f16",
-            "f32",
             "f64",
             "i8",
             "i16",
@@ -231,12 +227,6 @@
             "string",
             "c64",
             "c128",
-            "f16x3",
-            "f16x6",
-            "f16x9",
-            "f32x3",
-            "f32x6",
-            "f32x9",
             "f64x3",
             "f64x6",
             "f64x9",
@@ -328,8 +318,6 @@
       "properties": {
         "dtype": {
           "enum": [
-            "f16",
-            "f32",
             "f64",
             "i8",
             "i16",

@@ -99,8 +99,8 @@ class TestRecordModel:
 
 class TestMetaTags:
     def test_the_set_is_the_ruled_one(self) -> None:
-        # 15 column dtypes + 13 numeric dtypes x {3, 6, 9} + bool3 + json
-        assert len(META_TAGS) == 15 + 13 * 3 + 1 + 1
+        # 13 column dtypes + 11 numeric dtypes x {3, 6, 9} + bool3 + json
+        assert len(META_TAGS) == 13 + 11 * 3 + 1 + 1
         assert {"f64x3", "i64x6", "u8x9", "c128x3", "bool3", "json"} <= set(META_TAGS)
         assert "boolx3" not in META_TAGS and "stringx3" not in META_TAGS
 
@@ -109,7 +109,7 @@ class TestMetaTags:
         assert meta_tag_parts("bool3") == ("bool", (3,))
         assert meta_tag_parts("json") == ("string", ())
         assert meta_tag("bool", (3,)) == "bool3"
-        assert meta_tag("f32", (9,)) == "f32x9"
+        assert meta_tag("f64", (9,)) == "f64x9"
 
     def test_json_is_a_meta_tag_not_a_column_dtype(self) -> None:
         assert MetaSeriesModel(dtype="json").element_dtype == "string"
