@@ -89,6 +89,20 @@ class Suite(ABC):
     def _fail(self, case: Case, binding: Binding, direction: str, *found: Violation) -> CaseResult:
         return self._result(case, binding, direction, status="fail", violations=found)
 
+    def _verdict(self, case: Case, binding: Binding, direction: str, actual: Any) -> CaseResult:
+        """Compare, and let a comparison that crashes cost one case rather than the run."""
+        try:
+            violations = self.compare(case.model, actual)
+        except Exception as exc:
+            return self._error(case, binding, direction, f"comparison crashed: {_why(exc)}")
+        return self._result(
+            case,
+            binding,
+            direction,
+            status="fail" if violations else "pass",
+            violations=violations,
+        )
+
     def _raised(
         self, case: Case, adapter: Adapter, binding: Binding, direction: str, exc: Exception
     ) -> CaseResult:
@@ -151,14 +165,7 @@ class Suite(ABC):
                 ),
             )
 
-        violations = self.compare(case.model, recovered)
-        return self._result(
-            case,
-            binding,
-            "write",
-            status="fail" if violations else "pass",
-            violations=violations,
-        )
+        return self._verdict(case, binding, "write", recovered)
 
     def _read_direction(
         self, case: Case, adapter: Adapter, binding: Binding, codec: Codec, workdir: Path
@@ -183,14 +190,7 @@ class Suite(ABC):
                 case, binding, "read", Violation(kind="model_mismatch", detail=str(exc))
             )
 
-        violations = self.compare(case.model, recovered)
-        return self._result(
-            case,
-            binding,
-            "read",
-            status="fail" if violations else "pass",
-            violations=violations,
-        )
+        return self._verdict(case, binding, "read", recovered)
 
     def _rejects(
         self, case: Case, adapter: Adapter, binding: Binding, codec: Codec, workdir: Path

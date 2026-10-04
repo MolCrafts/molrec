@@ -11,6 +11,7 @@ someone fixing a file wants the whole list, not one round trip per field.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -24,7 +25,7 @@ def diff(expected: Any, actual: Any, path: str = "") -> tuple[Violation, ...]:
     """Every way ``actual`` departs from ``expected``."""
     if isinstance(expected, BaseModel):
         return _diff_model(expected, actual, path)
-    if isinstance(expected, dict):
+    if isinstance(expected, Mapping):
         return _diff_mapping(expected, actual, path)
     # An array on either side has to be routed here. An implementation that
     # supplies a value where the model has none is as much a difference as one
@@ -48,7 +49,7 @@ def _diff_model(expected: BaseModel, actual: Any, path: str) -> tuple[Violation,
         try:
             got = getattr(actual, name)
         except AttributeError:
-            if isinstance(actual, dict) and name in actual:
+            if isinstance(actual, Mapping) and name in actual:
                 got = actual[name]
             else:
                 found.append(Violation(kind="missing_field", path=_at(path, name), detail="absent"))
@@ -62,7 +63,7 @@ def _extras(value: Any, declared: frozenset[str]) -> dict[str, Any]:
     """The unknown keys a value carries -- the ones ``model_fields`` misses."""
     if isinstance(value, BaseModel):
         return dict(value.__pydantic_extra__ or {})
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return {key: item for key, item in value.items() if key not in declared}
     return {}
 
@@ -83,8 +84,8 @@ def _diff_extras(expected: BaseModel, actual: Any, path: str) -> tuple[Violation
     return _diff_mapping(_extras(expected, declared), _extras(actual, declared), path)
 
 
-def _diff_mapping(expected: dict, actual: Any, path: str) -> tuple[Violation, ...]:
-    if not isinstance(actual, dict):
+def _diff_mapping(expected: Mapping, actual: Any, path: str) -> tuple[Violation, ...]:
+    if not isinstance(actual, Mapping):
         return (
             Violation(
                 kind="wrong_type",
@@ -122,7 +123,16 @@ def _diff_array(expected: Any, actual: Any, path: str) -> tuple[Violation, ...]:
         )
     if actual is None:
         return (Violation(kind="missing_values", path=path, detail="no array"),)
-    got = actual if isinstance(actual, np.ndarray) else np.asarray(actual)
+    if not isinstance(expected, np.ndarray):
+        # The model holds plain values here (a per-step vector, a fill) and
+        # the implementation handed back an array. The plain values carry no
+        # numpy dtype to hold the array to, so it is judged element by
+        # element, each scalar's type included.
+        return diff(expected, np.asarray(actual).tolist(), path)
+    try:
+        got = actual if isinstance(actual, np.ndarray) else np.asarray(actual)
+    except (TypeError, ValueError) as exc:
+        return (Violation(kind="wrong_type", path=path, detail=f"not an array: {exc}"),)
     if got.shape != expected.shape:
         return (
             Violation(
@@ -131,9 +141,22 @@ def _diff_array(expected: Any, actual: Any, path: str) -> tuple[Violation, ...]:
                 detail=f"expected {expected.shape}, found {got.shape}",
             ),
         )
+    if _element_type(got.dtype) != _element_type(expected.dtype):
+        return (
+            Violation(
+                kind="wrong_type",
+                path=path,
+                detail=f"expected {expected.dtype}, found {got.dtype}",
+            ),
+        )
     if not arrays_equal(expected, got):
         return (Violation(kind="value_mismatch", path=path, detail="array contents differ"),)
     return ()
+
+
+def _element_type(dtype: np.dtype) -> str:
+    """The width-exact element type of an array -- every numpy string spelling is one."""
+    return "string" if dtype.kind in ("U", "T", "O", "S") else dtype.name
 
 
 def _equal(expected: Any, actual: Any) -> bool:
@@ -150,7 +173,7 @@ def _equal(expected: Any, actual: Any) -> bool:
 
 
 def _diff_sequence(expected: Any, actual: Any, path: str) -> tuple[Violation, ...]:
-    if actual is None or isinstance(actual, (str, bytes)):
+    if actual is None or isinstance(actual, (str, bytes, Mapping)):
         return (
             Violation(
                 kind="wrong_type",
@@ -158,7 +181,16 @@ def _diff_sequence(expected: Any, actual: Any, path: str) -> tuple[Violation, ..
                 detail=f"expected a sequence, found {type(actual).__name__}",
             ),
         )
-    got = list(actual)
+    try:
+        got = list(actual)
+    except TypeError:
+        return (
+            Violation(
+                kind="wrong_type",
+                path=path,
+                detail=f"expected a sequence, found {type(actual).__name__}",
+            ),
+        )
     want = list(expected)
     if len(got) != len(want):
         return (
@@ -174,7 +206,51 @@ def _diff_sequence(expected: Any, actual: Any, path: str) -> tuple[Violation, ..
     return tuple(found)
 
 
+def _scalar_type(value: Any) -> str | None:
+    """The contract-level type of a scalar, or ``None`` for anything else.
+
+    ``bool`` is not an ``int`` here and an ``int`` is not a ``float``: Python
+    says ``1 == True == 1.0``, and an equality that agrees would let an
+    implementation turn a flag into a count or a count into a measurement
+    without a word. numpy scalars are their Python kind.
+    """
+    if value is None:
+        return "null"
+    if isinstance(value, (bool, np.bool_)):
+        return "bool"
+    if isinstance(value, (int, np.integer)):
+        return "int"
+    if isinstance(value, (float, np.floating)):
+        return "float"
+    if isinstance(value, (complex, np.complexfloating)):
+        return "complex"
+    if isinstance(value, (str, np.str_)):
+        return "string"
+    if isinstance(value, bytes):
+        return "bytes"
+    return None
+
+
+def _both_nan(expected: Any, actual: Any) -> bool:
+    """NaN is not equal to itself, but a round trip that kept a NaN kept it."""
+    try:
+        return bool(np.isnan(expected)) and bool(np.isnan(actual))
+    except (TypeError, ValueError):
+        return False
+
+
 def _diff_scalar(expected: Any, actual: Any, path: str) -> tuple[Violation, ...]:
+    want, got = _scalar_type(expected), _scalar_type(actual)
+    if want is not None and got is not None and want != got:
+        return (
+            Violation(
+                kind="wrong_type",
+                path=path,
+                detail=f"expected {want} {expected!r}, found {got} {actual!r}",
+            ),
+        )
+    if want in ("float", "complex") and _both_nan(expected, actual):
+        return ()
     if _equal(expected, actual):
         return ()
     return (
