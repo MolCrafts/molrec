@@ -20,7 +20,7 @@ from enum import StrEnum
 from typing import Annotated, Any, Literal
 
 import numpy as np
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, WithJsonSchema, model_validator
 
 from molrec.arrays import NDArray, arrays_equal
 
@@ -401,7 +401,7 @@ class SequenceSchemaModel(BaseModel):
     per-step key as ``{dtype, fill?}`` -- the tag the array's ``meta_dtype``
     attribute repeats, and the fill an omitting frame is completed with.
 
-    The attribute carries no version of its own; the record's optional
+    The attribute carries no version of its own; the record's
     ``meta["molrec_version"]`` covers it.
     """
 
@@ -703,17 +703,56 @@ class ModuleModel(BaseModel):
     version: tuple[int, int]
 
 
+#: The contract version this package speaks. Every writer stamps it on
+#: ``meta``; a reader validates a present key and refuses a newer one.
+MOLREC_VERSION = 1
+
+#: ``meta["molrec_version"]``: absent, or an integer in ``1..=MOLREC_VERSION``.
+#: Strict -- ``"1"``, ``1.0`` and ``true`` are not versions -- and never
+#: ``null``: present means validated.
+MolrecVersion = Annotated[StrictInt, Field(ge=1, le=MOLREC_VERSION)]
+
+_VERSION_SCHEMA = {
+    "type": "integer",
+    "minimum": 1,
+    "maximum": MOLREC_VERSION,
+    "description": "Absent on a store written before version 1; never null.",
+}
+
+
+def revalidated[M: BaseModel](model: M) -> M:
+    """``model`` run through its validators again.
+
+    A model built around them (``model_construct``) is how a negative case
+    reaches a writer; a codec that refuses what the contract refuses calls
+    this first, so the one statement of the rules -- the model's -- is also
+    the writer's. Only the fields that were set are handed back in, so an
+    absent optional key stays absent rather than becoming an explicit null.
+    """
+    return type(model).model_validate(model.model_dump(exclude_unset=True))
+
+
+def stamp_version(document: dict[str, Any]) -> dict[str, Any]:
+    """``document`` with ``molrec_version`` stamped in when the producer gave none.
+
+    Every writer -- molrec's own codecs included -- emits the version it
+    writes; a producer that set the key keeps its value.
+    """
+    return {"molrec_version": MOLREC_VERSION, **document}
+
+
 class MetaModel(BaseModel):
     """The record's identity document.
 
     ``extra="allow"`` is not convenience -- it is the preserve-the-unknown
     invariant: a reader must keep keys it does not recognize.
 
-    ``molrec_version`` is **optional** while the contract is in development.
-    Writers do not emit it; a reader that finds it absent performs no version
-    check, and one that finds it present requires an integer ``>= 1`` no
-    greater than the newest it supports. Identity of a record is the
-    ``*.mrec`` path suffix plus a Zarr root, not this key.
+    ``molrec_version`` is stamped by every writer (:func:`stamp_version`). A
+    reader validates it only when present: absent is a store written before
+    version 1, read best-effort; present must be an integer in
+    ``1..=MOLREC_VERSION`` -- ``null``, ``0``, a string, a float or a newer
+    version is refused. Identity of a record is the ``*.mrec`` path suffix
+    plus a Zarr root, not this key.
 
     ``record_id`` and ``content_hash`` are optional provenance, like
     ``creator``, ``author``, ``created_at`` and ``source``.
@@ -721,7 +760,9 @@ class MetaModel(BaseModel):
 
     model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
-    molrec_version: int | None = Field(default=None, ge=1)
+    molrec_version: Annotated[MolrecVersion, WithJsonSchema(_VERSION_SCHEMA)] = Field(
+        default=None, json_schema_extra=lambda schema: schema.pop("default", None)
+    )
     creator: CreatorModel | None = None
     author: AuthorModel | None = None
     created_at: str | None = None
@@ -824,7 +865,9 @@ class CollectionMetaModel(BaseModel):
     model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
     units: dict[str, str]
-    molrec_version: int | None = Field(default=None, ge=1)
+    molrec_version: Annotated[MolrecVersion, WithJsonSchema(_VERSION_SCHEMA)] = Field(
+        default=None, json_schema_extra=lambda schema: schema.pop("default", None)
+    )
 
 
 class CollectionModel(BaseModel):

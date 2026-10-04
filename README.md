@@ -64,10 +64,10 @@ optional. A record also includes **at least one of** `frame`, `system`,
 `trajectory`, or `status`. A **Run**-shaped record (`meta` + `status`) is
 valid on its own; a trajectory-only record (`meta` + `trajectory`) is
 equally valid, and trajectory may omit `system/`. The cell is **Box**.
-`meta["molrec_version"]` is **optional** while the contract is in
-development: writers do not emit it, readers validate it only when present
-(integer ≥ 1). A record is identified by its `*.mrec` path suffix plus its
-Zarr root. See the [format specification](docs/spec/specification.md).
+Every writer stamps `meta["molrec_version"]` (currently `1`); readers
+validate it only when present — an absent key marks a store written before
+version 1. A record is identified by its `*.mrec` path suffix plus its Zarr
+root. See the [format specification](docs/spec/specification.md).
 
 ## Key design principles
 
@@ -76,7 +76,7 @@ Zarr root. See the [format specification](docs/spec/specification.md).
 - **System and state.** `system/` defines the system; coordinates live on `frame` / `trajectory`.
 - **Run surface.** Training and jobs use `status` + `metrics` + `method` as one surface.
 - **Box.** The cell contract name is `Box` / `box`.
-- **One schema version, optional for now.** `meta["molrec_version"]` (integer, starts at 1) is validated when present and not emitted during development.
+- **One schema version.** Writers stamp `meta["molrec_version"]` (integer, currently 1); readers validate it when present and refuse a newer one.
 - **Zarr + metrics WAL.** One Zarr V3 root holds arrays and document sections (group attributes). Closed metrics densify to Zarr series; live metrics use an append-only JSONL WAL (`metrics/metrics.jsonl`). The trajectory encoding is the [ragged CSR layout](docs/spec/ragged.md).
 - **Hard cut.** Writers emit the current keys (`sequence_schema`, `meta_dtype`, no vendor prefixes); migrate older files offline.
 - **Collections.** Named blocks carry any entity set.

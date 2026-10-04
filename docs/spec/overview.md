@@ -108,7 +108,7 @@ contents are group attributes (one JSON object):
 
 ```text
 meta
- +-- (molrec_version: i64[])
+ +-- molrec_version: i64[]           (absent only on a pre-1 store)
  +-- (creator)
  |    +-- name: string[]
  |    +-- (version: string[])
@@ -124,12 +124,17 @@ meta
 
 `molrec_version`
 
-An optional integer attribute. While the contract is in development writers
-do not emit it. A reader that finds it absent performs no version check; a
-reader that finds it present requires an integer `>= 1` and no greater than
-the newest version it supports, and refuses anything else. When it is
-emitted it covers the whole package — layout, containers, dtypes, and the
-trajectory sequence declaration — and starts at 1.
+The integer version of this contract the package was written against. It
+covers the whole package — layout, containers, dtypes, and the trajectory
+sequence declaration. The current version is `1`.
+
+- **Writers always emit it.** A writer stamps `molrec_version: 1` on every
+  record it writes (a producer that supplied its own valid value keeps it).
+- **Readers validate it only when present.** An absent key marks a store
+  written before version 1; a reader opens it best-effort and performs no
+  version check. A present key must be a JSON integer in
+  `1 ..= <newest the reader supports>`. `null`, `0`, a string, a float, a
+  boolean, or a newer version is refused — present means validated.
 
 Identity of a record is the path brand `*.mrec/` / `*.mrec.zip` plus a Zarr
 root, not this key. A bump indicates a change to a normative rule. Additive

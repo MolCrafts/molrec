@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from molrec.case import Case
 from molrec.compare import diff, lookup
 from molrec.core.model import (
+    MOLREC_VERSION,
     NUMPY_DTYPE,
     BlockModel,
     BoxModel,
@@ -781,6 +782,32 @@ class TrajectorySuite(Suite):
         )
 
 
+#: Marks a key a tamper removes rather than sets.
+_DELETE = object()
+
+
+def _set_record_meta(key: str, value: Any) -> Any:
+    """A tamper that sets (or, with :data:`_DELETE`, removes) one ``meta/`` attribute.
+
+    What a writer of another contract version -- or a broken one -- would have
+    left there; molrec's own codec always stamps a valid version.
+    """
+
+    def tamper(store: Any) -> None:
+        import zarr
+
+        group = zarr.open_group(store=store.path, mode="r+")["meta"]
+        attrs = dict(group.attrs)
+        if value is _DELETE:
+            attrs.pop(key, None)
+        else:
+            attrs[key] = value
+        group.attrs.clear()
+        group.attrs.update(attrs)
+
+    return tamper
+
+
 @REGISTRY.suite
 class RecordSuite(Suite):
     """The record root -- the shape a real producer actually writes.
@@ -807,7 +834,7 @@ class RecordSuite(Suite):
         them in front of a real implementation instead of only in front of
         molrec's own codec.
         """
-        meta = MetaModel()
+        meta = MetaModel(molrec_version=MOLREC_VERSION)
         for case in FrameSuite().cases():
             if case.tamper is not None:
                 # A frame case's tamper addresses a bare frame root, not the
@@ -819,6 +846,7 @@ class RecordSuite(Suite):
                 expect_violation=case.expect_violation,
                 rejects_on=case.rejects_on,
                 backends=case.backends,
+                directions=case.directions,
                 model=RecordModel.model_construct(meta=meta, frame=case.model, system=None),
             )
 
@@ -835,40 +863,51 @@ class RecordSuite(Suite):
             }
         )
 
+        meta = MetaModel(molrec_version=MOLREC_VERSION)
+
         yield Case(
-            id="no-version",
-            exercises="the minimum interchange unit, an empty meta document plus one frame -- "
-            "molrec_version is optional, so a store without it opens and validates",
+            id="writer-stamps-version",
+            exercises="a writer stamps molrec_version on a meta document that carries none",
             model=RecordModel(meta=MetaModel(), frame=atoms),
+            expected=RecordModel(meta=meta, frame=atoms),
         )
 
         yield Case(
             id="version-present",
             exercises="a store carrying molrec_version 1 validates and hands it back",
-            model=RecordModel(meta=MetaModel(molrec_version=1), frame=atoms),
+            model=RecordModel(meta=meta, frame=atoms),
         )
 
         yield Case(
-            id="reject-version-zero",
-            exercises="molrec_version, when present, is an integer >= 1",
-            expect_violation="bad_version",
-            model=RecordModel.model_construct(
-                meta=MetaModel.model_construct(molrec_version=0),
-                frame=atoms,
-                system=None,
-                trajectory=None,
-                status=None,
-                method=None,
-                metrics=None,
-                observables=None,
-            ),
+            id="absent-version-opens",
+            exercises="a store written before version 1 has no molrec_version: no version "
+            "check, read best-effort, and nothing is invented",
+            model=RecordModel(meta=meta, frame=atoms),
+            expected=RecordModel(meta=MetaModel(), frame=atoms),
+            directions=("read",),
+            tamper=_set_record_meta("molrec_version", _DELETE),
         )
+
+        for case_id, value, why in (
+            ("reject-version-zero", 0, "an integer >= 1"),
+            ("reject-version-newer", MOLREC_VERSION + 1, "no newer than the reader supports"),
+            ("reject-version-null", None, "never null: present means validated"),
+            ("reject-version-string", "1", "an integer, not a string"),
+            ("reject-version-float", 1.0, "an integer, not a float"),
+        ):
+            yield Case(
+                id=case_id,
+                exercises=f"molrec_version, when present, is {why}",
+                expect_violation="bad_version",
+                model=RecordModel(meta=meta, frame=atoms),
+                tamper=_set_record_meta("molrec_version", value),
+            )
 
         yield Case(
             id="system-and-frame",
             exercises="a system definition and a snapshot are separate sections",
             model=RecordModel(
-                meta=MetaModel(),
+                meta=meta,
                 system=FrameModel(
                     blocks={
                         "atoms": BlockModel(
@@ -892,6 +931,7 @@ class RecordSuite(Suite):
             exercises="record identity and content hash survive the round trip",
             model=RecordModel(
                 meta=MetaModel(
+                    molrec_version=MOLREC_VERSION,
                     record_id="8f14e45f-ea8f-4b6d-9c1a-000000000001",
                     content_hash="sha256:0000000000000000000000000000000000000000000000000000000000000000",
                 ),
@@ -905,6 +945,7 @@ class RecordSuite(Suite):
             model=RecordModel(
                 meta=MetaModel.model_validate(
                     {
+                        "molrec_version": MOLREC_VERSION,
                         "creator": {"name": "molrec-suite", "version": "0.1.0"},
                         "x_vendor_local": {"anything": [1, 2, 3]},
                     }
@@ -917,7 +958,7 @@ class RecordSuite(Suite):
             id="record-with-box",
             exercises="the cell rides on the frame section, under the name box",
             model=RecordModel(
-                meta=MetaModel(),
+                meta=meta,
                 frame=FrameModel(
                     blocks={"atoms": BlockModel(count=1, columns={"x": _column("f64", [0.5])})},
                     box=BoxModel(
@@ -1010,7 +1051,14 @@ class CollectionSuite(Suite):
             meta=schema_meta,
         )
         record = RecordModel(meta=MetaModel(), system=system, trajectory=relaxation)
-        meta = CollectionMetaModel(units=self.UNITS)
+        meta = CollectionMetaModel(units=self.UNITS, molrec_version=MOLREC_VERSION)
+
+        yield Case(
+            id="writer-stamps-version",
+            exercises="the collection document carries molrec_version, stamped by the writer",
+            model=CollectionModel(meta=CollectionMetaModel(units=self.UNITS), records=[record]),
+            expected=CollectionModel(meta=meta, records=[record]),
+        )
 
         yield Case(
             id="topology-once-state-per-frame",

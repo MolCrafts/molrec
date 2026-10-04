@@ -13,7 +13,7 @@ regression output — they are not hand-built in this repository, so that a
 golden is always something a real writer emitted.
 
 Fixture rules: no root `parameters/`, cell key `box` only,
-`meta.molrec_version` optional (an integer ≥ 1 when present). Physical forms
+`meta.molrec_version` stamped (the integer `1`). Physical forms
 follow [docs/spec/storage.md](../docs/spec/storage.md):
 
 - Documents → Zarr **group attributes** (payloads under `attrs/` for text goldens)

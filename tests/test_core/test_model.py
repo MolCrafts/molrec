@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from molrec.core.model import (
     META_TAGS,
+    MOLREC_VERSION,
     BlockModel,
     BlockState,
     ColumnModel,
@@ -25,6 +26,7 @@ from molrec.core.model import (
     TrajectoryModel,
     meta_tag,
     meta_tag_parts,
+    stamp_version,
 )
 
 
@@ -50,16 +52,25 @@ def _bonds(count: int) -> BlockModel:
 
 
 class TestMetaModel:
-    def test_version_is_optional(self) -> None:
+    def test_an_absent_version_is_a_pre_1_store(self) -> None:
         assert MetaModel().molrec_version is None
         assert MetaModel.model_validate({}).molrec_version is None
 
     def test_accepts_version_one(self) -> None:
         assert MetaModel(molrec_version=1).molrec_version == 1
 
-    def test_rejects_version_below_one(self) -> None:
+    @pytest.mark.parametrize("bad", [0, 2, None, "1", 1.0, True])
+    def test_a_present_version_is_validated(self, bad: object) -> None:
         with pytest.raises(ValidationError, match="molrec_version"):
-            MetaModel.model_validate({"molrec_version": 0})
+            MetaModel.model_validate({"molrec_version": bad})
+
+    def test_writers_stamp_the_version_and_keep_a_producer_one(self) -> None:
+        assert stamp_version({}) == {"molrec_version": MOLREC_VERSION}
+        assert stamp_version({"molrec_version": 1, "x": 2}) == {"molrec_version": 1, "x": 2}
+
+    def test_the_published_schema_forbids_null(self) -> None:
+        schema = MetaModel.model_json_schema()["properties"]["molrec_version"]
+        assert schema["type"] == "integer" and "default" not in schema
 
     def test_preserves_unknown_keys(self) -> None:
         meta = MetaModel.model_validate({"x_vendor_local": "kept"})

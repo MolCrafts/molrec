@@ -42,9 +42,10 @@ Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract.
 
 ## Spec hygiene
 
-- Version key `meta["molrec_version"]` (integer, starts at 1) is **optional**
-  during development: writers do not emit it; readers validate it only when
-  present. Identity = `*.mrec` suffix + Zarr root; `meta/` always exists.
+- Version key `meta["molrec_version"]` (integer, currently 1): **writers always
+  stamp it** (molrec's own codecs included); readers validate it only when
+  present (absent = pre-1 store, read best-effort; `null` or newer = refuse).
+  Identity = `*.mrec` suffix + Zarr root; writers always create `meta/`.
 - Scientific paths are `*.mrec/` / `*.mrec.zip`. Host metrics stay on the
   filename-gated `*.mlp.*` surface (live WAL `*.mlp.jsonl`; leftover
   `*.mlp.zarr` is ignored).

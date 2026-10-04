@@ -263,7 +263,7 @@ The declaration is pinned as the `trajectory/` group attribute
 - `meta`: a map of key to `{dtype, fill?}`, `dtype` drawn from the per-step
   tag set above.
 
-The attribute carries **no version of its own**; the record's optional
+The attribute carries **no version of its own**; the record's
 `meta["molrec_version"]` covers it.
 
 ## Resolving a frame
@@ -349,8 +349,8 @@ growth.mrec
            \-- vectors: f64[1][3][3]
 ```
 
-`meta/` is present with an empty attribute map: writers always create it and
-do not write `molrec_version`.
+`meta/` is present with `molrec_version: 1` in its attribute map: writers
+always create it and stamp the version.
 
 Suppose the first three frames have 2, 2, and 5 atoms. Then:
 

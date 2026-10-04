@@ -74,6 +74,8 @@ from molrec.core.model import (
     TrajectoryModel,
     dtype_of,
     meta_tag,
+    revalidated,
+    stamp_version,
 )
 from molrec.core.store import FrameStore, RecordStore, TrajectoryStore
 from molrec.registry import REGISTRY
@@ -390,9 +392,9 @@ class ZarrTrajectoryCodec(Codec):
     def write(self, model: TrajectoryModel, store: ZarrTrajectoryStore) -> None:
         store.clear()
         root = store.root(mode="w")
-        # Root, then ``meta/`` (an empty document is a valid one), then the
+        # Root, then ``meta/`` (stamped with the contract version), then the
         # sequence -- the creation order every writer follows.
-        root.create_group(RECORD_META)
+        root.create_group(RECORD_META).attrs.update(stamp_version({}))
         self.write_into(root.create_group(TRAJECTORY_GROUP), model)
 
     def read(self, store: ZarrTrajectoryStore) -> TrajectoryModel:
@@ -411,7 +413,7 @@ class ZarrTrajectoryCodec(Codec):
         without a fill, a non-increasing step, a partial ``time``, a grid
         whose row count moved, none of them reaches the disk.
         """
-        model = TrajectoryModel.model_validate(model.model_dump())
+        model = revalidated(model)
         nstep = len(model.frames)
 
         declaration = SequenceSchemaModel(blocks=model.blocks or {}, meta=model.meta)
@@ -886,9 +888,9 @@ class ZarrRecordCodec(Codec):
     for those. Frame-shaped sections delegate to the frame codec, so there is
     exactly one description of how blocks are laid out.
 
-    ``meta/`` is always written, first, and may be an empty document: writers
-    do not emit ``molrec_version``. A root without ``meta/`` reads as an empty
-    document.
+    ``meta/`` is always written, first, and carries ``molrec_version``: a
+    writer stamps the version it writes when the producer's document has
+    none. A root without ``meta/`` reads as an empty document.
     """
 
     def __init__(self) -> None:
@@ -899,7 +901,7 @@ class ZarrRecordCodec(Codec):
         store.clear()
         root = store.root(mode="w")
         root.create_group(RECORD_META).attrs.update(
-            model.meta.model_dump(mode="json", exclude_none=True)
+            stamp_version(model.meta.model_dump(mode="json", exclude_none=True))
         )
         for name, document in ((RECORD_STATUS, model.status), (RECORD_METHOD, model.method)):
             if document is not None:

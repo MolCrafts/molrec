@@ -125,15 +125,15 @@ exactly the document that section chapters describe.
 
 | Section | Group path | Required keys when group exists |
 |---------|------------|----------------------------------|
-| `meta` | `meta/` | none — `molrec_version` is optional (see [Metadata](overview.md#metadata)) |
+| `meta` | `meta/` | `molrec_version`, stamped by every writer (absent only on a pre-1 store; see [Metadata](overview.md#metadata)) |
 | `status` | `status/` | `state` |
 | `method` | `method/` | `type`, `description`, `engine.name` |
 
 Identity of a scientific record is the path suffix `*.mrec/` plus the Zarr
-root itself. Writers always create the root group `zarr.json` and the
-`meta/` group first — with the caller's document or an empty attribute map
-— and only then the sections; a reader treats a missing `meta/` as an empty
-document.
+root itself. Writers **MUST** create the root group `zarr.json` and the
+`meta/` group first — the caller's document with `molrec_version` stamped
+in — and only then the sections. A reader treats a missing `meta/` as an
+empty document (a pre-1 store: no version check).
 
 ## Array groups
 
@@ -168,10 +168,11 @@ back.
 4. Array sections use Zarr array groups. Trajectory uses the
    [ragged CSR layout](ragged.md).
 5. Preserve unknown sections and keys.
-6. `meta/` always exists (possibly empty). `meta["molrec_version"]` is
-   optional during development: absent means no version check; present
-   means an integer `>= 1`, no greater than the newest the reader supports.
-   Scientific paths use `*.mrec/` / `*.mrec.zip`.
+6. Writers create `meta/` and stamp `meta["molrec_version"]`. A reader
+   validates the key only when present: absent means a pre-1 store and no
+   version check; present means a JSON integer `>= 1`, no greater than the
+   newest the reader supports, never `null`. Scientific paths use
+   `*.mrec/` / `*.mrec.zip`.
 7. Data precede metadata. A writer lands chunk bytes before it replaces an
    array's `zarr.json` (atomically), `step` last of all, and a reader is
    bound by the trajectory group's `nstep` attribute.

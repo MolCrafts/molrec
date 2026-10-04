@@ -48,6 +48,8 @@ from molrec.core.model import (
     SequenceSchemaModel,
     TrajectoryBoxModel,
     TrajectoryModel,
+    revalidated,
+    stamp_version,
 )
 from molrec.core.store import CollectionStore, TrajectoryStore
 from molrec.registry import REGISTRY
@@ -304,7 +306,7 @@ class LmdbCollectionCodec(Codec):
     """The official translation of a collection. Thin: it is the arbiter."""
 
     def write(self, model: CollectionModel, store: LmdbCollectionStore) -> None:
-        model = CollectionModel.model_validate(model.model_dump())
+        model = revalidated(model)
         schema = model.sequence_schema or SequenceSchemaModel()
         store.clear()
         env = store.open(write=True)
@@ -363,7 +365,9 @@ class LmdbCollectionCodec(Codec):
                         {
                             "layout": LAYOUT,
                             "layout_version": LAYOUT_VERSION,
-                            "collection": model.meta.model_dump(mode="json", exclude_none=True),
+                            "collection": stamp_version(
+                                model.meta.model_dump(mode="json", exclude_none=True)
+                            ),
                             "sequence_schema": schema.model_dump(mode="json", exclude_none=True),
                             "n_records": len(model.records),
                             "n_frames": ordinal,
@@ -411,6 +415,7 @@ class LmdbCollectionCodec(Codec):
                     raise ValueError(
                         f"{store.path}: layout {meta.get('layout')!r}, expected {LAYOUT!r}"
                     )
+                _check_layout_version(meta.get("layout_version"), store.path)
                 schema = SequenceSchemaModel.model_validate(meta["sequence_schema"])
                 index = decode_frame(txn.get(INDEX_KEY)).blocks[INDEX_BLOCK]
                 n_records, total = int(meta["n_records"]), int(meta["n_frames"])
@@ -483,6 +488,17 @@ class LmdbCollectionCodec(Codec):
         return RecordModel(meta=meta, system=system, trajectory=trajectory)
 
 
+def _check_layout_version(version: Any, path: Path) -> None:
+    """``layout_version`` is the binding's own layout version: required, an
+    integer in ``1..=LAYOUT_VERSION``. It is not ``molrec_version``, which the
+    collection document carries under the record rule."""
+    if type(version) is not int or not 1 <= version <= LAYOUT_VERSION:
+        raise ValueError(
+            f"{path}: layout_version {version!r} is not one this reader supports "
+            f"(1..={LAYOUT_VERSION})"
+        )
+
+
 class LmdbTrajectoryCodec(Codec):
     """A bare trajectory: a collection of one record with no system."""
 
@@ -492,7 +508,7 @@ class LmdbTrajectoryCodec(Codec):
     UNITS: ClassVar[dict[str, str]] = {}
 
     def write(self, model: TrajectoryModel, store: LmdbTrajectoryStore) -> None:
-        model = TrajectoryModel.model_validate(model.model_dump())
+        model = revalidated(model)
         LmdbCollectionCodec().write(
             CollectionModel(
                 meta=CollectionMetaModel(units=dict(self.UNITS)),

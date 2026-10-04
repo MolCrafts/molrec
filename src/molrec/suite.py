@@ -70,8 +70,10 @@ class Suite(ABC):
                 else:
                     results.append(self._rejects(case, adapter, binding, codec, workdir))
                 continue
-            results.append(self._write_direction(case, adapter, binding, codec, workdir))
-            results.append(self._read_direction(case, adapter, binding, codec, workdir))
+            if "write" in case.directions:
+                results.append(self._write_direction(case, adapter, binding, codec, workdir))
+            if "read" in case.directions:
+                results.append(self._read_direction(case, adapter, binding, codec, workdir))
         return results
 
     def _result(self, case: Case, binding: Binding, direction: str, **kwargs: Any) -> CaseResult:
@@ -92,7 +94,7 @@ class Suite(ABC):
     def _verdict(self, case: Case, binding: Binding, direction: str, actual: Any) -> CaseResult:
         """Compare, and let a comparison that crashes cost one case rather than the run."""
         try:
-            violations = self.compare(case.model, actual)
+            violations = self.compare(case.judged_against, actual)
         except Exception as exc:
             return self._error(case, binding, direction, f"comparison crashed: {_why(exc)}")
         return self._result(
@@ -173,6 +175,8 @@ class Suite(ABC):
         try:
             store = binding.new_store(workdir / f"{case.id}.read")
             codec.write(case.model, store)
+            if case.tamper is not None:
+                case.tamper(store)
         except Exception as exc:
             return self._error(case, binding, "read", f"could not prepare the case: {_why(exc)}")
         try:

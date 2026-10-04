@@ -81,7 +81,7 @@
     }
   },
   "additionalProperties": true,
-  "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.\n\n``molrec_version`` is **optional** while the contract is in development.\nWriters do not emit it; a reader that finds it absent performs no version\ncheck, and one that finds it present requires an integer ``>= 1`` no\ngreater than the newest it supports. Identity of a record is the\n``*.mrec`` path suffix plus a Zarr root, not this key.\n\n``record_id`` and ``content_hash`` are optional provenance, like\n``creator``, ``author``, ``created_at`` and ``source``.",
+  "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.\n\n``molrec_version`` is stamped by every writer (:func:`stamp_version`). A\nreader validates it only when present: absent is a store written before\nversion 1, read best-effort; present must be an integer in\n``1..=MOLREC_VERSION`` -- ``null``, ``0``, a string, a float or a newer\nversion is refused. Identity of a record is the ``*.mrec`` path suffix\nplus a Zarr root, not this key.\n\n``record_id`` and ``content_hash`` are optional provenance, like\n``creator``, ``author``, ``created_at`` and ``source``.",
   "properties": {
     "author": {
       "anyOf": [
@@ -145,17 +145,11 @@
       "title": "Modules"
     },
     "molrec_version": {
-      "anyOf": [
-        {
-          "minimum": 1,
-          "type": "integer"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Molrec Version"
+      "description": "Absent on a store written before version 1; never null.",
+      "maximum": 1,
+      "minimum": 1,
+      "title": "Molrec Version",
+      "type": "integer"
     },
     "record_id": {
       "anyOf": [

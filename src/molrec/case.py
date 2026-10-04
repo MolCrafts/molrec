@@ -23,9 +23,18 @@ class Case[M: BaseModel](BaseModel):
     a reserved name refused at declaration or a step number that does not
     increase.
 
-    ``tamper`` runs after the codec has written a read-direction negative
-    case, on the store itself. It is how a malformation the models cannot
-    express -- a non-monotonic ``offset`` -- reaches the reader under test.
+    ``tamper`` runs after the codec has written a read-direction case, on the
+    store itself. It is how something the models cannot express -- a
+    non-monotonic ``offset``, a ``meta`` without ``molrec_version`` -- reaches
+    the reader under test.
+
+    ``expected`` is what a conforming reader hands back from the store this
+    case lays down, when that is not ``model`` itself: a writer stamps
+    ``molrec_version`` on a ``meta`` that carried none, and a tamper may
+    remove what the codec wrote. ``None`` means ``model``.
+
+    ``directions`` scopes a positive case to the directions it can honestly
+    run in: a store only a tamper can produce has no write direction.
 
     ``backends`` scopes a case to the backends it can honestly run on. Not
     every backend carries every payload -- a dense numeric series cannot hold
@@ -43,6 +52,13 @@ class Case[M: BaseModel](BaseModel):
     rejects_on: Literal["read", "write"] = "read"
     tamper: Callable[[Any], None] | None = None
     backends: tuple[str, ...] = ()
+    expected: M | None = None
+    directions: tuple[Literal["write", "read"], ...] = ("write", "read")
+
+    @property
+    def judged_against(self) -> M:
+        """The model a reader's answer is compared with."""
+        return self.model if self.expected is None else self.expected
 
     def applies_to(self, backend: str) -> bool:
         return not self.backends or backend in self.backends

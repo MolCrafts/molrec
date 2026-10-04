@@ -10,6 +10,8 @@ commit marker, and a value with a foreign magic is refused.
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pytest
 
@@ -82,6 +84,32 @@ class TestLmdbCollectionCodec:
             txn.delete(META_KEY)
         env.close()
         with pytest.raises(ValueError, match="not a committed collection"):
+            LmdbCollectionCodec().read(store)
+
+    def test_the_collection_document_is_stamped(self, tmp_path):
+        store = LmdbCollectionStore(tmp_path / "c.mrec.lmdb")
+        LmdbCollectionCodec().write(_collection(), store)
+        env = store.open()
+        with env.begin() as txn:
+            meta = json.loads(bytes(txn.get(META_KEY)))
+        env.close()
+        assert meta["layout_version"] == 1
+        assert meta["collection"]["molrec_version"] == 1
+
+    @pytest.mark.parametrize("version", [None, 0, 2, "1", 1.0])
+    def test_an_unsupported_layout_version_is_refused(self, tmp_path, version):
+        store = LmdbCollectionStore(tmp_path / "c.mrec.lmdb")
+        LmdbCollectionCodec().write(_collection(), store)
+        env = store.open(write=True)
+        with env.begin(write=True) as txn:
+            meta = json.loads(bytes(txn.get(META_KEY)))
+            if version is None:
+                del meta["layout_version"]
+            else:
+                meta["layout_version"] = version
+            txn.put(META_KEY, json.dumps(meta).encode())
+        env.close()
+        with pytest.raises(ValueError, match="layout_version"):
             LmdbCollectionCodec().read(store)
 
 

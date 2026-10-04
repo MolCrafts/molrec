@@ -6,8 +6,8 @@ The conformance suite judges the *logical* round trip; these tests look at
 the bytes the reference codec lays down, where the spec names them: the
 pinned ``sequence_schema`` attribute, ``meta_dtype`` on per-step arrays,
 ``boundary`` as an array, sharded arrays with the index at the start, the
-always-present ``meta/`` group without a version key, and the reader's
-refusal of a non-monotonic ``offset``.
+always-present ``meta/`` group stamped with ``molrec_version``, and the
+reader's refusal of a non-monotonic ``offset``.
 """
 
 from __future__ import annotations
@@ -185,13 +185,13 @@ def test_every_trajectory_array_is_sharded_with_the_index_at_the_start(tmp_path:
     assert step["codecs"][0]["configuration"]["chunk_shape"] == [1024]
 
 
-def test_a_bare_trajectory_store_has_a_root_and_an_empty_meta_document(tmp_path: Path) -> None:
+def test_a_bare_trajectory_store_has_a_root_and_a_stamped_meta_document(tmp_path: Path) -> None:
     store = ZarrTrajectoryStore(tmp_path / "bare.mrec")
     ZarrTrajectoryCodec().write(_trajectory(), store)
     root = store.root(mode="r")
     assert (store.path / "zarr.json").exists()
     assert "meta" in root
-    assert dict(root["meta"].attrs) == {}
+    assert dict(root["meta"].attrs) == {"molrec_version": 1}
 
 
 def test_a_non_monotonic_offset_is_refused(tmp_path: Path) -> None:
@@ -218,7 +218,7 @@ def test_a_longer_array_is_tolerated_a_shorter_one_refused(tmp_path: Path) -> No
         ZarrTrajectoryCodec().read(store)
 
 
-def test_the_record_codec_writes_no_version_and_reads_a_missing_meta_as_empty(
+def test_the_record_codec_stamps_the_version_and_reads_a_missing_meta_as_empty(
     tmp_path: Path,
 ) -> None:
     store = ZarrRecordStore(tmp_path / "record.mrec")
@@ -232,7 +232,7 @@ def test_the_record_codec_writes_no_version_and_reads_a_missing_meta_as_empty(
         store,
     )
     root = store.root(mode="r")
-    assert dict(root["meta"].attrs) == {}
+    assert dict(root["meta"].attrs) == {"molrec_version": 1}
     assert root["status"].attrs["stage"] == "train"
     back = codec.read(store)
     assert back.status is not None and back.status.state == "running"
