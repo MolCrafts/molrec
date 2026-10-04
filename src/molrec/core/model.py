@@ -33,6 +33,34 @@ from pydantic import (
 from molrec import jsonvalue
 from molrec.arrays import NDArray, arrays_equal, arrays_identical
 
+
+class DocumentModel(BaseModel):
+    """A JSON document the contract names some keys of and preserves the rest of.
+
+    ``extra="allow"`` is the preserve-the-unknown invariant: a key a reader
+    does not recognise is kept, verbatim. Serialized, a document holds the
+    keys that were stated -- a named key left at ``None`` is absent, never
+    written as ``null`` -- and every unknown key as it was, a ``null``-valued
+    one included. That is what lets a reader hand back exactly the document
+    it read.
+    """
+
+    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
+
+    @model_serializer(mode="wrap")
+    def _named_nulls_are_absent(self, handler: Any) -> dict[str, Any]:
+        data = handler(self)
+        for name in type(self).model_fields:
+            if getattr(self, name) is None:
+                data.pop(name, None)
+        return data
+
+
+def document(model: BaseModel) -> dict[str, Any]:
+    """A document model as the JSON object a binding stores: plain, finite."""
+    return jsonvalue.check_document(model.model_dump())
+
+
 DType = Literal[
     "f64",
     "i8",
@@ -100,17 +128,35 @@ _FROM_NUMPY: dict[str, DType] = {
 def dtype_of(dtype: np.dtype) -> DType:
     """The spec dtype an in-memory array carries.
 
-    UTF-8 strings reach us in more than one numpy spelling (``StringDType``,
-    fixed-width ``<U``, object arrays), and all of them are one spec dtype.
+    Unicode strings reach us in two numpy spellings (``StringDType``,
+    fixed-width ``<U``), and both are the one ``string`` dtype. Raw bytes
+    (``S``) are not text and are refused; an object array is judged by its
+    elements (:func:`values_dtype`).
     """
-    if dtype.kind in ("U", "T", "O", "S"):
+    if dtype.kind in ("U", "T"):
         return "string"
+    if dtype.kind in ("S", "O"):
+        raise ValueError(
+            f"a {dtype} array is not a column dtype: bytes are not text, and an object "
+            "array is a string column only when every element is a str"
+        )
     if dtype.name not in _FROM_NUMPY:
         raise ValueError(
             f"dtype {dtype.name!r} is outside the closed molrec set {DTYPES}; "
             "preserve it rather than narrowing it, or declare a module for it"
         )
     return _FROM_NUMPY[dtype.name]
+
+
+def values_dtype(values: np.ndarray) -> DType:
+    """The spec dtype of an in-memory array, looking inside an object array:
+    one of Python ``str`` objects is a ``string`` column, anything else in one
+    is refused."""
+    if values.dtype.kind == "O":
+        if all(isinstance(value, str) for value in values.flat):
+            return "string"
+        raise ValueError("an object array is a string column only when every element is a str")
+    return dtype_of(values.dtype)
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +280,7 @@ class ColumnModel(BaseModel):
         if self.values is not None:
             if tuple(self.values.shape) != self.shape:
                 raise ValueError(f"values have shape {self.values.shape}, declared {self.shape}")
-            carried = dtype_of(self.values.dtype)
+            carried = values_dtype(self.values)
             if carried != self.dtype:
                 raise ValueError(f"values carry dtype {carried!r}, declared {self.dtype!r}")
         if self.validity is not None:
@@ -477,7 +523,7 @@ class FrameModel(BaseModel):
     independent and any block name is legal.
     """
 
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
+    model_config = ConfigDict(frozen=True, from_attributes=True, extra="forbid")
 
     blocks: dict[str, BlockModel] = Field(default_factory=dict)
     box: BoxModel | None = None
@@ -615,7 +661,7 @@ class SequenceColumnModel(BaseModel):
         return data
 
 
-class SequenceBlockModel(BaseModel):
+class SequenceBlockModel(DocumentModel):
     """One block's declaration: its columns and, when it is a grid, its shape.
 
     A block that declares ``structural_shape`` is a fixed-size object: every
@@ -623,13 +669,11 @@ class SequenceBlockModel(BaseModel):
     refuses one that does not.
     """
 
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
-
     columns: dict[str, SequenceColumnModel] = Field(default_factory=dict)
     structural_shape: tuple[int, ...] | None = None
 
 
-class SequenceSchemaModel(BaseModel):
+class SequenceSchemaModel(DocumentModel):
     """The ``trajectory/`` group attribute ``sequence_schema``.
 
     The set of blocks, columns, dtypes, trailing shapes and per-step meta keys
@@ -641,8 +685,6 @@ class SequenceSchemaModel(BaseModel):
     The attribute carries no version of its own; the record's
     ``meta["molrec_version"]`` covers it.
     """
-
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
     blocks: dict[str, SequenceBlockModel] = Field(default_factory=dict)
     meta: dict[str, MetaSeriesModel] = Field(default_factory=dict)
@@ -782,7 +824,7 @@ class TrajectoryModel(BaseModel):
     every declared meta key, which is also what a reader hands back.
     """
 
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
+    model_config = ConfigDict(frozen=True, from_attributes=True, extra="forbid")
 
     frames: list[FrameModel] = Field(default_factory=list)
     step: list[int]
@@ -812,6 +854,18 @@ class TrajectoryModel(BaseModel):
                 f"time has {len(self.time)} entries, frames {len(self.frames)} -- time is "
                 "all-or-nothing, a run supplies one for every frame or for none"
             )
+        if self.time is not None and not self.frames:
+            # A sequence of no frames cannot say whether it would have had
+            # times: there is nothing on disk to say it with.
+            object.__setattr__(self, "time", None)
+        for ordinal, frame in enumerate(self.frames):
+            for name, block in frame.blocks.items():
+                if block.model_extra:
+                    raise ValueError(
+                        f"frame {ordinal}: block {name!r} carries attributes "
+                        f"{sorted(block.model_extra)}; a trajectory block's attributes are its "
+                        "section's, not one update's"
+                    )
         return self
 
     @model_validator(mode="after")
@@ -975,6 +1029,24 @@ def _layout(block: SequenceBlockModel) -> dict[str, tuple[str, list[int]]]:
     return {name: (spec.dtype, spec.trailing) for name, spec in block.columns.items()}
 
 
+def _union_nullable(
+    pinned: SequenceBlockModel | None, block: SequenceBlockModel
+) -> SequenceBlockModel:
+    """``block``'s declaration with every column ``pinned`` holds nullable kept so."""
+    if pinned is None:
+        return block
+    return block.model_copy(
+        update={
+            "columns": {
+                name: spec.model_copy(
+                    update={"nullable": spec.nullable or pinned.columns[name].nullable}
+                )
+                for name, spec in block.columns.items()
+            }
+        }
+    )
+
+
 def _refuse_reserved(name: str, columns: dict[str, Any]) -> None:
     if name in RESERVED_TRAJECTORY_NAMES:
         raise ValueError(f"{name!r} is reserved by the trajectory layout; a block cannot take it")
@@ -986,29 +1058,23 @@ def _refuse_reserved(name: str, columns: dict[str, Any]) -> None:
         )
 
 
-class CreatorModel(BaseModel):
+class CreatorModel(DocumentModel):
     """The tool that wrote the record."""
-
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
     name: str
     version: str | None = None
 
 
-class AuthorModel(BaseModel):
+class AuthorModel(DocumentModel):
     """The person or group responsible for the record."""
-
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
     name: str
     email: str | None = None
 
 
-class ModuleModel(BaseModel):
+class ModuleModel(DocumentModel):
     """A shared interpretation beyond this specification, keyed by name under
     ``meta/modules``: a major/minor ``version`` plus module-specific keys."""
-
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
     version: tuple[int, int]
 
@@ -1051,7 +1117,7 @@ def stamp_version(document: dict[str, Any]) -> dict[str, Any]:
     return {"molrec_version": MOLREC_VERSION, **document}
 
 
-class MetaModel(BaseModel):
+class MetaModel(DocumentModel):
     """The record's identity document.
 
     ``extra="allow"`` is not convenience -- it is the preserve-the-unknown
@@ -1068,8 +1134,6 @@ class MetaModel(BaseModel):
     ``creator``, ``author``, ``created_at`` and ``source``.
     """
 
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
-
     molrec_version: Annotated[MolrecVersion, WithJsonSchema(_VERSION_SCHEMA)] = Field(
         default=None, json_schema_extra=lambda schema: schema.pop("default", None)
     )
@@ -1082,28 +1146,22 @@ class MetaModel(BaseModel):
     content_hash: str | None = None
 
 
-class StatusModel(BaseModel):
+class StatusModel(DocumentModel):
     """The lifecycle document (``docs/spec/status.md``). ``state`` is required
     whenever the section exists; every other key is preserved as given."""
-
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
     state: str
 
 
-class EngineModel(BaseModel):
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
-
+class EngineModel(DocumentModel):
     name: str
     version: str | None = None
 
 
-class MethodModel(BaseModel):
+class MethodModel(DocumentModel):
     """The scientific / training context document (``docs/spec/method.md``).
     ``type``, ``description`` and ``engine.name`` are required whenever the
     section exists."""
-
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
     type: str
     description: str
@@ -1145,15 +1203,13 @@ def check_observable_name(name: str) -> None:
         )
 
 
-class ObservableMetaModel(BaseModel):
+class ObservableMetaModel(DocumentModel):
     """The ``observables/meta/<name>`` document.
 
     ``kind``, ``description`` and ``time_dependent`` are required; the rest
     are written only when set. Every other key is a producer's and is kept
     verbatim (``extra="allow"``).
     """
-
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
     kind: Annotated[str, Field(min_length=1)]
     description: str
@@ -1163,11 +1219,6 @@ class ObservableMetaModel(BaseModel):
     sampling: str | None = None
     domain: str | None = None
     target: str | None = None
-
-    def document(self) -> dict[str, Any]:
-        """The attribute map: set keys only, extras (``null`` ones included) kept."""
-        unset = {name for name in type(self).model_fields if getattr(self, name) is None}
-        return self.model_dump(mode="json", exclude=unset)
 
 
 class ArrayModel(BaseModel):
@@ -1184,7 +1235,7 @@ class ArrayModel(BaseModel):
         if self.values is not None:
             if tuple(self.values.shape) != self.shape:
                 raise ValueError(f"values have shape {self.values.shape}, declared {self.shape}")
-            carried = dtype_of(self.values.dtype)
+            carried = values_dtype(self.values)
             if carried != self.dtype:
                 raise ValueError(f"values carry dtype {carried!r}, declared {self.dtype!r}")
         return self
@@ -1234,6 +1285,27 @@ class ObservablesModel(BaseModel):
         return self
 
 
+class ArrayNodeModel(ArrayModel):
+    """An array of an unrecognised subtree: its values and its attributes."""
+
+    attributes: dict[str, Any] = Field(default_factory=dict)
+
+
+class NodeModel(BaseModel):
+    """An unrecognised group, carried through verbatim.
+
+    A reader preserves sections it does not interpret: their attributes,
+    arrays and child groups come back exactly as they were read, and a writer
+    lays them down again. Nothing in them is interpreted.
+    """
+
+    model_config = ConfigDict(frozen=True, from_attributes=True)
+
+    attributes: dict[str, Any] = Field(default_factory=dict)
+    arrays: dict[str, ArrayNodeModel] = Field(default_factory=dict)
+    groups: dict[str, NodeModel] = Field(default_factory=dict)
+
+
 #: The root sections of which a record must carry at least one beside ``meta``.
 SUBSTANTIVE_SECTIONS: tuple[str, ...] = ("frame", "system", "trajectory", "status")
 
@@ -1274,6 +1346,40 @@ class RecordModel(BaseModel):
     observables: ObservablesModel | None = None
 
     @model_validator(mode="after")
+    def _unknown_sections_are_subtrees(self) -> RecordModel:
+        """An extra key is a root section this version does not define: a
+        group, kept as the :class:`NodeModel` it was read as."""
+        extra = self.__pydantic_extra__ or {}
+        for name, value in extra.items():
+            extra[name] = NodeModel.model_validate(value)
+        return self
+
+    @model_validator(mode="after")
+    def _system_and_trajectory_align(self) -> RecordModel:
+        """A ``system`` block and the ``trajectory`` block of the same name are
+        aligned 1:1 by row order: every update has the system block's row
+        count, and an ``id`` column both carry is equal row for row."""
+        if self.system is None or self.trajectory is None:
+            return self
+        for name, fixed in self.system.blocks.items():
+            for ordinal, frame in enumerate(self.trajectory.frames):
+                update = frame.blocks.get(name)
+                if update is None:
+                    continue
+                if update.count != fixed.count:
+                    raise ValueError(
+                        f"trajectory block {name!r} has {update.count} rows at ordinal {ordinal}, "
+                        f"system block {fixed.count}; blocks sharing a name align 1:1 by row"
+                    )
+                ids = update.columns.get("id"), fixed.columns.get("id")
+                if None not in ids and ids[0] != ids[1]:
+                    raise ValueError(
+                        f"block {name!r}: the id column differs between system and trajectory at "
+                        f"ordinal {ordinal}; blocks sharing a name align row for row"
+                    )
+        return self
+
+    @model_validator(mode="after")
     def _has_a_section(self) -> RecordModel:
         if all(getattr(self, section) is None for section in SUBSTANTIVE_SECTIONS):
             raise ValueError(f"a record needs at least one of {', '.join(SUBSTANTIVE_SECTIONS)}")
@@ -1282,21 +1388,16 @@ class RecordModel(BaseModel):
 
 #: The collection index columns a binding owns; a collection's own index
 #: columns may not take these names (``docs/spec/lmdb.md``).
-RESERVED_INDEX_COLUMNS = frozenset({"first_frame", "n_frames", "n_atoms"})
-
-#: The record sections a collection carries (``docs/spec/collection.md``).
-COLLECTION_SECTIONS: tuple[str, ...] = ("system", "trajectory")
+RESERVED_INDEX_COLUMNS = frozenset({"first_frame", "n_frames", "n_atoms", "has_trajectory"})
 
 
-class CollectionMetaModel(BaseModel):
+class CollectionMetaModel(DocumentModel):
     """The collection's document. ``units`` is required; other keys are kept.
 
     ``units`` maps a quantity (``length``, ``energy``, ``force``, ``charge``,
     ``mass``, ``time``) to a unit string. It is the only place a collection's
     numbers get a unit: columns and per-step tags carry none.
     """
-
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
     units: dict[str, str]
     molrec_version: Annotated[MolrecVersion, WithJsonSchema(_VERSION_SCHEMA)] = Field(
@@ -1314,7 +1415,7 @@ class CollectionModel(BaseModel):
     writer derived from the records; it is handed back, never recomputed.
     """
 
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
+    model_config = ConfigDict(frozen=True, from_attributes=True, extra="forbid")
 
     meta: CollectionMetaModel
     sequence_schema: SequenceSchemaModel | None = None
@@ -1340,40 +1441,71 @@ class CollectionModel(BaseModel):
 
     @model_validator(mode="after")
     def _one_declaration(self) -> CollectionModel:
+        """Every record's trajectory uses the collection's one declaration.
+
+        A record's frames may present a **subset** of it -- a record that
+        never carries ``bonds`` is still a record of a collection that
+        declares them -- but nothing outside it, and the per-step ``meta``
+        declaration (tags and fills, a NaN fill equal to a NaN fill) is the
+        collection's exactly. Unstated, the declaration is the union of the
+        records' blocks, which must agree on every column they share.
+        Afterwards every record's trajectory states the collection's blocks,
+        which is what a reader hands back.
+        """
+        trajectories = [
+            (r, record.trajectory)
+            for r, record in enumerate(self.records)
+            if record.trajectory is not None
+        ]
         schema = self.sequence_schema
-        for r, record in enumerate(self.records):
-            trajectory = record.trajectory
-            if trajectory is None:
-                continue
-            declared = SequenceSchemaModel(blocks=trajectory.blocks or {}, meta=trajectory.meta)
-            if schema is None:
-                schema = declared
-                continue
-            if declared != schema:
+        if schema is None and trajectories:
+            blocks: dict[str, SequenceBlockModel] = {}
+            for r, trajectory in trajectories:
+                for name, block in (trajectory.blocks or {}).items():
+                    if name in blocks and _layout(blocks[name]) != _layout(block):
+                        raise ValueError(
+                            f"record {r} declares block {name!r} as {_layout(block)}, an earlier "
+                            f"record as {_layout(blocks[name])}; a collection has one declaration"
+                        )
+                    blocks[name] = _union_nullable(blocks.get(name), block)
+            schema = SequenceSchemaModel(blocks=blocks, meta=trajectories[0][1].meta)
+
+        records = list(self.records)
+        for r, trajectory in trajectories:
+            assert schema is not None
+            if trajectory.meta != schema.meta:
                 raise ValueError(
-                    f"record {r} declares its trajectory as {declared}, the collection as "
-                    f"{schema}; every record in a collection uses one declaration"
+                    f"record {r} declares its per-step meta as {trajectory.meta}, the collection "
+                    f"as {schema.meta}; every record in a collection uses one declaration"
                 )
+            try:
+                held = TrajectoryModel.model_validate(
+                    {
+                        **trajectory.model_dump(exclude_unset=True),
+                        "blocks": schema.blocks,
+                    }
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    f"record {r} presents what the collection's declaration does not: {exc}"
+                ) from None
+            records[r] = self.records[r].model_copy(update={"trajectory": held})
         object.__setattr__(self, "sequence_schema", schema)
+        object.__setattr__(self, "records", records)
         return self
 
     @model_validator(mode="after")
-    def _system_and_trajectory_align(self) -> CollectionModel:
+    def _shared_blocks_split_their_columns(self) -> CollectionModel:
+        """In a collection a reader presents a system block and the trajectory
+        block of the same name as one block whose columns are the union, so a
+        column is time-independent or not -- never both."""
         for r, record in enumerate(self.records):
             if record.system is None or record.trajectory is None:
                 continue
             for name, fixed in record.system.blocks.items():
-                for ordinal, frame in enumerate(record.trajectory.frames):
+                for frame in record.trajectory.frames:
                     update = frame.blocks.get(name)
-                    if update is None:
-                        continue
-                    if update.count != fixed.count:
-                        raise ValueError(
-                            f"record {r}: trajectory block {name!r} has {update.count} rows at "
-                            f"ordinal {ordinal}, system block {fixed.count}; blocks sharing a "
-                            "name align 1:1 by row"
-                        )
-                    shared = set(update.columns) & set(fixed.columns)
+                    shared = set() if update is None else set(update.columns) & set(fixed.columns)
                     if shared:
                         raise ValueError(
                             f"record {r}: columns {sorted(shared)} of block {name!r} are in both "

@@ -4,7 +4,8 @@ A [collection](collection.md) — many records, read at random by a training
 loader — in one [LMDB](http://www.lmdb.tech/doc/) file. The Zarr root is the
 right shape for one record read front to back; a dataset of eighty thousand
 small records read in shuffled order wants one memory-mapped file, one key per
-record part, and a value that decodes without copying. That is this binding.
+record part, and a value whose numeric buffers a reader *can* view in place.
+That is this binding.
 
 It stores the same logical content the model defines, and the trajectory with
 the same **sparse update** semantics as the [ragged layout](ragged.md): a
@@ -14,7 +15,9 @@ everywhere else.
 ## The file
 
 * One LMDB environment in **one file** (`subdir=False`), suffix
-  `.mrec.lmdb`, one unnamed database.
+  `.mrec.lmdb`, one unnamed database. One writer at a time; readers take
+  LMDB's reader lock (the `-lock` file beside it), so a file on read-only
+  media is copied first.
 * Keys are bytes. Values are UTF-8 JSON or [frame bytes](#frame-bytes).
 * Record `r` and global frame ordinal `j` are unsigned 64-bit integers,
   encoded **big-endian** in keys so that byte order is numeric order and a
@@ -75,12 +78,14 @@ One block named `records` with `R` rows:
 |--------|------|---------|
 | `first_frame` | u64 | global ordinal of record `r`'s first frame |
 | `n_frames` | u64 | frames in record `r` |
-| `n_atoms` | u64 | rows of record `r`'s `atoms`: the system's block, else its first trajectory update's; 0 when neither has one |
+| `n_atoms` | u64 | rows of record `r`'s `atoms`: the system's block (even when it has zero rows), else the trajectory's first update of `atoms`; 0 when neither has one |
+| `has_trajectory` | bool | whether record `r` has a trajectory at all — one of zero frames included |
 | *…* | any | the collection's own [index columns](collection.md#model) |
 
 `first_frame` is the exclusive prefix sum of `n_frames`, and the last
 `first_frame + n_frames` equals `n_frames` in `meta`. A reader refuses an
-index that breaks either.
+index that breaks either. The four columns are the binding's: a
+collection's own index columns may not take their names.
 
 ### Frames
 
@@ -137,8 +142,11 @@ payload := the column buffers
 
 * Every numeric column is one buffer: C-order, **little-endian**, its bytes
   `prod(shape) × itemsize`, starting at `offset` bytes into the payload.
-  Every `offset` is a multiple of 8, so a reader can view the buffer without
-  copying.
+  Every `offset` is a multiple of 8, so a reader on a little-endian machine
+  **may** view the buffer in place — for as long as the read transaction
+  that returned the value is open (LMDB's memory map is only stable that
+  long). A reader that keeps the data past the transaction copies it; the
+  format promises alignment, not zero-copy.
 * A [nullable column](frame.md#nullable-columns) that carries a mask adds
   `"validity": <offset>` to its entry: a buffer of `shape[0]` one-byte
   `bool`s (`0` / `1`) at that 8-aligned offset. No `validity` key means
@@ -147,8 +155,13 @@ payload := the column buffers
   real/imaginary pairs.
 * A `string` column has no buffer: its values are the header's `values` list,
   row-major.
-* `meta` is the frame's meta document as JSON. A per-step key's exact type is
-  the tag the `sequence_schema` declares for it.
+* `meta` is the frame's meta document as JSON. A per-step key's value is in
+  the [typed JSON form](conventions.md#typed-json-values) of the tag the
+  `sequence_schema` declares for it; `step` (an `i64`) and `time` (an `f64`)
+  are typed values too.
+* A block's own attributes (beyond `count` and `structural_shape`) ride in
+  the optional `attributes` object of its entry, on a system frame only — a
+  trajectory block's attributes are its section's, not one update's.
 * `step`, `time` and `box` appear only on trajectory updates; `box` follows
   the [cell](frame.md#simulation-box) fields.
 

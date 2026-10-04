@@ -134,3 +134,24 @@ class TestFrameBytes:
         value[:4] = b"XXXX"
         with pytest.raises(ValueError, match="magic"):
             decode_frame(bytes(value))
+
+
+def test_n_atoms_is_the_system_count_even_when_zero(tmp_path):
+    from molrec.core.bindings.lmdb import INDEX_BLOCK, INDEX_KEY
+
+    empty_atoms = FrameModel(blocks={"atoms": BlockModel(count=0)})
+    collection = CollectionModel(
+        meta=CollectionMetaModel(units={}),
+        records=[
+            RecordModel(meta=MetaModel(), system=empty_atoms),
+            _collection().records[0],
+        ],
+    )
+    store = LmdbCollectionStore(tmp_path / "n.mrec.lmdb")
+    LmdbCollectionCodec().write(collection, store)
+    env = store.open()
+    with env.begin() as txn:
+        index = decode_frame(txn.get(INDEX_KEY)).blocks[INDEX_BLOCK]
+    env.close()
+    assert index.columns["n_atoms"].values.tolist() == [0, 2]
+    assert index.columns["has_trajectory"].values.tolist() == [False, True]

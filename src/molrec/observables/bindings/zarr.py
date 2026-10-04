@@ -29,6 +29,7 @@ from molrec.core.model import (
     ObservableModel,
     ObservablesModel,
     check_observable_name,
+    document,
     stamp_version,
 )
 from molrec.observables.store import ObservableStore
@@ -62,7 +63,7 @@ class ZarrObservablesCodec(Codec):
         meta = group.create_group(OBSERVABLES_META_GROUP)
         for name, observable in model.observables.items():
             check_observable_name(name)
-            meta.create_group(name).attrs.update(observable.meta.document())
+            meta.create_group(name).attrs.update(document(observable.meta))
             data = observable.data
             array = create_fixed(group, name, data.shape, data.dtype)
             if data.values is not None:

@@ -175,7 +175,7 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
+  "additionalProperties": false,
   "description": "A map of names to blocks, plus free-form meta and an optional box.\n\nA frame enforces no relationship between its blocks: block counts are\nindependent and any block name is legal.",
   "properties": {
     "blocks": {

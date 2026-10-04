@@ -1582,7 +1582,50 @@ class CollectionSuite(Suite):
                 meta=meta,
                 sequence_schema=None,
                 index=BlockModel(count=1),
-                records=[RecordModel(meta=MetaModel(), system=system, trajectory=short)],
+                records=[
+                    RecordModel.model_construct(
+                        meta=MetaModel(), system=system, trajectory=short, frame=None
+                    )
+                ],
+            ),
+        )
+
+        with_bonds = TrajectoryModel(
+            frames=[
+                FrameModel(
+                    blocks={**state(x, -x).blocks, "bonds": system.blocks["bonds"]},
+                    meta={"pe": -x},
+                )
+                for x in (0.0, 0.5)
+            ],
+            step=[0, 1],
+            meta=schema_meta,
+        )
+        yield Case(
+            id="records-present-subsets",
+            exercises="a record may present a subset of the collection's declaration; the "
+            "declaration is every record's",
+            model=CollectionModel(
+                meta=meta,
+                records=[
+                    RecordModel(meta=MetaModel(), trajectory=relaxation),
+                    RecordModel(meta=MetaModel(), trajectory=with_bonds),
+                ],
+            ),
+        )
+
+        yield Case(
+            id="zero-frame-trajectory",
+            exercises="a record whose trajectory has no frames still has a trajectory",
+            model=CollectionModel(
+                meta=meta,
+                records=[
+                    RecordModel(
+                        meta=MetaModel(),
+                        trajectory=TrajectoryModel(frames=[], step=[], meta=schema_meta),
+                    ),
+                    record,
+                ],
             ),
         )
 

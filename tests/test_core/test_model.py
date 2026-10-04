@@ -382,3 +382,63 @@ class TestUndefinedCell:
         )
         assert np.array_equal(section.updates[0].box.vectors, np.eye(3))
         assert section.updates[0].box.boundary == (False, False, False)
+
+
+class TestPreservation:
+    def test_a_document_keeps_a_null_valued_unknown_key(self) -> None:
+        from molrec.core.model import document
+
+        meta = MetaModel.model_validate({"molrec_version": 1, "x_reviewed": None})
+        assert document(meta) == {"molrec_version": 1, "x_reviewed": None}
+        assert document(MetaModel()) == {}
+
+    def test_a_document_refuses_nan(self) -> None:
+        from molrec.core.model import document
+
+        with pytest.raises(ValueError, match="finite JSON"):
+            document(StatusModel.model_validate({"state": "running", "loss": float("nan")}))
+
+    def test_containers_forbid_what_no_binding_stores(self) -> None:
+        with pytest.raises(ValidationError):
+            FrameModel.model_validate({"blocks": {}, "x_vendor": 1})
+        with pytest.raises(ValidationError):
+            TrajectoryModel.model_validate({"frames": [], "step": [], "x_vendor": 1})
+
+    def test_an_unknown_root_section_is_a_subtree(self) -> None:
+        from molrec.core.model import NodeModel
+
+        record = RecordModel.model_validate(
+            {"meta": {}, "status": {"state": "ok"}, "x_vendor": {"attributes": {"a": 1}}}
+        )
+        assert record.model_extra == {"x_vendor": NodeModel(attributes={"a": 1})}
+
+
+class TestArrays:
+    @pytest.mark.parametrize("values", [np.array([b"a", b"b"]), np.array([1, "a"], dtype=object)])
+    def test_bytes_and_mixed_objects_are_no_column(self, values: np.ndarray) -> None:
+        with pytest.raises(ValidationError):
+            ColumnModel(dtype="string", shape=(2,), values=values)
+
+    def test_an_object_array_of_str_is_a_string_column(self) -> None:
+        values = np.array(["a", "b"], dtype=object)
+        assert ColumnModel(dtype="string", shape=(2,), values=values).dtype == "string"
+
+    def test_dedup_is_bitwise(self) -> None:
+        from molrec.core.model import same_bits
+
+        def block(value: float) -> BlockModel:
+            return BlockModel(
+                count=1,
+                columns={"q": ColumnModel(dtype="f64", shape=(1,), values=np.array([value]))},
+            )
+
+        assert same_bits(block(float("nan")), block(float("nan")))
+        assert not same_bits(block(0.0), block(-0.0))
+
+
+class TestRecordAlignment:
+    def test_a_trajectory_block_has_the_system_row_count(self) -> None:
+        system = FrameModel(blocks={"atoms": _x(0.0, 1.0)})
+        trajectory = TrajectoryModel(frames=[FrameModel(blocks={"atoms": _x(0.0)})], step=[0])
+        with pytest.raises(ValidationError, match="align 1:1"):
+            RecordModel(meta=MetaModel(), system=system, trajectory=trajectory)

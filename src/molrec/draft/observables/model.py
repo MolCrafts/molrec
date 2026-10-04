@@ -50,7 +50,7 @@ from collections.abc import Iterator
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from molrec.arrays import NDArray, arrays_equal
-from molrec.core.model import DType, dtype_of
+from molrec.core.model import DType, values_dtype
 from molrec.ref import Ref
 
 
@@ -71,7 +71,7 @@ class Array(BaseModel):
             raise ValueError(f"{len(self.dims)} dims for a {len(self.shape)}-d shape")
         if tuple(self.data.shape) != self.shape:
             raise ValueError(f"data has shape {self.data.shape}, declared {self.shape}")
-        carried = dtype_of(self.data.dtype)
+        carried = values_dtype(self.data)
         if carried != self.dtype:
             raise ValueError(f"data carries dtype {carried!r}, declared {self.dtype!r}")
         return self

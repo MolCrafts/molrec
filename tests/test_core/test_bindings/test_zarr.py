@@ -380,3 +380,37 @@ def test_a_trajectory_mask_is_dense_over_the_rows(tmp_path: Path) -> None:
     }
     assert root["trajectory/atoms/_validity/q"][...].tolist() == [False, True, True, True]
     assert ZarrTrajectoryCodec().read(store) == model
+
+
+def test_the_record_codec_carries_unknown_content_through(tmp_path: Path) -> None:
+    from molrec.core.model import ArrayNodeModel, NodeModel
+
+    vendor = NodeModel(
+        attributes={"tool": "x", "maybe": None},
+        arrays={
+            "grid": ArrayNodeModel(
+                dtype="i32", shape=(2,), values=np.array([1, 2], dtype="int32"), attributes={"u": 1}
+            )
+        },
+        groups={"inner": NodeModel(attributes={"depth": 2})},
+    )
+    block = BlockModel.model_validate(
+        {"count": 1, "columns": {"x": ColumnModel(dtype="f64", shape=(1,), values=np.zeros(1))}}
+        | {"x_vendor_flag": True}
+    )
+    record = RecordModel.model_validate(
+        {
+            "meta": {"molrec_version": 1, "x_reviewed": None},
+            "status": {"state": "running", "x_note": None},
+            "frame": FrameModel(blocks={"atoms": block}),
+            "x_vendor": vendor,
+        }
+    )
+    store = ZarrRecordStore(tmp_path / "unknown.mrec")
+    ZarrRecordCodec().write(record, store)
+    root = store.root(mode="r")
+    assert dict(root["frame/atoms"].attrs) == {"count": 1, "x_vendor_flag": True}
+    assert dict(root["meta"].attrs) == {"molrec_version": 1, "x_reviewed": None}
+    back = ZarrRecordCodec().read(store)
+    assert back == record
+    assert back.model_extra == {"x_vendor": vendor}

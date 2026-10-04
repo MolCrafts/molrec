@@ -382,7 +382,7 @@
       "type": "object"
     },
     "FrameModel": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "description": "A map of names to blocks, plus free-form meta and an optional box.\n\nA frame enforces no relationship between its blocks: block counts are\nindependent and any block name is legal.",
       "properties": {
         "blocks": {
@@ -836,7 +836,7 @@
       "type": "object"
     },
     "TrajectoryModel": {
-      "additionalProperties": true,
+      "additionalProperties": false,
       "description": "An ordered sequence of frames -- the time evolution of the system.\n\nThis is the *logical* content, the thing a reader hands back. The physical\nform is the binding's: one CSR row range per section update, a sparse\nindex of the ordinals a section changed at, and each section written again\nonly when it changed. Two conforming stores of one trajectory are expected\nto differ byte for byte, so none of that appears here.\n\nTwo integers index a trajectory and they are not the same one. A frame's\n**ordinal** is its position in ``frames``; its **step number** is the\nproducer's own iteration counter at ``step[ordinal]``, which may start\nanywhere and may skip values.\n\n``blocks`` and ``meta`` are the pinned declaration. ``blocks`` may be left\nunstated, in which case it is derived from the frames (first presentation\nwins); stated, every frame is held to it. After validation every frame\ncarries every block's carried-forward state (see :class:`BlockState`) and\nevery declared meta key, which is also what a reader hands back.",
       "properties": {
         "blocks": {

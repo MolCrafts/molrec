@@ -120,8 +120,11 @@ and [Method](method.md) are plain JSON (`string`, `number`, `object`,
 `array`).
 
 On disk, each section is one JSON object stored as the attribute map of the
-corresponding empty (or array-free) Zarr group. The attribute object must be
-exactly the document that section chapters describe.
+corresponding empty (or array-free) Zarr group. The attribute map **is** the
+section's document: the keys its chapter names (a named key left unset is
+absent, never `null`) plus every key a producer added, which a reader
+preserves verbatim — a `null`-valued one included. Numbers are plain finite
+JSON: a document cannot carry NaN or infinity.
 
 | Section | Group path | Required keys when group exists |
 |---------|------------|----------------------------------|

@@ -43,10 +43,17 @@ record in it. Other keys are preserved.
 `sequence_schema`
 
 The [sequence declaration](ragged.md) — blocks, columns, dtypes, trailing
-shapes, per-step meta tags and fills — that **every** record's trajectory
-uses. One declaration for the collection is what makes its records
-interchangeable: a reader can size a batch of them without opening any. A
-record whose trajectory declares anything else is refused.
+shapes, nullability, per-step meta tags and fills — that **every** record's
+trajectory uses. One declaration for the collection is what makes its records
+interchangeable: a reader can size a batch of them without opening any.
+
+A record's frames may present a **subset** of the declared blocks (a record
+that never carries `bonds` belongs to a collection that declares them), but
+nothing outside the declaration, and its per-step `meta` declaration is the
+collection's exactly. A record that presents anything else is refused. When
+a writer derives the declaration rather than being handed one, it is the
+union of the records' blocks — which must agree on every column they share —
+and the per-step `meta` all records declare.
 
 `index`
 
@@ -54,8 +61,9 @@ A block of `R` rows, one per record, in record order. Its columns are
 **derived** from the records by the writer — a molecule code, a per-record
 element mask, a size — so that a reader can answer a question about every
 record without decoding one. A reader hands them back as written; it does not
-recompute them. Three column names are reserved for the binding
-(`first_frame`, `n_frames`, `n_atoms`) and are not part of the model.
+recompute them. Four column names are reserved for the binding
+(`first_frame`, `n_frames`, `n_atoms`, `has_trajectory`) and are not part of
+the model.
 
 `records[r]`
 
@@ -84,6 +92,8 @@ The collection suite (`module = "collection"`) pins down:
 * the round trip of meta, schema, index and every record;
 * a record with no system, and one with no trajectory;
 * a topology block that changes mid-record, and one that never does;
+* records that present different subsets of one declaration, and a record
+  whose trajectory has zero frames;
 * refusal of a record whose trajectory declaration differs from
   `sequence_schema`;
 * refusal of a trajectory block whose row count differs from the system block

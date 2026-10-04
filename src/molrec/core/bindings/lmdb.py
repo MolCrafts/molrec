@@ -31,10 +31,12 @@ from typing import Any, ClassVar
 
 import numpy as np
 
+from molrec import jsonvalue
 from molrec.binding import Binding, Codec
 from molrec.core.model import (
     DTYPES,
     NUMPY_DTYPE,
+    RESERVED_INDEX_COLUMNS,
     BlockModel,
     BoxModel,
     BoxUpdateModel,
@@ -49,8 +51,10 @@ from molrec.core.model import (
     TrajectoryBoxModel,
     TrajectoryModel,
     decode_meta_value,
+    document,
     encode_meta_value,
     revalidated,
+    same_bits,
     stamp_version,
 )
 from molrec.core.store import CollectionStore, TrajectoryStore
@@ -156,11 +160,13 @@ def encode_frame(
             else list(block.structural_shape),
             "columns": columns,
         }
-    header: dict[str, Any] = {"blocks": header_blocks, "meta": meta}
+        if block.model_extra:
+            header_blocks[name]["attributes"] = jsonvalue.check_document(block.model_extra)
+    header: dict[str, Any] = {"blocks": header_blocks, "meta": jsonvalue.check_document(meta)}
     if step is not None:
-        header["step"] = int(step)
+        header["step"] = jsonvalue.encode("i64", step)
     if time is not None:
-        header["time"] = float(time)
+        header["time"] = jsonvalue.encode("f64", time)
     if box is not None:
         header["box"] = {
             "vectors": np.asarray(box.vectors, dtype="float64").tolist(),
@@ -168,7 +174,7 @@ def encode_frame(
             "boundary": [bool(flag) for flag in box.boundary],
             "cell_defined": bool(box.cell_defined),
         }
-    text = json.dumps(header, separators=(",", ":")).encode()
+    text = jsonvalue.dumps(header).encode()
     head = _HEADER.pack(MAGIC, len(text)) + text
     head += b"\0" * ((-len(head)) % ALIGN)
     return head + b"".join(buffers)
@@ -235,13 +241,14 @@ def decode_frame(value: bytes | memoryview) -> FrameBytes:
             count=int(entry["count"]),
             columns=columns,
             structural_shape=None if grid is None else tuple(grid),
+            **entry.get("attributes", {}),
         )
     box = header.get("box")
     return FrameBytes(
         blocks=blocks,
         meta=header.get("meta", {}),
-        step=header.get("step"),
-        time=header.get("time"),
+        step=None if header.get("step") is None else jsonvalue.decode("i64", header["step"]),
+        time=None if header.get("time") is None else jsonvalue.decode("f64", header["time"]),
         box=None
         if box is None
         else BoxModel(
@@ -280,11 +287,13 @@ class LmdbCollectionStore(CollectionStore):
 
         if write:
             self._path.parent.mkdir(parents=True, exist_ok=True)
+        # Readers take LMDB's reader lock too: without it a reader cannot
+        # be told apart from a writer's free pages.
         return lmdb.open(
             str(self._path),
             subdir=False,
             readonly=not write,
-            lock=write,
+            lock=True,
             map_size=MAP_SIZE,
             max_dbs=0,
         )
@@ -313,49 +322,38 @@ class LmdbCollectionCodec(Codec):
         schema = model.sequence_schema or SequenceSchemaModel()
         store.clear()
         env = store.open(write=True)
-        first_frame: list[int] = []
-        n_frames: list[int] = []
-        n_atoms: list[int] = []
+        derived: dict[str, list[int]] = {name: [] for name in RESERVED_INDEX_COLUMNS}
         ordinal = 0
         try:
             with env.begin(write=True) as txn:
                 for r, record in enumerate(model.records):
                     txn.put(
-                        key(RECORD_META_PREFIX, r),
-                        json.dumps(record.meta.model_dump(mode="json", exclude_none=True)).encode(),
+                        key(RECORD_META_PREFIX, r), jsonvalue.dumps(document(record.meta)).encode()
                     )
-                    atoms = 0
                     if record.system is not None:
                         system = record.system
                         txn.put(
                             key(SYSTEM_PREFIX, r),
                             encode_frame(system.blocks, system.meta, box=system.box),
                         )
-                        if "atoms" in system.blocks:
-                            atoms = system.blocks["atoms"].count
-                    first_frame.append(ordinal)
+                    derived["first_frame"].append(ordinal)
                     frames = 0
                     if record.trajectory is not None:
-                        opening = (
-                            record.trajectory.frames[0].blocks if record.trajectory.frames else {}
-                        )
-                        if not atoms and "atoms" in opening:
-                            atoms = opening["atoms"].count
                         for value in self._updates(record.trajectory, schema):
                             txn.put(key(FRAME_PREFIX, ordinal), value)
                             ordinal += 1
                             frames += 1
-                    n_frames.append(frames)
-                    n_atoms.append(atoms)
-                index = model.index
-                columns = dict(index.columns)
-                for name, values in (
-                    ("first_frame", first_frame),
-                    ("n_frames", n_frames),
-                    ("n_atoms", n_atoms),
-                ):
+                    derived["n_frames"].append(frames)
+                    derived["n_atoms"].append(_atom_count(record))
+                    derived["has_trajectory"].append(int(record.trajectory is not None))
+                columns = dict(model.index.columns)
+                for name, values in derived.items():
                     array = np.asarray(values, dtype="uint64").reshape(len(model.records))
-                    columns[name] = ColumnModel(dtype="u64", shape=array.shape, values=array)
+                    if name == "has_trajectory":
+                        array = array.astype("bool")
+                        columns[name] = ColumnModel(dtype="bool", shape=array.shape, values=array)
+                    else:
+                        columns[name] = ColumnModel(dtype="u64", shape=array.shape, values=array)
                 txn.put(
                     INDEX_KEY,
                     encode_frame(
@@ -364,14 +362,12 @@ class LmdbCollectionCodec(Codec):
                 )
                 txn.put(
                     META_KEY,
-                    json.dumps(
+                    jsonvalue.dumps(
                         {
                             "layout": LAYOUT,
                             "layout_version": LAYOUT_VERSION,
-                            "collection": stamp_version(
-                                model.meta.model_dump(mode="json", exclude_none=True)
-                            ),
-                            "sequence_schema": schema.model_dump(mode="json", exclude_none=True),
+                            "collection": stamp_version(document(model.meta)),
+                            "sequence_schema": schema.model_dump(mode="json"),
                             "n_records": len(model.records),
                             "n_frames": ordinal,
                         }
@@ -382,7 +378,8 @@ class LmdbCollectionCodec(Codec):
 
     @staticmethod
     def _updates(trajectory: TrajectoryModel, schema: SequenceSchemaModel) -> list[bytes]:
-        """One value per frame: the blocks that changed there, plus step, meta, box."""
+        """One value per frame: the blocks that changed there (bit for bit,
+        masks included), plus step, meta, and the cell where it changed."""
         cells = {
             update.step_index: BoxModel(
                 vectors=update.box.vectors,
@@ -396,7 +393,9 @@ class LmdbCollectionCodec(Codec):
         carried: dict[str, BlockModel] = {}
         for ordinal, frame in enumerate(trajectory.frames):
             changed = {
-                name: block for name, block in frame.blocks.items() if carried.get(name) != block
+                name: block
+                for name, block in frame.blocks.items()
+                if name not in carried or not same_bits(carried[name], block)
             }
             carried.update(frame.blocks)
             meta = {k: encode_meta_value(schema.meta[k].dtype, v) for k, v in frame.meta.items()}
@@ -434,8 +433,12 @@ class LmdbCollectionCodec(Codec):
                 expected = np.concatenate([[0], np.cumsum(counts)[:-1]]) if n_records else first
                 if not np.array_equal(first, expected) or int(counts.sum()) != total:
                     raise ValueError("index first_frame is not the prefix sum of n_frames")
+                # A record's trajectory may hold zero frames; only the flag says
+                # it has one at all.
+                flags = index.columns.get("has_trajectory")
+                carries = [False] * n_records if flags is None else flags.values.tolist()
                 records = [
-                    self._record(txn, r, int(first[r]), int(counts[r]), schema)
+                    self._record(txn, r, int(first[r]), int(counts[r]), bool(carries[r]), schema)
                     for r in range(n_records)
                 ]
         finally:
@@ -443,7 +446,7 @@ class LmdbCollectionCodec(Codec):
         own = {
             name: column
             for name, column in index.columns.items()
-            if name not in ("first_frame", "n_frames", "n_atoms")
+            if name not in RESERVED_INDEX_COLUMNS
         }
         return CollectionModel(
             meta=CollectionMetaModel.model_validate(meta["collection"]),
@@ -453,7 +456,13 @@ class LmdbCollectionCodec(Codec):
         )
 
     def _record(
-        self, txn: Any, r: int, first: int, count: int, schema: SequenceSchemaModel
+        self,
+        txn: Any,
+        r: int,
+        first: int,
+        count: int,
+        carries_trajectory: bool,
+        schema: SequenceSchemaModel,
     ) -> RecordModel:
         system = None
         raw = txn.get(key(SYSTEM_PREFIX, r))
@@ -461,7 +470,7 @@ class LmdbCollectionCodec(Codec):
             decoded = decode_frame(raw)
             system = FrameModel(blocks=decoded.blocks, meta=decoded.meta, box=decoded.box)
         trajectory = None
-        if count:
+        if count or carries_trajectory:
             frames, steps, times, cells, ordinals = [], [], [], [], []
             for j in range(count):
                 raw = txn.get(key(FRAME_PREFIX, first + j))
@@ -480,7 +489,7 @@ class LmdbCollectionCodec(Codec):
                         },
                     )
                 )
-                steps.append(int(decoded.step))
+                steps.append(decoded.step)
                 times.append(decoded.time)
                 if decoded.box is not None:
                     cells.append(decoded.box)
@@ -526,6 +535,19 @@ def _cell_section(r: int, ordinals: list[int], cells: list[BoxModel]) -> Traject
         ],
         cell_defined=defined.pop(),
     )
+
+
+def _atom_count(record: RecordModel) -> int:
+    """``n_atoms``: the rows of the system's ``atoms`` block, else of the
+    trajectory's first update of ``atoms``, else ``0`` -- a system block of
+    zero rows is an answer, not a reason to look further."""
+    if record.system is not None and "atoms" in record.system.blocks:
+        return record.system.blocks["atoms"].count
+    if record.trajectory is not None:
+        for frame in record.trajectory.frames:
+            if "atoms" in frame.blocks:
+                return frame.blocks["atoms"].count
+    return 0
 
 
 class LmdbTrajectoryCodec(Codec):

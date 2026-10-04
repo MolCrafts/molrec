@@ -60,6 +60,7 @@ from molrec.core.model import (
     RESERVED_BLOCK_NAMES,
     RESERVED_TRAJECTORY_NAMES,
     VALIDITY_GROUP,
+    ArrayNodeModel,
     BlockModel,
     BoxModel,
     BoxUpdateModel,
@@ -70,6 +71,7 @@ from molrec.core.model import (
     MetaModel,
     MetaSeriesModel,
     MethodModel,
+    NodeModel,
     RecordModel,
     SequenceBlockModel,
     SequenceSchemaModel,
@@ -77,6 +79,7 @@ from molrec.core.model import (
     TrajectoryBoxModel,
     TrajectoryModel,
     coerce_meta_value,
+    document,
     revalidated,
     same_bits,
     stamp_version,
@@ -243,7 +246,7 @@ class ZarrFrameCodec(Codec):
         record and a bare frame at a store root are the same bytes, and one
         description of that is better than two that can drift.
         """
-        root.attrs.update(model.meta)
+        root.attrs.update(jsonvalue.check_document(model.meta))
 
         for name, block in model.blocks.items():
             if name == BOX_GROUP:
@@ -272,9 +275,12 @@ class ZarrFrameCodec(Codec):
                 "cannot take it"
             )
         group = parent.create_group(name)
-        group.attrs["count"] = block.count
+        # A producer's own block attributes ride beside the two the layout names.
+        attrs = jsonvalue.check_document(dict(block.model_extra or {}))
+        attrs["count"] = block.count
         if block.structural_shape is not None:
-            group.attrs[STRUCTURAL_SHAPE_ATTR] = list(block.structural_shape)
+            attrs[STRUCTURAL_SHAPE_ATTR] = list(block.structural_shape)
+        group.attrs.update(attrs)
 
         for column_name, column in block.columns.items():
             array = create_fixed(group, column_name, column.shape, column.dtype)
@@ -298,7 +304,11 @@ class ZarrFrameCodec(Codec):
         if "count" not in attrs:
             raise ValueError(f"block {group.name!r} has no count attribute")
 
-        count = int(attrs["count"])
+        count = attrs["count"]
+        if type(count) is not int or count < 0:
+            raise ValueError(
+                f"block {group.name!r}: count is a non-negative integer, found {count!r}"
+            )
         masks = _read_masks(group, count)
         columns = {
             name: self._read_column(member, masks.pop(name, None))
@@ -310,11 +320,13 @@ class ZarrFrameCodec(Codec):
                 f"{group.name}/{VALIDITY_GROUP} masks {sorted(masks)}, which are no columns of "
                 "the block"
             )
-        structural = attrs.get(STRUCTURAL_SHAPE_ATTR)
+        structural = attrs.pop(STRUCTURAL_SHAPE_ATTR, None)
+        del attrs["count"]
         return BlockModel(
             count=count,
             columns=columns,
             structural_shape=tuple(structural) if structural is not None else None,
+            **attrs,
         )
 
     def _read_column(self, array: zarr.Array, validity: np.ndarray | None) -> ColumnModel:
@@ -1103,6 +1115,56 @@ RECORD_SYSTEM = "system"
 RECORD_STATUS = "status"
 RECORD_METHOD = "method"
 RECORD_OBSERVABLES = "observables"
+RECORD_METRICS = "metrics"
+
+#: The root sections this version interprets; any other root group is
+#: preserved as a :class:`~molrec.core.model.NodeModel`.
+RECORD_SECTIONS = frozenset(
+    {
+        RECORD_META,
+        RECORD_FRAME,
+        RECORD_SYSTEM,
+        TRAJECTORY_GROUP,
+        RECORD_STATUS,
+        RECORD_METHOD,
+        RECORD_OBSERVABLES,
+        RECORD_METRICS,
+    }
+)
+
+
+def write_node(group: zarr.Group, node: NodeModel) -> None:
+    """Lay an unrecognised subtree down exactly as it was read."""
+    group.attrs.update(jsonvalue.check_document(node.attributes))
+    for name, array in node.arrays.items():
+        stored = create_fixed(group, name, array.shape, array.dtype)
+        if array.values is not None:
+            stored[...] = array.values
+        stored.attrs.update(jsonvalue.check_document(array.attributes))
+    for name, child in node.groups.items():
+        write_node(group.create_group(name), child)
+
+
+def read_node(group: zarr.Group) -> NodeModel:
+    """An unrecognised subtree, verbatim: attributes, arrays, child groups."""
+    return NodeModel(
+        attributes=dict(group.attrs),
+        arrays={
+            name: ArrayNodeModel(
+                dtype=stored_dtype(member),
+                shape=tuple(int(n) for n in member.shape),
+                values=member[...],
+                attributes=dict(member.attrs),
+            )
+            for name, member in group.members()
+            if isinstance(member, zarr.Array)
+        },
+        groups={
+            name: read_node(member)
+            for name, member in group.members()
+            if isinstance(member, zarr.Group)
+        },
+    )
 
 
 class ZarrRecordStore(ZarrStore, RecordStore):
@@ -1134,14 +1196,10 @@ class ZarrRecordCodec(Codec):
     def write(self, model: RecordModel, store: ZarrRecordStore) -> None:
         store.clear()
         root = store.root(mode="w")
-        root.create_group(RECORD_META).attrs.update(
-            stamp_version(model.meta.model_dump(mode="json", exclude_none=True))
-        )
-        for name, document in ((RECORD_STATUS, model.status), (RECORD_METHOD, model.method)):
-            if document is not None:
-                root.create_group(name).attrs.update(
-                    document.model_dump(mode="json", exclude_none=True)
-                )
+        root.create_group(RECORD_META).attrs.update(stamp_version(document(model.meta)))
+        for name, section in ((RECORD_STATUS, model.status), (RECORD_METHOD, model.method)):
+            if section is not None:
+                root.create_group(name).attrs.update(document(section))
         if model.metrics is not None:
             raise NotImplementedError(
                 "the reference record codec lays out meta, status, method, frame, system, "
@@ -1149,6 +1207,9 @@ class ZarrRecordCodec(Codec):
             )
         if model.observables is not None:
             self._observables().write_into(root.create_group(RECORD_OBSERVABLES), model.observables)
+        # Sections this version does not define go back exactly as they came.
+        for name, node in (model.model_extra or {}).items():
+            write_node(root.create_group(name), node)
         for name, frame in (
             (RECORD_FRAME, model.frame),
             (RECORD_SYSTEM, model.system),
@@ -1181,6 +1242,11 @@ class ZarrRecordCodec(Codec):
             observables=self._observables().read_from(root[RECORD_OBSERVABLES])
             if RECORD_OBSERVABLES in root
             else None,
+            **{
+                name: read_node(member)
+                for name, member in root.members()
+                if isinstance(member, zarr.Group) and name not in RECORD_SECTIONS
+            },
         )
 
     @staticmethod
