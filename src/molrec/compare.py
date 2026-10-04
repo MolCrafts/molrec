@@ -38,14 +38,25 @@ def diff(expected: Any, actual: Any, path: str = "") -> tuple[Violation, ...]:
     return _diff_scalar(expected, actual, path)
 
 
+#: Marks a field a duck does not carry at all.
+_ABSENT = object()
+
+
+def _field(value: Any, name: str) -> Any:
+    """``value[name]`` for a mapping, ``value.name`` otherwise, else :data:`_ABSENT`.
+
+    A mapping is read by key and *only* by key: ``getattr({}, "values")`` is
+    the bound ``dict.values`` method, not a column's values.
+    """
+    if isinstance(value, Mapping):
+        return value.get(name, _ABSENT)
+    return getattr(value, name, _ABSENT)
+
+
 def lookup(value: Any, name: str, default: Any = None) -> Any:
-    """``value.name`` or ``value[name]`` -- however the duck spells it -- else ``default``."""
-    try:
-        return getattr(value, name)
-    except AttributeError:
-        if isinstance(value, Mapping):
-            return value.get(name, default)
-        return default
+    """``value[name]`` or ``value.name`` -- however the duck spells it -- else ``default``."""
+    found = _field(value, name)
+    return default if found is _ABSENT else found
 
 
 def _at(path: str, key: Any) -> str:
@@ -56,19 +67,14 @@ def _diff_model(expected: BaseModel, actual: Any, path: str) -> tuple[Violation,
     found: list[Violation] = []
     for name in type(expected).model_fields:
         want = getattr(expected, name)
-        try:
-            got = getattr(actual, name)
-        except AttributeError:
-            if isinstance(actual, Mapping) and name in actual:
-                got = actual[name]
-            elif want is None:
-                # Absent is how a duck says "none here" -- a record without a
-                # status section, a series without a fill. Only a field the
-                # model actually holds has to be handed back.
-                continue
-            else:
+        got = _field(actual, name)
+        if got is _ABSENT:
+            # Absent is how a duck says "none here" -- a record without a
+            # status section, a series without a fill. Only a field the model
+            # actually holds has to be handed back.
+            if want is not None:
                 found.append(Violation(kind="missing_field", path=_at(path, name), detail="absent"))
-                continue
+            continue
         found.extend(diff(want, got, _at(path, name)))
     found.extend(_diff_extras(expected, actual, path))
     return tuple(found)

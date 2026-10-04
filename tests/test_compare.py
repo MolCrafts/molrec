@@ -124,3 +124,17 @@ def test_a_meta_document_keeps_its_value_types() -> None:
     expected = molrec.FrameModel(meta={"source": {"tool": "molrec", "run": 3}})
     actual = {"blocks": {}, "box": None, "meta": {"source": {"tool": "molrec", "run": 3.0}}}
     assert [v.path for v in molrec.diff(expected, actual)] == ["/meta/source/run"]
+
+
+def test_a_mapping_duck_is_read_by_key() -> None:
+    """``values`` is a column field and also a ``dict`` method; the key must win."""
+    expected = molrec.ColumnModel(dtype="f64", shape=(3,), values=np.array([0.0, 1.5, 3.0]))
+    duck = {"dtype": "f64", "shape": (3,), "values": np.array([0.0, 1.5, 3.0])}
+    assert molrec.diff(expected, duck) == ()
+
+
+def test_a_field_absent_from_a_duck_is_missing_unless_the_model_holds_none() -> None:
+    expected = molrec.BoxModel(vectors=np.eye(3))
+    duck = {"vectors": np.eye(3), "boundary": (True, True, True), "cell_defined": True}
+    assert [(v.kind, v.path) for v in molrec.diff(expected, duck)] == [("missing_field", "/origin")]
+    assert molrec.diff(molrec.FrameModel(), {"blocks": {}, "meta": {}}) == ()
