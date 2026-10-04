@@ -122,7 +122,12 @@ def test_numpy_scalars_are_their_python_kind() -> None:
 
 def test_a_meta_document_keeps_its_value_types() -> None:
     expected = molrec.FrameModel(meta={"source": {"tool": "molrec", "run": 3}})
-    actual = {"blocks": {}, "box": None, "meta": {"source": {"tool": "molrec", "run": 3.0}}}
+    actual = {
+        "blocks": {},
+        "box": None,
+        "meta": {"source": {"tool": "molrec", "run": 3.0}},
+        "meta_types": {"source": "json"},
+    }
     assert [v.path for v in molrec.diff(expected, actual)] == ["/meta/source/run"]
 
 
@@ -137,4 +142,4 @@ def test_a_field_absent_from_a_duck_is_missing_unless_the_model_holds_none() -> 
     expected = molrec.BoxModel(vectors=np.eye(3))
     duck = {"vectors": np.eye(3), "boundary": (True, True, True), "cell_defined": True}
     assert [(v.kind, v.path) for v in molrec.diff(expected, duck)] == [("missing_field", "/origin")]
-    assert molrec.diff(molrec.FrameModel(), {"blocks": {}, "meta": {}}) == ()
+    assert molrec.diff(molrec.FrameModel(), {"blocks": {}, "meta": {}, "meta_types": {}}) == ()

@@ -35,6 +35,7 @@ from molrec import jsonvalue
 from molrec.binding import Binding, Codec
 from molrec.core.model import (
     DTYPES,
+    META_TYPES_ATTR,
     NUMPY_DTYPE,
     RESERVED_INDEX_COLUMNS,
     STORED,
@@ -52,8 +53,10 @@ from molrec.core.model import (
     TrajectoryBoxModel,
     TrajectoryModel,
     decode_meta_value,
+    decode_typed_meta,
     document,
     encode_meta_value,
+    encode_typed_meta,
     revalidated,
     same_bits,
     stamp_version,
@@ -94,6 +97,9 @@ class FrameBytes:
 
     blocks: dict[str, BlockModel]
     meta: dict[str, Any]
+    #: The tag of every ``meta`` key, on a value that types its meta document
+    #: itself (a system frame); ``None`` where a declaration types it.
+    meta_types: dict[str, str] | None = None
     step: int | None = None
     time: float | None = None
     box: BoxModel | None = None
@@ -103,6 +109,7 @@ def encode_frame(
     blocks: dict[str, BlockModel],
     meta: dict[str, Any],
     *,
+    meta_types: dict[str, str] | None = None,
     step: int | None = None,
     time: float | None = None,
     box: BoxModel | None = None,
@@ -111,7 +118,12 @@ def encode_frame(
 
     Args:
         blocks: The blocks this value carries.
-        meta: A JSON-serialisable meta document.
+        meta: The meta document: already in its typed JSON forms (a
+            trajectory update, typed by the declaration), or -- with
+            ``meta_types`` -- plain values typed by those tags.
+        meta_types: Types ``meta`` itself (a system frame): every value is
+            written in its tag's typed JSON form and the header carries
+            ``meta_types``.
         step: A trajectory update's step number.
         time: A trajectory update's time.
         box: The cell, when this value states it.
@@ -165,7 +177,12 @@ def encode_frame(
         }
         if block.model_extra:
             header_blocks[name]["attributes"] = jsonvalue.check_document(block.model_extra)
-    header: dict[str, Any] = {"blocks": header_blocks, "meta": jsonvalue.check_document(meta)}
+    if meta_types is None:
+        header: dict[str, Any] = {"blocks": header_blocks, "meta": jsonvalue.check_document(meta)}
+    else:
+        typed = encode_typed_meta(meta, meta_types)
+        tags = typed.pop(META_TYPES_ATTR, {})
+        header = {"blocks": header_blocks, "meta": typed, "meta_types": tags}
     if step is not None:
         header["step"] = jsonvalue.encode("i64", step)
     if time is not None:
@@ -258,6 +275,7 @@ def decode_frame(value: bytes | memoryview) -> FrameBytes:
     return FrameBytes(
         blocks=blocks,
         meta=header.get("meta", {}),
+        meta_types=header.get("meta_types"),
         step=None if header.get("step") is None else jsonvalue.decode("i64", header["step"]),
         time=None if header.get("time") is None else jsonvalue.decode("f64", header["time"]),
         box=None
@@ -345,7 +363,12 @@ class LmdbCollectionCodec(Codec):
                         system = record.system
                         txn.put(
                             key(SYSTEM_PREFIX, r),
-                            encode_frame(system.blocks, system.meta, box=system.box),
+                            encode_frame(
+                                system.blocks,
+                                system.meta,
+                                meta_types=system.meta_types,
+                                box=system.box,
+                            ),
                         )
                     derived["first_frame"].append(ordinal)
                     frames = 0
@@ -482,7 +505,12 @@ class LmdbCollectionCodec(Codec):
         raw = txn.get(key(SYSTEM_PREFIX, r))
         if raw is not None:
             decoded = decode_frame(raw)
-            system = FrameModel(blocks=decoded.blocks, meta=decoded.meta, box=decoded.box)
+            meta, meta_types = decode_typed_meta(
+                {**decoded.meta, META_TYPES_ATTR: decoded.meta_types or {}}, f"record {r} system"
+            )
+            system = FrameModel(
+                blocks=decoded.blocks, meta=meta, meta_types=meta_types, box=decoded.box
+            )
         trajectory = None
         if count or carries_trajectory:
             frames, steps, times, cells, ordinals = [], [], [], [], []

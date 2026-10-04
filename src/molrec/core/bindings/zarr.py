@@ -6,7 +6,8 @@ other two build on.
 
 Layout::
 
-    <frame root>/               group attributes = the frame's meta document
+    <frame root>/               group attributes = the frame's meta document, each value
+    │                           in its typed JSON form, plus _meta_types {key: tag}
     ├── <block>/                group attributes: count, structural_shape
     │   └── <column>            array (attribute precision, when declared)
     └── box/                    group attribute cell_defined, only when false
@@ -80,7 +81,9 @@ from molrec.core.model import (
     TrajectoryBoxModel,
     TrajectoryModel,
     coerce_meta_value,
+    decode_typed_meta,
     document,
+    encode_typed_meta,
     revalidated,
     same_bits,
     stamp_version,
@@ -271,7 +274,7 @@ class ZarrFrameCodec(Codec):
         record and a bare frame at a store root are the same bytes, and one
         description of that is better than two that can drift.
         """
-        root.attrs.update(jsonvalue.check_document(model.meta))
+        root.attrs.update(encode_typed_meta(model.meta, model.meta_types))
 
         for name, block in model.blocks.items():
             if name == BOX_GROUP:
@@ -291,7 +294,8 @@ class ZarrFrameCodec(Codec):
         }
 
         box = self._read_box(root[BOX_GROUP]) if BOX_GROUP in root else None
-        return FrameModel(blocks=blocks, box=box, meta=dict(root.attrs))
+        meta, meta_types = decode_typed_meta(dict(root.attrs), root.name)
+        return FrameModel(blocks=blocks, box=box, meta=meta, meta_types=meta_types)
 
     def _write_block(self, parent: zarr.Group, name: str, block: BlockModel) -> None:
         if VALIDITY_GROUP in block.columns:

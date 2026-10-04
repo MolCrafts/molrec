@@ -249,6 +249,91 @@ def decode_meta_value(tag: str, raw: Any) -> Any:
     return [jsonvalue.decode(element, item) for item in raw]
 
 
+#: The attribute of a frame-shaped group that maps every key of its meta
+#: document to its tag (``docs/spec/storage.md``, array groups). One leading
+#: underscore, like ``_validity``: binding-owned, and never a meta key.
+META_TYPES_ATTR = "_meta_types"
+
+
+def infer_meta_tag(value: Any) -> str:
+    """The tag an untagged meta value reads back as.
+
+    JSON ``true`` / ``false`` is ``bool``; an integer in ``[-2**63, 2**63)``
+    is ``i64`` and one in ``[2**63, 2**64)`` is ``u64``; any other number is
+    ``f64``; a string is ``string``; an array, an object or ``null`` is
+    ``json``. A string ``"NaN"`` is a ``string`` -- only a tag says otherwise.
+    """
+    value = jsonvalue.plain(value)
+    if isinstance(value, bool):
+        return "bool"
+    if isinstance(value, int):
+        if -(2**63) <= value < 2**63:
+            return "i64"
+        if 2**63 <= value < 2**64:
+            return "u64"
+        return "f64"
+    if isinstance(value, float):
+        return "f64"
+    if isinstance(value, str):
+        return "string"
+    return "json"
+
+
+def encode_typed_meta(meta: dict[str, Any], tags: dict[str, str]) -> dict[str, Any]:
+    """A frame's meta document as a binding stores it (a frame-shaped group's
+    attributes; a system frame's frame-bytes header).
+
+    Every value in the typed JSON form of its tag, and ``_meta_types`` naming
+    the tag of every key (omitted for an empty document). A key the producer
+    left untagged takes the tag it would read back as; a tag for a key the
+    document lacks is not written. A meta key named ``_meta_types`` is
+    refused: the name is the binding's.
+    """
+    if META_TYPES_ATTR in meta:
+        raise ValueError(
+            f"{META_TYPES_ATTR!r} is reserved beside a frame's meta document; a meta key cannot "
+            "take it"
+        )
+    written: dict[str, str] = {}
+    attrs: dict[str, Any] = {}
+    for key, value in meta.items():
+        tag = tags.get(key) or infer_meta_tag(value)
+        attrs[key] = encode_meta_value(tag, value)
+        written[key] = tag
+    if written:
+        attrs[META_TYPES_ATTR] = written
+    return attrs
+
+
+def decode_typed_meta(attrs: dict[str, Any], where: str) -> tuple[dict[str, Any], dict[str, str]]:
+    """A stored meta document (with its ``_meta_types``) as values and tags.
+
+    A tagged key is decoded under its tag and any other form is refused; an
+    untagged key gets the tag it is inferred as (a store written before
+    ``_meta_types``); a tag whose key is absent is ignored.
+    """
+    tags = attrs.pop(META_TYPES_ATTR, {})
+    if not isinstance(tags, dict) or any(
+        not isinstance(tag, str) or tag not in META_LAYOUT for tag in tags.values()
+    ):
+        raise ValueError(f"{where}: {META_TYPES_ATTR} is a map of key to meta tag, found {tags!r}")
+    meta: dict[str, Any] = {}
+    types: dict[str, str] = {}
+    for key, raw in attrs.items():
+        tag = tags.get(key)
+        if tag is None:
+            tag = infer_meta_tag(raw)
+            value = coerce_meta_value(tag, raw)
+        else:
+            try:
+                value = decode_meta_value(tag, raw)
+            except ValueError as exc:
+                raise ValueError(f"{where}: meta key {key!r} is tagged {tag!r}: {exc}") from None
+        meta[key] = value
+        types[key] = tag
+    return meta, types
+
+
 #: The subgroup of a block group holding its columns' validity masks
 #: (``<block>/_validity/<column>``) -- reserved in every block, on the frame
 #: path and the trajectory path alike. One underscore: Zarr V3 reserves the
@@ -566,10 +651,17 @@ class BoxModel(CellModel):
 
 
 class FrameModel(BaseModel):
-    """A map of names to blocks, plus free-form meta and an optional box.
+    """A map of names to blocks, plus a typed meta document and an optional box.
 
     A frame enforces no relationship between its blocks: block counts are
     independent and any block name is legal.
+
+    Every ``meta`` value is typed by one of the per-step tags
+    (:data:`META_TAGS`), held in ``meta_types``: a key the producer did not
+    tag gets the tag it would read back as (:func:`infer_meta_tag`), and
+    every value is coerced to its tag (:func:`coerce_meta_value`), so a
+    validated frame carries one tag per key -- what a writer stores as the
+    group's ``_meta_types`` and a reader hands back.
     """
 
     model_config = ConfigDict(frozen=True, from_attributes=True, extra="forbid")
@@ -577,6 +669,43 @@ class FrameModel(BaseModel):
     blocks: dict[str, BlockModel] = Field(default_factory=dict)
     box: BoxModel | None = None
     meta: dict[str, Any] = Field(default_factory=dict)
+    meta_types: dict[str, MetaTag] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _meta_is_typed(self) -> FrameModel:
+        if META_TYPES_ATTR in self.meta:
+            raise ValueError(
+                f"{META_TYPES_ATTR!r} is reserved beside a frame's meta document; a meta key "
+                "cannot take it"
+            )
+        stale = sorted(set(self.meta_types) - set(self.meta))
+        if stale:
+            raise ValueError(f"meta_types tags keys {stale} the meta document does not carry")
+        tags = {
+            key: self.meta_types.get(key) or infer_meta_tag(value)
+            for key, value in self.meta.items()
+        }
+        meta: dict[str, Any] = {}
+        for key, value in self.meta.items():
+            try:
+                meta[key] = coerce_meta_value(tags[key], value)
+            except ValueError as exc:
+                raise ValueError(f"meta key {key!r} is tagged {tags[key]!r}: {exc}") from None
+        object.__setattr__(self, "meta", meta)
+        object.__setattr__(self, "meta_types", tags)
+        return self
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, FrameModel):
+            return NotImplemented
+        return (
+            self.blocks == other.blocks
+            and self.box == other.box
+            and self.meta_types == other.meta_types
+            and jsonvalue.same(self.meta, other.meta)
+        )
+
+    __hash__ = None  # type: ignore[assignment]
 
 
 #: Children of ``trajectory`` the layout owns. A block cannot take one of
@@ -1145,7 +1274,9 @@ class TrajectoryModel(BaseModel):
                         "without a fill value -- there is no implicit NaN"
                     )
                 completed[key] = series.fill
-            resolved.append(frame.model_copy(update={"meta": completed}))
+            # The declaration types a trajectory frame's meta.
+            tags = {key: series.dtype for key, series in self.meta.items()}
+            resolved.append(frame.model_copy(update={"meta": completed, "meta_types": tags}))
         object.__setattr__(self, "frames", resolved)
         return self
 

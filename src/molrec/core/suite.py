@@ -18,6 +18,7 @@ from molrec.case import Case
 from molrec.compare import diff, lookup
 from molrec.core.model import (
     META_TAGS,
+    META_TYPES_ATTR,
     MOLREC_VERSION,
     NUMPY_DTYPE,
     STORED,
@@ -263,6 +264,7 @@ class FrameSuite(Suite):
         )
 
         yield from _frame_precision_cases(prefix)
+        yield from _frame_typed_meta_cases(prefix)
 
         yield Case(
             id="empty-frame",
@@ -475,7 +477,7 @@ class FrameSuite(Suite):
 
         yield Case(
             id="frame-meta-preserved",
-            exercises="the frame's free-form meta document survives, nesting included",
+            exercises="the frame's meta document survives, a nested json value included",
             model=FrameModel(
                 blocks={"atoms": BlockModel(count=1, columns={"x": _column("f64", [0.0])})},
                 meta={"title": "test", "source": {"tool": "molrec", "run": 3}},
@@ -648,6 +650,164 @@ def _frame_precision_cases(prefix: str) -> Iterable[Case]:
             rejects_on="write",
             model=_raw_frame({"atoms": {"x": _raw_column("f64", [0.5], bad)}}),
         )
+
+
+def _edit_attrs(path: str, edit: Any) -> Any:
+    """A tamper that rewrites the attributes of the group at ``path`` (``""``
+    is the store root) with ``edit(attrs) -> attrs``."""
+
+    def tamper(store: Any) -> None:
+        import zarr
+
+        root = zarr.open_group(store=store.path, mode="r+")
+        group = root[path.rstrip("/")] if path else root
+        attrs = edit(dict(group.attrs))
+        group.attrs.clear()
+        group.attrs.update(attrs)
+
+    return tamper
+
+
+#: One meta key per tag, in :data:`META_TAGS` order.
+_EVERY_TAG_VALUE: dict[str, Any] = {
+    "flag": True,
+    "count": -7,
+    "big": -(2**40),
+    "small": 7,
+    "id": 2**64 - 1,
+    "pe": -1.25,
+    "phase": "nvt",
+    "note": {"restarts": [1, 2]},
+    "pbc": [True, False, True],
+    "image": [-1, 0, 1],
+    "shift": [-(2**40), 0, 2**40],
+    "grid": [1, 2, 3],
+    "ids": [0, 2**63, 2**64 - 1],
+    "com": [0.0, 0.5, 1.0],
+    "stress": [1.0, 2.0, 3.0, 0.1, 0.2, 0.3],
+    "cell": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+}
+_EVERY_TAG = dict(zip(_EVERY_TAG_VALUE, META_TAGS, strict=True))
+
+
+def _typed_frame(meta: dict[str, Any], tags: dict[str, str]) -> FrameModel:
+    return FrameModel(
+        blocks={"atoms": BlockModel(count=1, columns={"x": _column("f64", [0.0])})},
+        meta=meta,
+        meta_types=tags,
+    )
+
+
+def _frame_typed_meta_cases(prefix: str) -> Iterable[Case]:
+    """A frame's meta document, typed by ``_meta_types`` (``docs/spec/storage.md``)."""
+    yield Case(
+        id="typed-meta-every-tag",
+        exercises="each of the sixteen tags keeps its exact element type and width in a "
+        "frame's meta document",
+        model=_typed_frame(_EVERY_TAG_VALUE, _EVERY_TAG),
+    )
+
+    yield Case(
+        id="typed-meta-non-finite",
+        exercises="an f64 NaN, +inf and -inf, and an f64x3 holding NaN, survive as their "
+        "typed JSON forms",
+        model=_typed_frame(
+            {"nan": math.nan, "inf": math.inf, "ninf": -math.inf, "v": [math.nan, 0.0, 1.0]},
+            {"nan": "f64", "inf": "f64", "ninf": "f64", "v": "f64x3"},
+        ),
+    )
+
+    yield Case(
+        id="typed-meta-wide-integers",
+        exercises="integers beyond 2**53 keep every digit: u64 2**64-1, i64 -2**63, u64 2**53+1",
+        model=_typed_frame(
+            {"max": 2**64 - 1, "min": -(2**63), "odd": 2**53 + 1},
+            {"max": "u64", "min": "i64", "odd": "u64"},
+        ),
+    )
+
+    yield Case(
+        id="typed-meta-integral-float",
+        exercises="an f64 whose value is whole stays f64; an i32 stays i32",
+        model=_typed_frame({"t": 1.0, "n": 3}, {"t": "f64", "n": "i32"}),
+    )
+
+    # Only values whose typed JSON form is plain JSON: an untagged u64 beyond
+    # 2**53 is stored as a decimal string and reads back a string -- which is
+    # why a writer tags every key.
+    tagged = _typed_frame(
+        {"n": 3, "t": 2.0, "v": [1.0, 2.0, 3.0], "name": "a", "ok": True},
+        {"n": "i32", "t": "f64", "v": "f64x3", "name": "string", "ok": "bool"},
+    )
+    yield Case(
+        id="untyped-meta-infers",
+        exercises="a store without _meta_types reads with inferred tags: an integer i64, any "
+        "other number f64 (2.0 included), a string string, a bool bool, anything else json",
+        model=tagged,
+        expected=_typed_frame(
+            dict(tagged.meta),
+            {"n": "i64", "t": "f64", "v": "json", "name": "string", "ok": "bool"},
+        ),
+        directions=("read",),
+        backends=("zarr",),
+        tamper=_edit_attrs(
+            prefix, lambda attrs: {k: v for k, v in attrs.items() if k != META_TYPES_ATTR}
+        ),
+    )
+
+    yield Case(
+        id="stale-meta-tag-ignored",
+        exercises="a tag for a key the document lacks is ignored, not surfaced and not refused",
+        model=tagged,
+        directions=("read",),
+        backends=("zarr",),
+        tamper=_edit_attrs(
+            prefix,
+            lambda attrs: {
+                **attrs,
+                META_TYPES_ATTR: {**attrs[META_TYPES_ATTR], "gone": "f64x9"},
+            },
+        ),
+    )
+
+    for case_id, value, why in (
+        ("reject-meta-tag-mismatch", 1.5, "1.5 is not an i32"),
+        ("reject-meta-out-of-range", 2**40, "2**40 is out of range for i32"),
+    ):
+        yield Case(
+            id=case_id,
+            exercises=f"a tagged key is decoded under its tag and nothing else: {why}",
+            expect_violation="meta_tag_mismatch",
+            backends=("zarr",),
+            model=_typed_frame({"k": 1}, {"k": "i64"}),
+            tamper=_edit_attrs(
+                prefix,
+                lambda attrs, value=value: {
+                    **attrs,
+                    "k": value,
+                    META_TYPES_ATTR: {**attrs[META_TYPES_ATTR], "k": "i32"},
+                },
+            ),
+        )
+
+    def unvalidated(meta: dict[str, Any], tags: dict[str, str]) -> FrameModel:
+        return FrameModel.model_construct(blocks={}, box=None, meta=meta, meta_types=tags)
+
+    yield Case(
+        id="reject-meta-reserved-key",
+        exercises="_meta_types is the binding's; a meta key taking the name is refused",
+        expect_violation="reserved_meta_key",
+        rejects_on="write",
+        model=unvalidated({META_TYPES_ATTR: {"a": "f64"}, "a": 1.0}, {}),
+    )
+
+    yield Case(
+        id="reject-json-meta-non-finite",
+        exercises="a json value is finite JSON; one holding NaN is refused, not nulled",
+        expect_violation="meta_tag_mismatch",
+        rejects_on="write",
+        model=unvalidated({"doc": {"x": math.nan}}, {"doc": "json"}),
+    )
 
 
 def _break_offset(store: Any) -> None:
@@ -974,25 +1134,8 @@ class TrajectorySuite(Suite):
             ),
         )
 
-        every_tag = {
-            "flag": True,
-            "count": -7,
-            "big": -(2**40),
-            "small": 7,
-            "id": 2**64 - 1,
-            "pe": -1.25,
-            "phase": "nvt",
-            "note": {"restarts": [1, 2]},
-            "pbc": [True, False, True],
-            "image": [-1, 0, 1],
-            "shift": [-(2**40), 0, 2**40],
-            "grid": [1, 2, 3],
-            "ids": [0, 2**63, 2**64 - 1],
-            "com": [0.0, 0.5, 1.0],
-            "stress": [1.0, 2.0, 3.0, 0.1, 0.2, 0.3],
-            "cell": [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
-        }
-        tags = dict(zip(every_tag, META_TAGS, strict=True))
+        every_tag = _EVERY_TAG_VALUE
+        tags = _EVERY_TAG
         yield Case(
             id="every-meta-tag",
             exercises="each of the sixteen per-step tags keeps its exact element type and width",
@@ -1630,6 +1773,13 @@ class RecordSuite(Suite):
         )
 
         yield Case(
+            id="system-typed-meta",
+            exercises="a system's meta document is typed like a frame's: an i32, an f64x3 and "
+            "a NaN survive",
+            model=RecordModel(meta=meta, system=_typed_system()),
+        )
+
+        yield Case(
             id="record-with-box",
             exercises="the cell rides on the frame section, under the name box",
             model=RecordModel(
@@ -1647,6 +1797,15 @@ class RecordSuite(Suite):
                 ),
             ),
         )
+
+
+def _typed_system() -> FrameModel:
+    """A system whose meta needs its tags to read back exactly."""
+    return FrameModel(
+        blocks={"atoms": BlockModel(count=1, columns={"element": _column("string", ["O"])})},
+        meta={"charge": -1, "dipole": [0.0, 0.5, math.nan], "energy": math.nan, "name": "ion"},
+        meta_types={"charge": "i32", "dipole": "f64x3", "energy": "f64", "name": "string"},
+    )
 
 
 def _break_first_frame(store: Any) -> None:
@@ -1961,6 +2120,14 @@ class CollectionSuite(Suite):
                         trajectory=TrajectoryModel.model_validate(precise.model_dump()),
                     )
                 ],
+            ),
+        )
+
+        yield Case(
+            id="system-typed-meta-lmdb",
+            exercises="a system's typed meta survives the frame-bytes header (meta_types)",
+            model=CollectionModel(
+                meta=meta, records=[RecordModel(meta=MetaModel(), system=_typed_system())]
             ),
         )
 

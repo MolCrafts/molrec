@@ -72,10 +72,11 @@ def _from_box(box: molrs.Box) -> dict[str, Any]:
 def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -> molrs.Frame:
     """The model as a molrs frame.
 
-    ``tags`` are declared per-step meta tags. A plain meta write lets molrs
-    infer the tag from the Python value (a list of three bools is not
-    obviously ``bool3``), so a declared key is written as a ``MetaValue`` of
-    its declared tag; anything else is written plain.
+    Every meta key is written as a ``MetaValue`` of its tag -- the frame's
+    ``meta_types``, or the trajectory's declared ``tags`` -- because a plain
+    write lets molrs infer the tag from the Python value (a list of three
+    bools is not obviously ``bool3``, a ``1`` not obviously ``i32``). A key
+    with no tag at all (a model built around the validators) is written plain.
     """
     frame = molrs.Frame()
     for name, block in model.blocks.items():
@@ -94,7 +95,7 @@ def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -
         frame[name] = native
     if model.box is not None:
         frame.box = _to_box(model.box, bool(model.box.cell_defined))
-    tags = tags or {}
+    tags = {**(getattr(model, "meta_types", None) or {}), **(tags or {})}
     for key, value in model.meta.items():
         frame.meta[key] = molrs.MetaValue(tags[key], value) if key in tags else value
     return frame
@@ -132,17 +133,13 @@ def _from_frame(frame: molrs.Frame | None, *, in_trajectory: bool = False) -> di
         }
 
     box = None if frame.box is None else _from_box(frame.box)
-    return {"blocks": blocks, "box": box, "meta": _meta_values(frame)}
-
-
-def _meta_values(frame: molrs.Frame) -> dict[str, Any]:
-    """The frame's meta as plain values.
-
-    ``frame.meta`` hands back frozen values (tuples, ``MetaDocument``);
-    ``typed()`` gives each key's ``MetaValue``, whose ``value`` is the plain
-    payload -- a JSON document as a ``dict``, a fixed-width vector as a tuple.
-    """
-    return {key: value.value for key, value in frame.meta.typed().items()}
+    typed = frame.meta.typed()
+    return {
+        "blocks": blocks,
+        "box": box,
+        "meta": {key: value.value for key, value in typed.items()},
+        "meta_types": {key: value.dtype for key, value in typed.items()},
+    }
 
 
 def _tag(dtype: Any) -> str:

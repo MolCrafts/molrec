@@ -457,3 +457,43 @@ class TestRunDocuments:
     def test_counters_are_non_negative_integers(self) -> None:
         with pytest.raises(ValidationError):
             StatusModel(state="running", epoch=-1)
+
+
+class TestTypedFrameMeta:
+    def test_an_untagged_key_takes_its_inferred_tag(self) -> None:
+        frame = FrameModel(
+            meta={"b": True, "i": -3, "u": 2**63, "w": 2**64, "f": 1.0, "s": "NaN", "j": [1]}
+        )
+        assert frame.meta_types == {
+            "b": "bool",
+            "i": "i64",
+            "u": "u64",
+            "w": "f64",
+            "f": "f64",
+            "s": "string",
+            "j": "json",
+        }
+        assert frame.meta["w"] == float(2**64)
+
+    def test_a_value_is_held_to_its_tag(self) -> None:
+        assert FrameModel(meta={"t": 1}, meta_types={"t": "f64"}).meta["t"] == 1.0
+        with pytest.raises(ValidationError, match="tagged 'i32'"):
+            FrameModel(meta={"n": 1.5}, meta_types={"n": "i32"})
+        with pytest.raises(ValidationError, match="tagged 'json'"):
+            FrameModel(meta={"d": {"x": float("nan")}}, meta_types={"d": "json"})
+
+    def test_the_tag_map_is_reserved_and_strict(self) -> None:
+        with pytest.raises(ValidationError, match="reserved"):
+            FrameModel(meta={"_meta_types": {}})
+        with pytest.raises(ValidationError, match="does not carry"):
+            FrameModel(meta={}, meta_types={"gone": "f64"})
+
+    def test_nan_equals_nan_and_tags_are_content(self) -> None:
+        nan = FrameModel(meta={"e": float("nan")})
+        assert nan == FrameModel(meta={"e": float("nan")})
+        assert FrameModel(meta={"n": 1}, meta_types={"n": "i32"}) != FrameModel(meta={"n": 1})
+
+    def test_a_trajectory_frame_is_typed_by_the_declaration(self) -> None:
+        frame = FrameModel(meta={"n": 1})
+        model = TrajectoryModel(frames=[frame], step=[0], meta={"n": MetaSeriesModel(dtype="i32")})
+        assert model.frames[0].meta_types == {"n": "i32"}

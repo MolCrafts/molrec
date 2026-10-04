@@ -147,11 +147,13 @@ frame-shaped — share one normative layout:
 ```text
 <frame-shaped group>
  +-- <meta key> ...               the group's attributes ARE the meta document
+ +-- (_meta_types)                reserved: {key: tag} for every meta key
  \-- <block>
  |    +-- count: i64[]            required: the block's row count N (>= 0)
  |    +-- (structural_shape: i64[k])   optional: product equals count
  |    +-- (<other attribute>)     preserved
  |    \-- <column>: <dtype>[N][...]
+ |         +-- (precision: f64[])      optional: the column's declared precision
  |    \-- (_validity)            reserved: the block's validity masks
  |         \-- (<column>: bool[N])
  \-- (box)                        reserved: the cell
@@ -159,8 +161,23 @@ frame-shaped — share one normative layout:
 
 - **The group's attributes are the frame's `meta` document**, exactly: every
   key a writer puts there is a meta key, and a reader hands every key back
-  as one. The frame group carries no other attributes (no version, no
-  layout tag).
+  as one — except `_meta_types`. The frame group carries no other
+  attributes (no version, no layout tag).
+- **The meta document is typed.** The attribute `_meta_types` maps every key
+  of the document to its [tag](ragged.md#per-step-metadata), and each value
+  is in the [typed JSON form](conventions.md#typed-json-values) of that tag
+  (so an `f64` NaN is `"NaN"` and a `u64` beyond 2⁵³ a decimal string). A
+  writer emits an entry for every key and omits the attribute for an empty
+  document; `_meta_types` is not a meta key, and a writer refuses a document
+  that has one. A reader decodes a tagged key under its tag and refuses any
+  other form; it infers the tag of an untagged key — `bool`; an integer in
+  `[−2⁶³, 2⁶³)` as `i64`, in `[2⁶³, 2⁶⁴)` as `u64`; any other number `f64`;
+  a string `string`; anything else `json` — and ignores a tag whose key is
+  absent. The `forcefield` document is plain JSON and carries no
+  `_meta_types`.
+- **A column may declare a precision**: the array's attribute `precision`
+  ([Declared precision](frame.md#declared-precision)). A reader preserves it
+  and returns the stored values exactly.
 - **A block is a child group**; its **columns are its child arrays**. Each
   block group carries the required integer attribute `count` — a block with
   no columns still has one, and a reader refuses a block whose columns

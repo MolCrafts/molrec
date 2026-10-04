@@ -284,7 +284,7 @@
     },
     "FrameModel": {
       "additionalProperties": false,
-      "description": "A map of names to blocks, plus free-form meta and an optional box.\n\nA frame enforces no relationship between its blocks: block counts are\nindependent and any block name is legal.",
+      "description": "A map of names to blocks, plus a typed meta document and an optional box.\n\nA frame enforces no relationship between its blocks: block counts are\nindependent and any block name is legal.\n\nEvery ``meta`` value is typed by one of the per-step tags\n(:data:`META_TAGS`), held in ``meta_types``: a key the producer did not\ntag gets the tag it would read back as (:func:`infer_meta_tag`), and\nevery value is coerced to its tag (:func:`coerce_meta_value`), so a\nvalidated frame carries one tag per key -- what a writer stores as the\ngroup's ``_meta_types`` and a reader hands back.",
       "properties": {
         "blocks": {
           "additionalProperties": {
@@ -307,6 +307,31 @@
         "meta": {
           "additionalProperties": true,
           "title": "Meta",
+          "type": "object"
+        },
+        "meta_types": {
+          "additionalProperties": {
+            "enum": [
+              "bool",
+              "i32",
+              "i64",
+              "u32",
+              "u64",
+              "f64",
+              "string",
+              "json",
+              "bool3",
+              "i32x3",
+              "i64x3",
+              "u32x3",
+              "u64x3",
+              "f64x3",
+              "f64x6",
+              "f64x9"
+            ],
+            "type": "string"
+          },
+          "title": "Meta Types",
           "type": "object"
         }
       },

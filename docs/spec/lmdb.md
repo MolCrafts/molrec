@@ -160,10 +160,12 @@ payload := the column buffers
   real/imaginary pairs.
 * A `string` column has no buffer: its values are the header's `values` list,
   row-major.
-* `meta` is the frame's meta document as JSON. A per-step key's value is in
-  the [typed JSON form](conventions.md#typed-json-values) of the tag the
-  `sequence_schema` declares for it; `step` (an `i64`) and `time` (an `f64`)
-  are typed values too.
+* `meta` is the frame's meta document, each value in its typed JSON form. A
+  trajectory update's keys are typed by the `sequence_schema`; a `system`
+  frame carries `"meta_types": {key: tag}` beside `meta` with the rules of
+  the [Zarr frame group](storage.md#frame-shaped-group). The `ff` frame's
+  `meta` is the force-field document and carries no `meta_types`. `step` (an
+  `i64`) and `time` (an `f64`) are typed values too.
 * A block's own attributes (beyond `count` and `structural_shape`) ride in
   the optional `attributes` object of its entry, on a system frame only — a
   trajectory block's attributes are its section's, not one update's.

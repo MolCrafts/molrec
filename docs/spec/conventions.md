@@ -225,7 +225,9 @@ JSON has no NaN, no infinity, no complex number, and a reader whose numbers
 are binary64 (JavaScript, a wasm viewer) silently rounds an integer beyond
 2⁵³. Wherever a JSON value has a declared dtype — a per-step `fill` in
 `sequence_schema`, a per-step value in an [LMDB](lmdb.md) frame header, a
-value in a live observables WAL row — it is written in exactly one form:
+value in a live observables WAL row, a value of a frame's or system's `meta`
+(typed by `_meta_types`, [Root layout](storage.md#frame-shaped-group)) — it
+is written in exactly one form:
 
 | Element dtype | JSON form |
 |---------------|-----------|
@@ -247,6 +249,7 @@ the form above.
   a real where an integer is declared is not rounded.
 - A value is held to its dtype's range: an `i32` fill of `2³¹` is refused.
 
-An untyped document — `meta`, `status`, `method`, a frame's `meta` — has no
-declared dtype; its numbers are plain JSON and a producer that needs NaN in
-one stores it as data, not as a document key.
+An untyped document — the record's `meta`, `status`, `method`, the
+`forcefield` document — has no declared dtype; its numbers are plain JSON,
+and a producer that needs NaN in one stores it as data, not as a document
+key. A frame's `meta` is typed: every key has a tag.

@@ -30,10 +30,11 @@ stored less precision than the record claims.
 
 Type does not carry unit, description, or axis meaning.
 
-`json` is **not** a column dtype. It exists only as a per-step `meta` tag on
-a [trajectory](ragged.md#per-step-metadata), where one UTF-8 JSON document
-per step is stored as a `string` array. Structured facts on a frame go in
-the frame's `meta` document, not in a column.
+`json` is **not** a column dtype. It exists only as a `meta` tag: on a
+[trajectory](ragged.md#per-step-metadata), where one UTF-8 JSON document per
+step is stored as a `string` array, and on a frame's typed `meta` document.
+Structured facts on a frame go in the frame's `meta` document, not in a
+column.
 
 ## Column, block and frame
 
@@ -49,8 +50,11 @@ lets one container describe both a flat table (implicit shape `[N]`) and an
 N-D object (a volumetric grid `[nx][ny][nz]` with `nx·ny·nz == N`). When no
 shape is set, the block is a plain table of `N` rows.
 
-A *frame* is a snapshot: a set of named blocks, a free-form `meta` mapping,
-and an optional box. A frame enforces no relationship between its blocks —
+A *frame* is a snapshot: a set of named blocks, a `meta` document, and an
+optional box. Each `meta` value is typed by one of the per-step
+[tags](ragged.md#per-step-metadata) — a scalar of a column dtype, a fixed
+vector (`f64x3`, `i32x3`, `bool3`, …), or `json` for a nested document — and
+a frame read back carries every value at its tag. A frame enforces no relationship between its blocks —
 counts are independent, and any block name is legal except `box`, which
 names the cell. On the reference binding the frame is a
 [frame-shaped group](storage.md#frame-shaped-group): the `meta` mapping is
@@ -59,6 +63,7 @@ the group's attributes, not a child, so `meta` is an ordinary block name.
 ```text
 frame
  +-- <meta key>                          the meta document: the group's attributes
+ +-- (_meta_types)                       {key: tag} for every meta key
  \-- <block>
  |    +-- count: i64[]
  |    +-- (structural_shape: i64[k])

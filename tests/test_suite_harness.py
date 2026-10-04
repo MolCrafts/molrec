@@ -241,7 +241,9 @@ def _recast(model: FrameModel, source: str, target: str) -> FrameModel:
         )
         for name, block in model.blocks.items()
     }
-    return FrameModel.model_construct(blocks=blocks, box=model.box, meta=model.meta)
+    return FrameModel.model_construct(
+        blocks=blocks, box=model.box, meta=model.meta, meta_types=model.meta_types
+    )
 
 
 class WidensU8Writer(CodecAdapter):
