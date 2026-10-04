@@ -82,6 +82,7 @@ from molrec.core.model import (
 )
 from molrec.core.store import FrameStore, RecordStore, TrajectoryStore
 from molrec.registry import REGISTRY
+from molrec.store import Store
 
 BOX_GROUP = "box"
 
@@ -111,8 +112,13 @@ def _compressors(dtype: DType, dense: bool) -> tuple[Any, ...]:
     return tuple(pipeline)
 
 
-def _create_fixed(group: zarr.Group, name: str, shape: tuple[int, ...], dtype: DType) -> zarr.Array:
-    """A fixed-size (frame / system) array: one chunk up to 4 MiB, no shard."""
+def create_fixed(group: zarr.Group, name: str, shape: tuple[int, ...], dtype: DType) -> zarr.Array:
+    """A fixed-size (frame / system / observables) array: one chunk up to 4 MiB,
+    leading-axis slabs beyond, no shard. A 0-d array is its own chunk."""
+    if not shape:
+        return group.create_array(
+            name, shape=(), dtype=TO_ZARR[dtype], compressors=_compressors(dtype, dense=False)
+        )
     rows = fixed_chunk_rows(shape[0], row_bytes(shape[1:], _itemsize(dtype)))
     return group.create_array(
         name,
@@ -161,17 +167,21 @@ def _create_column(
     )
 
 
-class ZarrFrameStore(FrameStore):
-    """A Zarr V3 root holding one frame."""
+class ZarrStore(Store):
+    """A Zarr V3 root on the filesystem -- a ``*.mrec/`` directory.
+
+    The one store every Zarr binding hands an adapter: ``uri`` / ``path`` for
+    an implementation that takes a path (PyO3, the C ABI, a CLI), ``root``
+    for one already speaking zarr-python.
+    """
 
     backend: ClassVar[str] = "zarr"
 
     def __init__(self, path: Path) -> None:
-        self._path = path
+        self._path = Path(path)
 
     @property
     def uri(self) -> str:
-        """For bindings that take a path -- PyO3, the C ABI, a CLI."""
         return str(self._path)
 
     @property
@@ -179,12 +189,15 @@ class ZarrFrameStore(FrameStore):
         return self._path
 
     def root(self, mode: str = "a") -> zarr.Group:
-        """For consumers already speaking zarr-python."""
         return zarr.open_group(store=self._path, mode=mode)
 
     def clear(self) -> None:
         if self._path.exists():
             shutil.rmtree(self._path)
+
+
+class ZarrFrameStore(ZarrStore, FrameStore):
+    """A Zarr V3 root holding one bare frame (its attributes are the frame's meta)."""
 
 
 class ZarrFrameCodec(Codec):
@@ -238,7 +251,7 @@ class ZarrFrameCodec(Codec):
             group.attrs[STRUCTURAL_SHAPE_ATTR] = list(block.structural_shape)
 
         for column_name, column in block.columns.items():
-            array = _create_fixed(group, column_name, column.shape, column.dtype)
+            array = create_fixed(group, column_name, column.shape, column.dtype)
             if column.values is not None:
                 array[...] = column.values
 
@@ -252,7 +265,7 @@ class ZarrFrameCodec(Codec):
         if masked:
             masks = group.create_group(VALIDITY_GROUP)
             for column_name, mask in masked.items():
-                _create_fixed(masks, column_name, mask.shape, "bool")[...] = mask
+                create_fixed(masks, column_name, mask.shape, "bool")[...] = mask
 
     def _read_block(self, group: zarr.Group) -> BlockModel:
         attrs = dict(group.attrs)
@@ -290,13 +303,13 @@ class ZarrFrameCodec(Codec):
         """``vectors`` always; ``origin`` / ``boundary`` as arrays, omitted at their
         normative defaults; ``cell_defined`` as an attribute, only when false."""
         group = root.create_group(BOX_GROUP)
-        _create_fixed(group, "vectors", tuple(box.vectors.shape), "f64")[...] = box.vectors
+        create_fixed(group, "vectors", tuple(box.vectors.shape), "f64")[...] = box.vectors
         origin = np.asarray(box.origin, dtype="float64")
         if origin.any():
-            _create_fixed(group, "origin", tuple(origin.shape), "f64")[...] = origin
+            create_fixed(group, "origin", tuple(origin.shape), "f64")[...] = origin
         boundary = np.asarray(box.boundary, dtype="bool")
         if not boundary.all():
-            _create_fixed(group, "boundary", tuple(boundary.shape), "bool")[...] = boundary
+            create_fixed(group, "boundary", tuple(boundary.shape), "bool")[...] = boundary
         if box.cell_defined is False:
             group.attrs[CELL_DEFINED_ATTR] = False
 
@@ -391,7 +404,7 @@ STEP_PROGRESSION_ATTR = "step_progression"
 TIME_PROGRESSION_ATTR = "time_progression"
 
 
-class ZarrTrajectoryStore(TrajectoryStore):
+class ZarrTrajectoryStore(ZarrStore, TrajectoryStore):
     """A Zarr V3 root holding one trajectory, under ``trajectory/``.
 
     The sequence sits under its section name rather than at the root, so the
@@ -399,26 +412,6 @@ class ZarrTrajectoryStore(TrajectoryStore):
     section holds are the same bytes. An implementation needs one door for
     both, not two that can drift.
     """
-
-    backend: ClassVar[str] = "zarr"
-
-    def __init__(self, path: Path) -> None:
-        self._path = path
-
-    @property
-    def uri(self) -> str:
-        return str(self._path)
-
-    @property
-    def path(self) -> Path:
-        return self._path
-
-    def root(self, mode: str = "a") -> zarr.Group:
-        return zarr.open_group(store=self._path, mode=mode)
-
-    def clear(self) -> None:
-        if self._path.exists():
-            shutil.rmtree(self._path)
 
 
 class ZarrTrajectoryCodec(Codec):
@@ -947,35 +940,16 @@ RECORD_FRAME = "frame"
 RECORD_SYSTEM = "system"
 RECORD_STATUS = "status"
 RECORD_METHOD = "method"
+RECORD_OBSERVABLES = "observables"
 
 
-class ZarrRecordStore(RecordStore):
+class ZarrRecordStore(ZarrStore, RecordStore):
     """A Zarr V3 root holding a whole record.
 
     This is the shape a real producer writes. A bare frame at a store root is
     a useful unit to pin down on its own, but nothing ships one -- an
     implementation writes a record, and the frame is a section inside it.
     """
-
-    backend: ClassVar[str] = "zarr"
-
-    def __init__(self, path: Path) -> None:
-        self._path = path
-
-    @property
-    def uri(self) -> str:
-        return str(self._path)
-
-    @property
-    def path(self) -> Path:
-        return self._path
-
-    def root(self, mode: str = "a") -> zarr.Group:
-        return zarr.open_group(store=self._path, mode=mode)
-
-    def clear(self) -> None:
-        if self._path.exists():
-            shutil.rmtree(self._path)
 
 
 class ZarrRecordCodec(Codec):
@@ -1006,11 +980,13 @@ class ZarrRecordCodec(Codec):
                 root.create_group(name).attrs.update(
                     document.model_dump(mode="json", exclude_none=True)
                 )
-        if model.metrics is not None or model.observables is not None:
+        if model.metrics is not None:
             raise NotImplementedError(
-                "the reference record codec lays out meta, status, method, frame, system and "
-                "trajectory; metrics and observables have their own chapters and suites"
+                "the reference record codec lays out meta, status, method, frame, system, "
+                "trajectory and observables; metrics have their own chapter"
             )
+        if model.observables is not None:
+            self._observables().write_into(root.create_group(RECORD_OBSERVABLES), model.observables)
         for name, frame in (
             (RECORD_FRAME, model.frame),
             (RECORD_SYSTEM, model.system),
@@ -1040,7 +1016,17 @@ class ZarrRecordCodec(Codec):
             method=MethodModel.model_validate(dict(root[RECORD_METHOD].attrs))
             if RECORD_METHOD in root
             else None,
+            observables=self._observables().read_from(root[RECORD_OBSERVABLES])
+            if RECORD_OBSERVABLES in root
+            else None,
         )
+
+    @staticmethod
+    def _observables() -> Codec:
+        """The v1 observables codec, which builds on this module's helpers."""
+        from molrec.observables.bindings.zarr import ZarrObservablesCodec
+
+        return ZarrObservablesCodec()
 
     def _section(self, root: zarr.Group, name: str) -> FrameModel | None:
         if name not in root:

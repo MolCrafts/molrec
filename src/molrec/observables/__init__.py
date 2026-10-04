@@ -1,32 +1,27 @@
-"""Observables: named quantities as functions of their coordinates.
+"""The v1 ``observables`` section: named results, each a kind plus an array.
 
-DRAFT (v2 proposal) — the v1 record ``observables/`` contract is the
-kind-based layout in ``docs/spec/observables.md``; see the note in
-:mod:`molrec.observables.model`.
-
-Importing this package registers the observables suite, bench, and bindings.
+Importing this package registers the observables suite and binding. The
+dims-based redesign is the draft in :mod:`molrec.draft.observables`.
 """
 
-from molrec.observables import bench as _bench  # noqa: F401
+from molrec.core.model import (
+    KNOWN_KINDS,
+    ArrayModel,
+    ObservableMetaModel,
+    ObservableModel,
+    ObservablesModel,
+)
 from molrec.observables import bindings as _bindings  # noqa: F401
 from molrec.observables import suite as _suite  # noqa: F401
 from molrec.observables.adapter import ObservableAdapter
-from molrec.observables.model import (
-    Array,
-    ObservableModel,
-    ObservablesModel,
-    Source,
-)
-from molrec.observables.safe_name import original_name, safe_name
 from molrec.observables.store import ObservableStore
 
 __all__ = [
-    "Array",
+    "KNOWN_KINDS",
+    "ArrayModel",
     "ObservableAdapter",
+    "ObservableMetaModel",
     "ObservableModel",
     "ObservableStore",
     "ObservablesModel",
-    "Source",
-    "original_name",
-    "safe_name",
 ]

@@ -36,8 +36,8 @@ import numpy as np
 
 from molrec.binding import Binding, Codec
 from molrec.core.model import NUMPY_DTYPE
-from molrec.observables.model import Array, ObservableModel, ObservablesModel, Source
-from molrec.observables.store import ObservableStore
+from molrec.draft.observables.model import Array, ObservableModel, ObservablesModel, Source
+from molrec.draft.observables.store import ObservableStore
 from molrec.registry import REGISTRY
 
 FILENAME = "observables.jsonl"
@@ -255,7 +255,7 @@ def _parse(line: str) -> dict | None:
 
 @REGISTRY.binding
 class JsonlObservableBinding(Binding):
-    module: ClassVar[str] = "observables"
+    module: ClassVar[str] = "draft/observables"
     backend: ClassVar[str] = "jsonl"
 
     def new_store(self, workdir: Path) -> JsonlObservableStore:

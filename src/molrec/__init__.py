@@ -74,13 +74,14 @@ from molrec.core import (
     TrajectoryModel,
     TrajectoryStore,
 )
+from molrec.draft import observables as _draft_observables  # noqa: F401  (registers)
 from molrec.observables import (
-    Array,
+    ArrayModel,
     ObservableAdapter,
+    ObservableMetaModel,
     ObservableModel,
     ObservablesModel,
     ObservableStore,
-    Source,
 )
 from molrec.ref import Ref
 from molrec.refusal import Refusal
@@ -134,14 +135,14 @@ __all__ = [
     "TrajectoryBoxModel",
     "TrajectoryModel",
     "TrajectoryStore",
-    "Array",
+    "ArrayModel",
     "ObservableAdapter",
+    "ObservableMetaModel",
     "ObservableModel",
     "ObservableStore",
     "ObservablesModel",
     "Ref",
     "Refusal",
-    "Source",
     "Suite",
     "Timing",
     "Violation",

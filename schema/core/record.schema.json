@@ -1,5 +1,55 @@
 {
   "$defs": {
+    "ArrayModel": {
+      "description": "One typed array of any shape, a 0-d one included.",
+      "properties": {
+        "dtype": {
+          "enum": [
+            "f64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "bool",
+            "string",
+            "c64",
+            "c128"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "shape": {
+          "default": [],
+          "items": {
+            "type": "integer"
+          },
+          "title": "Shape",
+          "type": "array"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Values"
+        }
+      },
+      "required": [
+        "dtype"
+      ],
+      "title": "ArrayModel",
+      "type": "object"
+    },
     "AuthorModel": {
       "additionalProperties": true,
       "description": "The person or group responsible for the record.",
@@ -547,6 +597,126 @@
       "title": "ModuleModel",
       "type": "object"
     },
+    "ObservableMetaModel": {
+      "additionalProperties": true,
+      "description": "The ``observables/meta/<name>`` document.\n\n``kind``, ``description`` and ``time_dependent`` are required; the rest\nare written only when set. Every other key is a producer's and is kept\nverbatim (``extra=\"allow\"``).",
+      "properties": {
+        "axes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Axes"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "sampling": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sampling"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "time_dependent": {
+          "title": "Time Dependent",
+          "type": "boolean"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "kind",
+        "description",
+        "time_dependent"
+      ],
+      "title": "ObservableMetaModel",
+      "type": "object"
+    },
+    "ObservableModel": {
+      "description": "One named result: its metadata document and its data array -- the two\nhalves the layout stores side by side.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ArrayModel"
+        },
+        "meta": {
+          "$ref": "#/$defs/ObservableMetaModel"
+        }
+      },
+      "required": [
+        "meta",
+        "data"
+      ],
+      "title": "ObservableModel",
+      "type": "object"
+    },
+    "ObservablesModel": {
+      "description": "The section: every named observable of the record.",
+      "properties": {
+        "observables": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ObservableModel"
+          },
+          "title": "Observables",
+          "type": "object"
+        }
+      },
+      "title": "ObservablesModel",
+      "type": "object"
+    },
     "SequenceBlockModel": {
       "additionalProperties": true,
       "description": "One block's declaration: its columns and, when it is a grid, its shape.\n\nA block that declares ``structural_shape`` is a fixed-size object: every\nupdate of it holds exactly ``prod(structural_shape)`` rows, and a writer\nrefuses one that does not.",
@@ -782,7 +952,7 @@
       ]
     }
   ],
-  "description": "The record root.\n\n``meta`` is always present (an empty document is a valid one), plus at\nleast one of ``frame``, ``system``, ``trajectory`` or ``status``. Each of\nthose is a valid **sole** section beside ``meta``: a trajectory-only\nrecord is conforming and a reader must not require a frame beside it,\nbecause frames may embed full blocks including topology.\n\n``metrics`` and ``observables`` are carried as documents here; their\narray layouts are specified in their own chapters and judged by their own\nsuites.",
+  "description": "The record root.\n\n``meta`` is always present (an empty document is a valid one), plus at\nleast one of ``frame``, ``system``, ``trajectory`` or ``status``. Each of\nthose is a valid **sole** section beside ``meta``: a trajectory-only\nrecord is conforming and a reader must not require a frame beside it,\nbecause frames may embed full blocks including topology.\n\n``observables`` is the v1 section (:class:`ObservablesModel`); ``metrics``\nis carried as its catalog document here, its dense series and WAL being\nspecified in their own chapters.",
   "properties": {
     "frame": {
       "anyOf": [
@@ -825,15 +995,13 @@
     "observables": {
       "anyOf": [
         {
-          "additionalProperties": true,
-          "type": "object"
+          "$ref": "#/$defs/ObservablesModel"
         },
         {
           "type": "null"
         }
       ],
-      "default": null,
-      "title": "Observables"
+      "default": null
     },
     "status": {
       "anyOf": [

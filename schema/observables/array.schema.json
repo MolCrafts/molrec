@@ -1,0 +1,50 @@
+{
+  "description": "One typed array of any shape, a 0-d one included.",
+  "properties": {
+    "dtype": {
+      "enum": [
+        "f64",
+        "i8",
+        "i16",
+        "i32",
+        "i64",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "bool",
+        "string",
+        "c64",
+        "c128"
+      ],
+      "title": "Dtype",
+      "type": "string"
+    },
+    "shape": {
+      "default": [],
+      "items": {
+        "type": "integer"
+      },
+      "title": "Shape",
+      "type": "array"
+    },
+    "values": {
+      "anyOf": [
+        {
+          "items": {},
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Values"
+    }
+  },
+  "required": [
+    "dtype"
+  ],
+  "title": "ArrayModel",
+  "type": "object"
+}

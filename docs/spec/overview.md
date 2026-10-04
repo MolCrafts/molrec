@@ -32,15 +32,21 @@ Typical compositions:
 
 ## Section kinds
 
-A section is a named group at the root. Content falls into three kinds:
+A section is a named group at the root. Content falls into four kinds:
 
 **Document.** A JSON object stored as group attributes. Small, structured
 facts: identity, lifecycle, scientific context. `meta`, `status`, and
 `method` are documents.
 
-**Frame-shaped.** Named [blocks](frame.md) of columns, optional `meta`,
-optional `box`. Instantaneous or definitional tables. `frame` and `system`
-are frame-shaped; so is each named observable's data.
+**Frame-shaped.** Named [blocks](frame.md) of columns, a `meta` document
+(the group's attributes), optional `box`. Instantaneous or definitional
+tables. `frame` and `system` are frame-shaped
+([Frame-shaped group](storage.md#frame-shaped-group)).
+
+**Array.** Named arrays, each beside a metadata document. `observables` is
+an array section: one data array of any shape per name, with its `kind` and
+the rest of its metadata under `observables/meta/<name>`; see
+[Observables](observables.md).
 
 **Sequence.** An ordered series of frames with `step` and optional `time`.
 `trajectory` is the sequence section. Time-dependent data lives here; see
@@ -84,9 +90,9 @@ Four places, in increasing size of the addition:
    Readers preserve them.
 2. **Extra columns or blocks** on `frame`, `system`, or `trajectory`. Same
    containers; your names. Readers preserve them.
-3. **A new sibling section** at the root. Same three kinds: document,
-   frame-shaped, or sequence. Older tools ignore the name and keep the
-   group.
+3. **A new sibling section** at the root. Same four kinds: document,
+   frame-shaped, array, or sequence. Older tools ignore the name and keep
+   the group.
 4. **A module** under `meta/modules` when independent tools must agree on
    what that extra content means.
 

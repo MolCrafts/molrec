@@ -17,6 +17,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from molrec.core.model import (
+    ArrayModel,
     BlockModel,
     BoxModel,
     BoxUpdateModel,
@@ -25,16 +26,14 @@ from molrec.core.model import (
     FrameModel,
     MetaModel,
     MetaSeriesModel,
+    ObservableMetaModel,
+    ObservableModel,
+    ObservablesModel,
     RecordModel,
     TrajectoryBoxModel,
     TrajectoryModel,
 )
-from molrec.observables.model import (
-    Array,
-    ObservableModel,
-    ObservablesModel,
-    Source,
-)
+from molrec.draft.observables import model as draft
 from molrec.ref import Ref
 from molrec.report import Violation
 from molrec.sequence_schema import SequenceSchemaModel
@@ -54,11 +53,16 @@ PUBLISHED: dict[str, tuple[type[BaseModel], ...]] = {
         MetaModel,
         RecordModel,
     ),
-    # DRAFT — the dims-based observables redesign (v2 proposal). The v1
-    # record `observables/` contract is the kind-based layout in
-    # docs/spec/observables.md, implemented by molrs; adopting this model
-    # is a normative change and requires a `molrec_version` bump.
-    "draft/observables": (Array, Source, ObservableModel, ObservablesModel),
+    # The v1 `observables/` section: the kind-based layout molrs writes.
+    "observables": (ArrayModel, ObservableMetaModel, ObservableModel, ObservablesModel),
+    # DRAFT -- the dims-based redesign (v2 proposal); adopting it is a
+    # normative change and requires a `molrec_version` bump.
+    "draft/observables": (
+        draft.Array,
+        draft.Source,
+        draft.ObservableModel,
+        draft.ObservablesModel,
+    ),
     "binding": (SequenceSchemaModel,),
     "ref": (Ref,),
     "report": (Violation,),

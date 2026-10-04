@@ -12,7 +12,7 @@ from typing import ClassVar
 import numpy as np
 
 from molrec.bench import Bench, Workload
-from molrec.observables.model import Array, ObservableModel, ObservablesModel
+from molrec.draft.observables.model import Array, ObservableModel, ObservablesModel
 from molrec.registry import REGISTRY
 
 
@@ -22,7 +22,7 @@ def _array(dims: tuple[str, ...], data: np.ndarray, dtype: str, unit: str | None
 
 @REGISTRY.bench
 class ObservableBench(Bench):
-    module: ClassVar[str] = "observables"
+    module: ClassVar[str] = "draft/observables"
 
     def workloads(self) -> Iterable[Workload]:
         yield self._curves(count=3, points=20_000)

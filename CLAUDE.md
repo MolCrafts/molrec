@@ -51,9 +51,10 @@ Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract.
   `*.mlp.zarr` is ignored).
 - Cell contract name: `Box` / `box`.
 - v1 `observables/` is the kind-based layout in `docs/spec/observables.md`
-  (matches molrs). The dims-based model in `src/molrec/observables/` is a
-  **v2 draft** (`schema/draft/observables/`); adopting it needs a
-  `molrec_version` bump.
+  (matches molrs; `src/molrec/observables/`, models in `core/model.py`). The
+  dims-based model in `src/molrec/draft/observables/` is a **v2 draft**
+  (`schema/draft/observables/`, conformance module `draft/observables`, never
+  run unless named); adopting it needs a `molrec_version` bump.
 - Parameters under `system/parameters` or `method`.
 - Keep section chapters aligned with `docs/spec/storage.md` and
   `docs/spec/zarr.md`: documents are Zarr group attributes; metrics JSONL
