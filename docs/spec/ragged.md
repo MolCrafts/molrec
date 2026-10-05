@@ -438,7 +438,7 @@ the run is:
 | Coordinates (`atoms`, changing every step, fixed count) | `nstep` | nothing: regular, two marker attributes |
 | Reactive / grand-canonical topology | one per change | `step_index` and `offset`, one entry per change |
 | Ragged run (`atoms` gaining rows) | one per change | `step_index` and `offset`, one entry per change |
-| Fixed cell (`box/` under NVT) | 1 | nothing: three attributes on `box/` |
+| Fixed cell (`box/` under NVT) | 1 | nothing: attributes on `box/` (`vectors`, plus `origin` / `boundary` when off their defaults) |
 | Changing cell (`box/` under NPT) | one per change | `step_index`, `vectors` (+ `origin` / `boundary` when off their defaults) |
 | `step` dumped every `k` steps | — | nothing: `step_progression` |
 

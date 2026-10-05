@@ -39,6 +39,7 @@ from __future__ import annotations
 import json
 import math
 import shutil
+import zipfile
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -256,6 +257,19 @@ class ZarrStore(Store):
     def clear(self) -> None:
         if self._path.exists():
             shutil.rmtree(self._path)
+
+
+def pack(directory: Path, archive: Path) -> None:
+    """``<stem>.mrec/`` -> ``<stem>.mrec.zip``, the at-rest form (``docs/spec/chunking.md``).
+
+    One *stored* entry (compression method 0) per file of the directory store,
+    named by its path relative to the record root with ``/`` separators, ZIP64
+    whenever a size or offset needs it, and no directory entries. Entries are
+    written in sorted path order, so packing one store twice gives one archive.
+    """
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
+        for path in sorted(p for p in Path(directory).rglob("*") if p.is_file()):
+            zf.write(path, path.relative_to(directory).as_posix())
 
 
 class ZarrFrameStore(ZarrStore, FrameStore):
@@ -1306,6 +1320,20 @@ class ZarrRecordStore(ZarrStore, RecordStore):
     a useful unit to pin down on its own, but nothing ships one -- an
     implementation writes a record, and the frame is a section inside it.
     """
+
+
+class PackedRecordStore(ZarrRecordStore):
+    """A packed record -- a ``*.mrec.zip`` written by :func:`pack` -- opened
+    read-only through zarr's zip store. A packed record is at rest: it is read,
+    never appended to."""
+
+    def root(self, mode: str = "r") -> zarr.Group:
+        if mode != "r":
+            raise ValueError(f"{self.path}: a packed record is read-only")
+        return zarr.open_group(store=zarr.storage.ZipStore(self.path, mode="r"), mode="r")
+
+    def clear(self) -> None:
+        self.path.unlink(missing_ok=True)
 
 
 class ZarrRecordCodec(Codec):

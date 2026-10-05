@@ -29,8 +29,9 @@ brand.
 
 Document sections (`meta`, `status`, `method`) are stored as group attributes.
 Array sections (`frame`, `system`, `trajectory`, observables) are stored as
-groups and arrays. Live metrics may use an append-only JSONL buffer; closed
-metrics densify to Zarr series.
+groups and arrays; `forcefield` is a document (its group's attributes) beside
+one table of arrays per style. Live metrics may use an append-only JSONL
+buffer; closed metrics densify to Zarr series.
 
 Implementation details start at [Why Zarr V3](zarr.md): the layout of a
 record on that binding, chunking, the metrics WAL, and the ragged

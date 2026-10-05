@@ -2340,9 +2340,11 @@ def _aligned_apart_from_system(system: FrameModel, trajectory: TrajectoryModel) 
         )
 
 
-#: The collection index columns a binding owns; a collection's own index
-#: columns may not take these names (``docs/spec/lmdb.md``).
-RESERVED_INDEX_COLUMNS = frozenset({"first_frame", "n_frames", "n_atoms", "has_trajectory"})
+#: The collection index columns a binding owns, in the order the LMDB binding
+#: writes them; a collection's own index columns may not take these names
+#: (``docs/spec/lmdb.md``). A tuple, not a set: a writer that iterated a set of
+#: strings would lay the index out in a different order on every run.
+RESERVED_INDEX_COLUMNS: tuple[str, ...] = ("first_frame", "n_frames", "n_atoms", "has_trajectory")
 
 
 class CollectionMetaModel(DocumentModel):
@@ -2484,7 +2486,7 @@ class CollectionModel(BaseModel):
             object.__setattr__(self, "index", BlockModel(count=len(self.records)))
         if self.index.count != len(self.records):
             raise ValueError(f"index has {self.index.count} rows for {len(self.records)} records")
-        reserved = sorted(RESERVED_INDEX_COLUMNS & set(self.index.columns))
+        reserved = sorted(set(RESERVED_INDEX_COLUMNS) & set(self.index.columns))
         if reserved:
             raise ValueError(f"index columns {reserved} are reserved for the binding")
         return self

@@ -121,8 +121,9 @@ each column's own.
 **1024-row inner chunks and 256 chunks per shard** (a 4 KiB shard index:
 every landing rewrites the index of each touched array in place, and a
 producer that flushes per frame touches every dense array per frame). A
-mask shares its block's `rows_per_chunk` instead, so its chunks line up with
-the values it qualifies.
+mask is sized as a column instead: it shares its block's `rows_per_chunk`,
+so its chunks line up with the values it qualifies, and takes
+`chunks_per_shard` from the column rule for its one-byte rows.
 
 Trailing axes are per-entity structure and are never split: a single entity
 would otherwise span several chunks.

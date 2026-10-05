@@ -28,8 +28,8 @@ Rules:
 
 1. Document sections (`meta`, `status`, `method`) → Zarr group attributes
    (one JSON object per section group).
-2. Array sections (`frame`, `system`, `trajectory`, observable arrays) →
-   Zarr groups + arrays.
+2. Array sections (`frame`, `system`, `trajectory`, `forcefield`'s style
+   tables, observable arrays) → Zarr groups + arrays.
 3. Closed metrics → dense Zarr series arrays + catalog attributes
    ([Metrics](metrics.md)).
 4. Live metrics → append-only UTF-8 JSONL WAL (`metrics/metrics.jsonl`);

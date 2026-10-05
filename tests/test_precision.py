@@ -14,12 +14,14 @@ import zarr
 
 from molrec.core.bindings.zarr import (
     PRECISION_ATTR,
+    PackedRecordStore,
     ZarrFrameCodec,
     ZarrFrameStore,
     ZarrRecordCodec,
     ZarrRecordStore,
     ZarrTrajectoryCodec,
     ZarrTrajectoryStore,
+    pack,
 )
 from molrec.core.model import (
     MOLREC_VERSION,
@@ -293,22 +295,9 @@ def precision_fixture_model() -> RecordModel:
     )
 
 
-def pack(directory: Path, archive: Path) -> None:
-    """``*.mrec/`` -> ``*.mrec.zip`` by the at-rest rules of ``docs/spec/chunking.md``:
-    one stored entry per file, paths relative to the root, no directory entries."""
-    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
-        for path in sorted(p for p in directory.rglob("*") if p.is_file()):
-            zf.write(path, path.relative_to(directory).as_posix())
-
-
-class _ZipRecordStore(ZarrRecordStore):
-    def root(self, mode: str = "r") -> zarr.Group:
-        return zarr.open_group(store=zarr.storage.ZipStore(self.path, mode="r"), mode="r")
-
-
 def test_the_precision_fixture_is_what_the_reference_writer_emits() -> None:
     model = precision_fixture_model()
-    assert ZarrRecordCodec().read(_ZipRecordStore(FIXTURE)) == model
+    assert ZarrRecordCodec().read(PackedRecordStore(FIXTURE)) == model
     with zipfile.ZipFile(FIXTURE) as zf:
         names = zf.namelist()
         assert all(info.compress_type == zipfile.ZIP_STORED for info in zf.infolist())

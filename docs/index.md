@@ -52,6 +52,7 @@ root
  \-- (system)
  \-- (frame)
  \-- (trajectory)
+ \-- (forcefield)
  \-- (observables)
  \-- (method)
  \-- (status)
@@ -102,6 +103,11 @@ root
 </div>
 
 <nav class="molcrafts-manual-index" aria-label="Documentation entry points">
+  <a href="layout/">
+    <span>00</span>
+    <strong>Layout by example</strong>
+    <em>Annotated trees of real records, generated from the codecs: what lands on disk.</em>
+  </a>
   <a href="spec/specification/">
     <span>01</span>
     <strong>Objective</strong>

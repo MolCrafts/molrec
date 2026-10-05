@@ -65,6 +65,9 @@ Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract.
 - Pure suite (no molrs, nothing compiles): `uv run --locked --extra test
   pytest -q -m "not molrs"`. This is what the pre-push hook runs.
 - Lint: `uvx ruff@0.16.5 format --check . && uvx ruff@0.16.5 check .`.
+- Layout chapter: `docs/layout.md`'s trees are generated from the codecs by
+  `scripts/layout_examples.py`; after a codec or layout change run it with
+  `--write` (`tests/test_layout_doc.py` fails on drift).
 - Full suite against molrs: `uv sync --locked --extra dev` builds molrs from
   `../molrs/molrs-python` (Rust) — **only on a build machine, never a login
   node** — then `MOLREC_REQUIRE_MOLRS=1 uv run --locked pytest -q`. On the

@@ -12,6 +12,7 @@ edit_uri = "edit/master/docs/"
 
 nav = [
   { "Home" = "index.md" },
+  { "Layout by example" = "layout.md" },
   { "Specification" = [
     { "Objective" = "spec/specification.md" },
     { "Overview" = "spec/overview.md" },

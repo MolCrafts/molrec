@@ -136,9 +136,7 @@ payload := the column buffers
     }
   },
   "meta": { "pe": -503415.87 },
-  "step": 0,
-  "time": null,
-  "box": null
+  "step": 0
 }
 ```
 
