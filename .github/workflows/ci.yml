@@ -20,7 +20,7 @@ on:
 # the merged commit.
 env:
   MOLRS_REPO: Roy-Kid/molrs
-  MOLRS_REF: e438d0252b10e065ada30e85dfd520159d158445
+  MOLRS_REF: 0b4dbf9fcf395a34ffee5a203826b3e725d30946
   RUFF: ruff@0.16.5
 
 defaults:
