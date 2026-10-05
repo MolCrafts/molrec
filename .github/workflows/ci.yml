@@ -106,4 +106,7 @@ jobs:
         with:
           path: molrec
       - uses: astral-sh/setup-uv@v5
-      - run: uv run --locked --extra docs zensical build --clean
+      # --frozen: take uv.lock as is. --locked would re-resolve the dev extra's
+      # path dependency on ../molrs, which this job never checks out; the docs
+      # extra itself needs nothing from molrs.
+      - run: uv run --frozen --extra docs zensical build --clean
