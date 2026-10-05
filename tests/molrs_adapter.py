@@ -9,9 +9,12 @@ molrs's back: the store molrs is asked to read is exactly the one the codec
 wrote.
 
 The molrs surface used here is molrs 0.15's: the whole-record doors at
-``molrs.io`` -- ``write_mrec`` / ``write_mrec_system`` to write a record,
+``molrs.io`` -- ``write_mrec`` / ``write_mrec_system`` (both taking
+``forcefield=``) and ``write_mrec_forcefield`` to write a record,
 ``mrec_sections`` / ``read_mrec`` / ``read_mrec_system`` / ``read_mrec_meta``
-to read one back -- and, for a trajectory, ``molrs.io.mrec.SequenceSchema``
+/ ``read_mrec_forcefield`` to read one back; a force field travels as a
+``molrs.io.mrec.ForceFieldSection`` (the document plus one ``Block`` per
+style table, kept whole) -- and, for a trajectory, ``molrs.io.mrec.SequenceSchema``
 (``declare_*``, ``declare_meta_with_fill``) plus
 ``molrs.io.mrec.TrajectoryWriter(path, schema)`` (``flush_every`` /
 ``compression`` / ``durable`` left at their defaults: durable,
@@ -60,17 +63,6 @@ _MREC = molrs.io.mrec
 _HAS_TARGETS = hasattr(molrs.Block, "set_target") and hasattr(molrs.Block, "targets")
 
 _PENDING: tuple[tuple[str, bool, dict[str, tuple[str, ...]]], ...] = (
-    (
-        # Not a hasattr probe: the doors alone are not enough -- this adapter
-        # also needs the ForceFieldModel <-> molrs.ForceField mapping, which
-        # is being settled with molrs (ForceField.to_section / from_section).
-        # The `forcefield` module itself is skipped by declaring no adapter
-        # for it (see Molrs below).
-        "molrs.io.write_mrec(..., forcefield=) / read_mrec_forcefield and the "
-        "ForceField <-> forcefield-section mapping (molrec F2)",
-        False,
-        {"record": ("record-with-forcefield", "forcefield-only-record")},
-    ),
     (
         "molrs.Block.set_target / Block.targets (row references, molrec F4)",
         _HAS_TARGETS,
@@ -146,6 +138,25 @@ def _from_box(box: molrs.Box) -> dict[str, Any]:
     }
 
 
+def _to_block(block: molrec.BlockModel) -> molrs.Block:
+    """One block as a molrs block: columns, masks, precision, shape, targets."""
+    native = molrs.Block()
+    native.resize(block.count)
+    for column, payload in block.columns.items():
+        # The values as the producer handed them: rounding to a declared
+        # precision is the writer's job, not the adapter's.
+        native.insert(column, payload.values)
+        if payload.validity is not None:
+            native.set_validity(column, payload.validity)
+        if getattr(payload, "precision", None) is not None:
+            native.set_precision(column, payload.precision)
+    if block.structural_shape is not None:
+        native.set_shape(list(block.structural_shape))
+    for column, target in (getattr(block, "targets", None) or {}).items():
+        native.set_target(column, target)
+    return native
+
+
 def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -> molrs.Frame:
     """The model as a molrs frame.
 
@@ -157,21 +168,7 @@ def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -
     """
     frame = molrs.Frame()
     for name, block in model.blocks.items():
-        native = molrs.Block()
-        native.resize(block.count)
-        for column, payload in block.columns.items():
-            # The values as the producer handed them: rounding to a declared
-            # precision is the writer's job, not the adapter's.
-            native.insert(column, payload.values)
-            if payload.validity is not None:
-                native.set_validity(column, payload.validity)
-            if getattr(payload, "precision", None) is not None:
-                native.set_precision(column, payload.precision)
-        if block.structural_shape is not None:
-            native.set_shape(list(block.structural_shape))
-        for column, target in (getattr(block, "targets", None) or {}).items():
-            native.set_target(column, target)
-        frame[name] = native
+        frame[name] = _to_block(block)
     if model.box is not None:
         frame.box = _to_box(model.box, bool(model.box.cell_defined))
     tags = {**(getattr(model, "meta_types", None) or {}), **(tags or {})}
@@ -190,31 +187,10 @@ def _from_frame(frame: molrs.Frame | None, *, in_trajectory: bool = False) -> di
     if frame is None:
         return None
 
-    blocks: dict[str, Any] = {}
-    for name in frame.keys():  # noqa: SIM118 (molrs Frame has no __iter__)
-        native = frame[name]
-        columns = {}
-        for column in native.keys():  # noqa: SIM118
-            values = native.copy_column(column)
-            validity = native.validity(column)
-            columns[column] = {
-                "dtype": _dtype_of(native, column),
-                "shape": tuple(values.shape),
-                "values": values,
-                "validity": None if validity is None else np.asarray(validity, dtype=bool),
-                "precision": None if in_trajectory else native.precision(column),
-            }
-        structural = native.structural_shape
-        blocks[name] = {
-            "count": native.nrows,
-            "columns": columns,
-            "structural_shape": tuple(structural) if structural is not None else None,
-        }
-        if _HAS_TARGETS and not in_trajectory:
-            # On a trajectory the declaration states a block's targets.
-            targets = native.targets
-            targets = dict(targets() if callable(targets) else targets)
-            blocks[name]["targets"] = targets or None
+    blocks = {
+        name: _from_block(frame[name], in_trajectory=in_trajectory)
+        for name in frame.keys()  # noqa: SIM118 (molrs Frame has no __iter__)
+    }
 
     box = None if frame.box is None else _from_box(frame.box)
     typed = frame.meta.typed()
@@ -224,6 +200,51 @@ def _from_frame(frame: molrs.Frame | None, *, in_trajectory: bool = False) -> di
         "meta": {key: value.value for key, value in typed.items()},
         "meta_types": {key: value.dtype for key, value in typed.items()},
     }
+
+
+def _from_block(native: molrs.Block, *, in_trajectory: bool = False) -> dict[str, Any]:
+    """One molrs block as molrec's duck: what molrs returned, column by column."""
+    columns = {}
+    for column in native.keys():  # noqa: SIM118 (molrs Block has no __iter__)
+        values = native.copy_column(column)
+        validity = native.validity(column)
+        columns[column] = {
+            "dtype": _dtype_of(native, column),
+            "shape": tuple(values.shape),
+            "values": values,
+            "validity": None if validity is None else np.asarray(validity, dtype=bool),
+            "precision": None if in_trajectory else native.precision(column),
+        }
+    structural = native.structural_shape
+    block: dict[str, Any] = {
+        "count": native.nrows,
+        "columns": columns,
+        "structural_shape": tuple(structural) if structural is not None else None,
+    }
+    if _HAS_TARGETS and not in_trajectory:
+        # On a trajectory the declaration states a block's targets.
+        targets = native.targets
+        targets = dict(targets() if callable(targets) else targets)
+        block["targets"] = targets or None
+    return block
+
+
+def _to_section(model: molrec.ForceFieldModel) -> molrs.io.mrec.ForceFieldSection:
+    """The force field as molrs's section: the document and every table, whole."""
+    tables = {name: _to_block(table) for name, table in model.tables.items()}
+    return molrs.io.mrec.ForceFieldSection(model.document(), tables)
+
+
+def _from_section(section: molrs.io.mrec.ForceFieldSection | None) -> dict[str, Any] | None:
+    """molrs's section as molrec's duck: the document's keys plus its tables."""
+    if section is None:
+        return None
+    document = section.document
+    # A style entry states `params` and `endpoint_key` only when they say
+    # something; read, absent means none and "type" (forcefield.md, styles).
+    styles = [{"params": {}, "endpoint_key": "type", **entry} for entry in document["styles"]]
+    tables = {name: _from_block(table) for name, table in section.tables.items()}
+    return {**document, "styles": styles, "tables": tables}
 
 
 def _tag(dtype: Any) -> str:
@@ -349,15 +370,25 @@ class MolrsRecordAdapter(molrec.RecordAdapter):
     def write(self, model: molrec.RecordModel, store) -> None:
         path = Path(store.uri)
         meta = document(model.meta)
+        forcefield = None if model.forcefield is None else _to_section(model.forcefield)
         if model.frame is not None:
             system = None if model.system is None else _to_frame(model.system)
-            molrs.io.write_mrec(path, _to_frame(model.frame), system=system, meta=meta)
+            molrs.io.write_mrec(
+                path, _to_frame(model.frame), system=system, meta=meta, forcefield=forcefield
+            )
             return
         if model.system is not None:
-            molrs.io.write_mrec_system(path, _to_frame(model.system), meta=meta)
+            molrs.io.write_mrec_system(
+                path, _to_frame(model.system), meta=meta, forcefield=forcefield
+            )
+            return
+        if forcefield is not None:
+            molrs.io.write_mrec_forcefield(path, forcefield, meta=meta)
             return
         # molrs has no door for a record of meta (and status / method) alone.
-        raise NotImplementedError("molrs writes a record with a frame or a system section")
+        raise NotImplementedError(
+            "molrs writes a record with a frame, a system or a forcefield section"
+        )
 
     def read(self, store) -> Any:
         path = Path(store.uri)
@@ -368,6 +399,7 @@ class MolrsRecordAdapter(molrec.RecordAdapter):
             "meta": molrs.io.read_mrec_meta(path),
             "frame": frame,
             "system": system,
+            "forcefield": _from_section(molrs.io.read_mrec_forcefield(path)),
         }
 
 
@@ -445,6 +477,29 @@ def _meta_series(frames: list[molrs.Frame]) -> dict[str, dict[str, Any]]:
     return declared
 
 
+class MolrsForceFieldAdapter(molrec.ForceFieldAdapter):
+    """A force-field package: ``meta`` and the ``forcefield`` section alone.
+
+    Written through ``write_mrec_forcefield`` and read through
+    ``read_mrec_forcefield``, which carry the section whole -- every document
+    key, every table, units as stated -- so a section molrs could not compile
+    (``nm`` units, smirks keys, an unknown category) is still judged on what
+    molrs stores. Turning it into a ``molrs.ff.ForceField`` is
+    ``ForceField.from_section``, which this format-level suite does not ask
+    for.
+    """
+
+    backends = ("zarr",)
+    refusal_types = _REFUSALS
+    unsupported = _unsupported("forcefield")
+
+    def write(self, model: molrec.ForceFieldModel, store: molrec.ForceFieldStore) -> None:
+        molrs.io.write_mrec_forcefield(Path(store.uri), _to_section(model))
+
+    def read(self, store: molrec.ForceFieldStore) -> Any:
+        return _from_section(molrs.io.read_mrec_forcefield(Path(store.uri)))
+
+
 class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
     """A sequence of frames: written through the streaming door, read eagerly.
 
@@ -520,7 +575,5 @@ class Molrs(molrec.Implementation):
     # (meta + frame/), not a bare frame at the store root.
     record = MolrsRecordAdapter()
     trajectory = MolrsTrajectoryAdapter()
-    # No `forcefield` adapter (so that module is skipped, by name, as "no
-    # adapter declared") and no `collection` adapter: molrs has no
-    # ForceField <-> forcefield-section mapping yet (molrec F2, see _PENDING)
-    # and no collection door.
+    forcefield = MolrsForceFieldAdapter()
+    # No `collection` adapter: molrs has no collection door.

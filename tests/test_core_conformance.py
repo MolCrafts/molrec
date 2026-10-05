@@ -215,7 +215,7 @@ CODEC_MATRIX = ["core", "record", TRAJECTORY_MODULE, "collection", "forcefield"]
 #: ``core`` is deliberately absent: molrs ships no door for a bare frame at a
 #: store root, and `tests/molrs_adapter.py` says so in as many words. The
 #: frame cases reach molrs inside records instead.
-MOLRS_MATRIX = ["record", TRAJECTORY_MODULE]
+MOLRS_MATRIX = ["record", TRAJECTORY_MODULE, "forcefield"]
 
 
 @pytest.mark.parametrize("module", CODEC_MATRIX)
