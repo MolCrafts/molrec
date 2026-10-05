@@ -1,0 +1,40 @@
+{
+  "description": "One named conformance failure.\n\n``kind`` is drawn from a closed vocabulary so expected-violation cases can\nbe compared exactly, and so implementations in other languages can report\nthe same names.",
+  "properties": {
+    "detail": {
+      "default": "",
+      "title": "Detail",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "missing_field",
+        "missing_key",
+        "unexpected_key",
+        "missing_values",
+        "unexpected_values",
+        "wrong_type",
+        "wrong_shape",
+        "wrong_length",
+        "value_mismatch",
+        "model_mismatch",
+        "not_rejected",
+        "wrong_refusal",
+        "refused",
+        "unreadable"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "path": {
+      "default": "",
+      "title": "Path",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "title": "Violation",
+  "type": "object"
+}

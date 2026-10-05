@@ -1,0 +1,70 @@
+{
+  "description": "A frame's cell: its geometry plus whether there is a cell at all.\n\n``cell_defined`` is not periodicity -- ``boundary`` says which axes wrap,\n``cell_defined`` says whether there is a cell at all. Absent means\n``True``; a writer records it only to say ``False``. An undefined cell's\n``vectors`` mean nothing: a writer writes the identity and a reader\nignores what it finds (:func:`resolve_cell`).",
+  "properties": {
+    "boundary": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "boolean"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Boundary"
+    },
+    "cell_defined": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cell Defined"
+    },
+    "origin": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Origin"
+    },
+    "vectors": {
+      "items": {
+        "items": {
+          "type": "number"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": "array"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Vectors",
+      "type": "array"
+    }
+  },
+  "required": [
+    "vectors"
+  ],
+  "title": "BoxModel",
+  "type": "object"
+}

@@ -1,145 +1,58 @@
-# Status
+# Status group
 
-## Purpose
+Execution lifecycle for a record is stored in the `status` group. It is used
+for monitoring, resume decisions, and UI summaries. Scientific result
+arrays live on `frame`, `trajectory`, or `observables`; time series of
+measurements live on `metrics`.
 
-`status` stores execution state for a record. It is part of the **run surface**
-(with [Metrics](metrics.md) and [Method](method.md)) — see [Run surface](run.md).
-
-It is a recommended record section — a convention layered on the general model
-(see [Overview](overview.md)), not part of the core model.
-
-It is intended for monitoring, resume decisions, and UI summaries. It is not the place for
-scientific result arrays. Result arrays belong in `frame`, `trajectory`, `observables`, or
-`metrics`, depending on their semantics.
-
-The convention follows the MolNex `TrainState` pattern: a small set of reserved progress keys plus
-namespaced extension fields.
-
-## Structure
+In the reference binding the contents are group attributes (one JSON
+object). `status.state` is required whenever the group exists.
 
 ```text
 status
-+-- state: String[]
-+-- (stage: String[])
-+-- (epoch: Integer[])
-+-- (global_step: Integer[])
-+-- (steps_since_last_eval: Integer[])
-+-- (message: String[])
-+-- (started_at: String[])
-+-- (updated_at: String[])
-+-- (finished_at: String[])
-+-- (progress)
-|   +-- ...
-+-- (history)
-|   \-- <event_id>
-|       +-- state: String[]
-|       +-- (stage: String[])
-|       +-- timestamp: String[]
-|       +-- (message: String[])
-|       \-- ...
-+-- (tasks)
-|   \-- <task_id>
-|       +-- state: String[]
-|       +-- (stage: String[])
-|       +-- (progress)
-|       \-- ...
-+-- (error)
-|   +-- type: String[]
-|   +-- message: String[]
-|   +-- (timestamp: String[])
-|   \-- ...
-+-- ...
+ +-- state: string[]
+ +-- (stage: string[])
+ +-- (epoch)
+ +-- (global_step)
+ +-- (message: string[])
+ +-- (started_at: string[])
+ +-- (updated_at: string[])
+ +-- (finished_at: string[])
+ +-- (error)
+ \-- ...
 ```
 
-`status/state` is required whenever `status` exists.
+`state`
 
-## Lifecycle states
+Lowercase lifecycle: `pending`, `running`, `succeeded`, `failed`,
+`cancelled`, `skipped`. Writers may preserve custom states.
 
-MolRec recommends the following lowercase lifecycle vocabulary:
+`stage`
 
-| State | Meaning |
-|-------|---------|
-| `pending` | Created but not started |
-| `running` | Currently executing |
-| `succeeded` | Finished successfully |
-| `failed` | Finished with an error |
-| `cancelled` | Stopped by user or scheduler request |
-| `skipped` | Intentionally not executed |
+Current execution phase, independent of lifecycle state (e.g. `train`,
+`eval`, `simulate`).
 
-Writers may preserve custom states, but readers should treat unknown states as terminal only if a
-module specification declares them terminal.
+`epoch`, `global_step`
 
-## Stages
+Reserved counters: non-negative JSON integers. Extra counters go under
+`status.progress`, an object of named numbers.
 
-`status/stage` describes the current execution phase, independent of lifecycle state.
+`message`
 
-MolRec reserves the MolNex stage vocabulary:
+Free text for a human.
 
-- `train`
-- `eval`
-- `test`
-- `predict`
+`started_at`, `updated_at`, `finished_at`
 
-Additional stages such as `prepare`, `simulate`, `relax`, or `analyze` are valid when they are
-documented by `method` or a declared module.
+[RFC 3339](https://www.rfc-editor.org/rfc/rfc3339) timestamps **with an
+explicit offset** (`Z` or `±hh:mm`); a timestamp without one names no
+instant and is not valid here.
 
-## Progress keys
+`error`
 
-`status` stores small counters needed for monitoring and resume decisions.
+Present when `state` is `failed`: an object with at least `message`
+(string), and optionally `type` (string) and `traceback` (string).
 
-The reserved MolNex-compatible keys live directly under `status`:
+Every key a producer adds beyond these is preserved.
 
-- `epoch`: current epoch index, zero-based when training semantics apply
-- `global_step`: monotonically increasing step counter across the run
-- `steps_since_last_eval`: step counter since the last evaluation pass
-
-Writers may add more counters under `status/progress`, but they should use clear names and avoid
-reusing the reserved keys with different meanings.
-
-## History
-
-`status/history` is an optional ordered event log.
-
-Each event should include:
-
-- `state`
-- `timestamp`
-
-Each event may include:
-
-- `stage`
-- `message`
-- producer-specific fields
-
-History is append-oriented. Updating the current `status/state` does not require rewriting previous
-events.
-
-## Task status
-
-`status/tasks/<task_id>` stores per-task or per-stage state when a record comes from a workflow.
-
-Task IDs should match identifiers used in `method/stages`, workflow assets, or the producing
-engine. A task status has the same basic fields as the root status:
-
-- `state`
-- optional `stage`
-- optional `progress`
-- optional `message`
-
-## Relationship to metrics
-
-Status fields are a compact current-state snapshot. Metrics are an append-oriented measurement
-stream.
-
-Examples:
-
-- `status/global_step = 4000` says where execution is now.
-- `metrics` records `train/loss` at many steps.
-- `status/state = "failed"` says the run failed.
-- `status/error/message` stores the current error summary.
-
-## Rule
-
-The core rule is:
-
-> `status` records lifecycle and progress state; measurements over time belong in `metrics`.
+A run-shaped record is `meta` plus `status`, optionally with `metrics` and
+`method`. `frame` is optional. See [Run surface](run.md).

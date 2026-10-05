@@ -1,0 +1,63 @@
+{
+  "description": "A named-dimension array: the one building block observables are made of.",
+  "properties": {
+    "data": {
+      "items": {},
+      "title": "Data",
+      "type": "array"
+    },
+    "dims": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Dims",
+      "type": "array"
+    },
+    "dtype": {
+      "enum": [
+        "f64",
+        "i8",
+        "i16",
+        "i32",
+        "i64",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "bool",
+        "string",
+        "c64",
+        "c128"
+      ],
+      "title": "Dtype",
+      "type": "string"
+    },
+    "shape": {
+      "default": [],
+      "items": {
+        "type": "integer"
+      },
+      "title": "Shape",
+      "type": "array"
+    },
+    "unit": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Unit"
+    }
+  },
+  "required": [
+    "dtype",
+    "data"
+  ],
+  "title": "Array",
+  "type": "object"
+}

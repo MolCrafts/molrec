@@ -1,0 +1,68 @@
+{
+  "blocks": {
+    "atoms": {
+      "columns": {
+        "mol_id": {
+          "dtype": "u64",
+          "shape": [
+            2
+          ],
+          "validity": [
+            true,
+            false
+          ],
+          "values": [
+            1,
+            0
+          ]
+        },
+        "x": {
+          "dtype": "f64",
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            0.0,
+            1.5
+          ]
+        }
+      },
+      "count": 2,
+      "structural_shape": null
+    }
+  },
+  "box": {
+    "boundary": [
+      true,
+      true,
+      false
+    ],
+    "cell_defined": true,
+    "origin": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "vectors": [
+      [
+        10.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        10.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        10.0
+      ]
+    ]
+  },
+  "meta": {
+    "title": "water"
+  }
+}

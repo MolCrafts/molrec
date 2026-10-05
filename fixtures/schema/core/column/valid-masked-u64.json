@@ -1,0 +1,14 @@
+{
+  "dtype": "u64",
+  "shape": [
+    2
+  ],
+  "validity": [
+    true,
+    false
+  ],
+  "values": [
+    1,
+    0
+  ]
+}

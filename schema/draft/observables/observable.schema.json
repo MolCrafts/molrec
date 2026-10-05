@@ -1,0 +1,194 @@
+{
+  "$defs": {
+    "Array": {
+      "description": "A named-dimension array: the one building block observables are made of.",
+      "properties": {
+        "data": {
+          "items": {},
+          "title": "Data",
+          "type": "array"
+        },
+        "dims": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Dims",
+          "type": "array"
+        },
+        "dtype": {
+          "enum": [
+            "f64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "bool",
+            "string",
+            "c64",
+            "c128"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "shape": {
+          "default": [],
+          "items": {
+            "type": "integer"
+          },
+          "title": "Shape",
+          "type": "array"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "dtype",
+        "data"
+      ],
+      "title": "Array",
+      "type": "object"
+    },
+    "Ref": {
+      "additionalProperties": true,
+      "description": "A resolvable pointer.\n\n``select`` narrows the target: ``{\"frame\": 12}`` for one frame of a\ntrajectory, ``{\"rows\": [0, 5]}`` for part of a block. Its keys are the\ntarget kind's business, not this type's.",
+      "properties": {
+        "hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hash"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "record",
+                "section",
+                "frame",
+                "block",
+                "observable",
+                "sample"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "select": {
+          "additionalProperties": true,
+          "title": "Select",
+          "type": "object"
+        },
+        "uri": {
+          "minLength": 1,
+          "title": "Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri"
+      ],
+      "title": "Ref",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": true,
+      "description": "Where an observable came from.\n\nDerivedness is not a property of a number -- it is a property of its\nhistory, and it is recursive with no fixed point. So it is recorded as\nprovenance rather than used to classify anything.",
+      "properties": {
+        "method_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Ref"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "refs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Ref"
+          },
+          "title": "Refs",
+          "type": "array"
+        }
+      },
+      "title": "Source",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One quantity and where it came from.\n\nIt carries no coordinates of its own. Its domain is named by\n``values.dims``, and the arrays for those dimensions live once at the\nsection level -- which is what keeps a hundred curves sharing one ``step``\nfrom storing a hundred identical copies of it.",
+  "properties": {
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Description"
+    },
+    "payload": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Payload"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Source"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "values": {
+      "$ref": "#/$defs/Array"
+    }
+  },
+  "required": [
+    "values"
+  ],
+  "title": "ObservableModel",
+  "type": "object"
+}

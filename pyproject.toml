@@ -1,41 +1,80 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
-name = "molrec-spec-tests"
-version = "0.1.0"
-requires-python = ">=3.9"
-dependencies = ["molcrafts-molrs"]
+name = "molrec"
+dynamic = ["version"]
+description = "The MolCrafts record contract: models, conformance suite, and benchmarks."
+requires-python = ">=3.12"
+license = { text = "BSD-3-Clause" }
+authors = [{ name = "MolCrafts" }]
+dependencies = [
+  "numpy>=1.26",
+  "pydantic>=2.7",
+  # The reference binding: importing molrec registers its Zarr codecs, so the
+  # backend they are written against is not optional.
+  # 3.3: the first release that registers numcodecs.shuffle (must-decode).
+  "zarr>=3.3",
+]
 
-[tool.pytest.ini_options]
-testpaths = ["src/molrec/tests"]
-
+# LMDB is the one optional backend: it is imported where a store is opened,
+# so a consumer that never opens a collection never needs it.
 [project.optional-dependencies]
-dev = [
-  "tox>=4.23",
+lmdb = ["lmdb>=1.4"]
+# Everything the test suite needs except the reference implementation: every
+# test but the `molrs`-marked ones runs with this alone, and nothing compiles.
+test = [
   "pytest>=8.0",
-  "ruff>=0.11",
+  "jsonschema>=4.0",
+  "lmdb>=1.4",
+]
+dev = [
+  "molrec[test]",
+  "ruff==0.16.5",
+  # The reference implementation, so the conformance suite can actually judge
+  # it. molrec's own codec passing molrec's own suite proves very little.
+  # Building it compiles Rust: do that on a build machine, never a login node.
   "molcrafts-molrs",
 ]
-
-[tool.tox]
-requires = ["tox>=4.23"]
-env_list = ["lint", "py"]
-
-[tool.tox.env.lint]
-description = "CI lint"
-skip_install = true
-base_python = ["python3.12"]
-deps = ["ruff>=0.11"]
-commands = [
-  # Spec-test tree predates a full ruff clean-up; format gate only for now.
-  ["ruff", "format", "--check", "."],
+docs = [
+  "zensical>=0.0.53",
+  "molcrafts-zensical-theme>=0.2.5",
 ]
 
-[tool.tox.env.py]
-description = "CI test"
-skip_install = false
-package = "wheel"
-extras = ["dev"]
-base_python = ["python3.12"]
-deps = ["pytest>=8.0", "molcrafts-molrs"]
-commands = [
-  ["{envpython}", "-m", "pytest", "-q"],
+# The reference implementation is built from the sibling checkout
+# (../molrs, MolCrafts/molrs) so the suite judges the layout molrs writes
+# *now*, not the last published wheel. CI checks the sibling out at a pinned
+# commit (see .github/workflows/ci.yml).
+#
+# uv caches the built molrs wheel by the sibling's pyproject.toml only, so a
+# change to its Rust sources is not picked up by `uv sync` on its own. Either
+# rebuild explicitly -- `uv sync --extra dev --reinstall-package
+# molcrafts-molrs` -- or give molrs-python's pyproject.toml the cache keys
+# that make uv notice (that file is molrs's, not ours):
+#
+#   [tool.uv]
+#   cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" },
+#                 { file = "src/**/*.rs" }, { file = "../molrs/src/**/*.rs" },
+#                 { file = "../Cargo.lock" }]
+[tool.uv.sources]
+molcrafts-molrs = { path = "../molrs/molrs-python" }
+
+[tool.hatch.version]
+path = "src/molrec/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/molrec"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "molrs: judges the reference implementation (needs molcrafts-molrs built); deselect with -m 'not molrs'",
 ]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

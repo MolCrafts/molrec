@@ -2,9 +2,30 @@ name: CI
 
 on:
   push:
-    branches: [dev, master]
+    branches: [master, dev]
   pull_request:
-    branches: [master]
+    branches: [master, dev]
+
+# molrec's dev extra depends on the reference implementation from the sibling
+# checkout: pyproject.toml points `molcrafts-molrs` at `../molrs/molrs-python`
+# ([tool.uv.sources]). The test job reproduces that layout inside
+# $GITHUB_WORKSPACE -- this repository under `molrec/`, MolCrafts/molrs under
+# `molrs/` -- so the relative path resolves, and runs every command from
+# `molrec/`. molrs-python is a maturin (Rust) package, built with the exact
+# toolchain molrs pins in its rust-toolchain.toml.
+#
+# MOLRS_REPO / MOLRS_REF pin the molrs commit the suite judges: the head of
+# MolCrafts/molrs#91 (0.15 release prep, which carries the molrs side of this
+# alignment), on its fork. Once #91 is merged, switch to MolCrafts/molrs and
+# the merged commit.
+env:
+  MOLRS_REPO: Roy-Kid/molrs
+  MOLRS_REF: 0b4dbf9fcf395a34ffee5a203826b3e725d30946
+  RUFF: ruff@0.16.5
+
+defaults:
+  run:
+    working-directory: molrec
 
 jobs:
   lint:
@@ -12,9 +33,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: molrec
       - uses: astral-sh/setup-uv@v5
-      - run: uvx ruff format --check .
-      # full ruff check deferred until suite is cleaned for molrs 0.9 API
+      - run: uvx ${{ env.RUFF }} format --check .
+      - run: uvx ${{ env.RUFF }} check .
+
+  hooks:
+    name: Pre-commit hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: molrec
+      - uses: astral-sh/setup-uv@v5
+      # The pre-commit stage only: whitespace, end-of-file, yaml / toml /
+      # json syntax, large files, merge markers, line endings, and ruff.
+      - run: uvx pre-commit run --all-files --show-diff-on-failure
+
+  install:
+    name: Install without extras
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: molrec
+      - uses: astral-sh/setup-uv@v5
+      # A consumer that installs molrec alone must be able to import it: the
+      # base dependencies carry the reference Zarr binding, and LMDB is only
+      # imported where a collection store is opened.
+      - run: uv venv ../bare
+      - run: uv pip install --python ../bare .
+      - run: ../bare/bin/python -c "import molrec; print(molrec.__version__, molrec.REGISTRY.modules())"
 
   test:
     name: Test on Python ${{ matrix.python-version }}
@@ -22,14 +72,41 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.12"]
+        python-version: ["3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+        with:
+          path: molrec
+      # The sibling checkout `../molrs` that [tool.uv.sources] points at.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.MOLRS_REPO }}
+          ref: ${{ env.MOLRS_REF }}
+          path: molrs
+      # molrs's own rust-toolchain.toml names the toolchain; rustup reads it.
+      - name: Rust toolchain
+        working-directory: molrs
+        run: rustup toolchain install
+      - uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - run: uv sync --locked --extra dev
+      - name: pytest
+        # molrs was just built from the sibling checkout: a molrs that fails
+        # to import here is a failure, not a skipped conformance run.
+        env:
+          MOLREC_REQUIRE_MOLRS: "1"
+        run: uv run --locked pytest -q
+
+  docs:
+    name: Docs build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: molrec
       - uses: astral-sh/setup-uv@v5
-      - run: uv sync --extra dev
-      - name: pytest (known failures until MolRec API port)
-        run: uv run pytest -q
-        continue-on-error: true
+      # --frozen: take uv.lock as is. --locked would re-resolve the dev extra's
+      # path dependency on ../molrs, which this job never checks out; the docs
+      # extra itself needs nothing from molrs.
+      - run: uv run --frozen --extra docs zensical build --clean

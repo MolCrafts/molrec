@@ -1,0 +1,82 @@
+{
+  "$defs": {
+    "Ref": {
+      "additionalProperties": true,
+      "description": "A resolvable pointer.\n\n``select`` narrows the target: ``{\"frame\": 12}`` for one frame of a\ntrajectory, ``{\"rows\": [0, 5]}`` for part of a block. Its keys are the\ntarget kind's business, not this type's.",
+      "properties": {
+        "hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Hash"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "record",
+                "section",
+                "frame",
+                "block",
+                "observable",
+                "sample"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "select": {
+          "additionalProperties": true,
+          "title": "Select",
+          "type": "object"
+        },
+        "uri": {
+          "minLength": 1,
+          "title": "Uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri"
+      ],
+      "title": "Ref",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "Where an observable came from.\n\nDerivedness is not a property of a number -- it is a property of its\nhistory, and it is recursive with no fixed point. So it is recorded as\nprovenance rather than used to classify anything.",
+  "properties": {
+    "method_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Ref"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "refs": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Ref"
+      },
+      "title": "Refs",
+      "type": "array"
+    }
+  },
+  "title": "Source",
+  "type": "object"
+}

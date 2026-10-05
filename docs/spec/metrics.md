@@ -1,220 +1,76 @@
-# Metrics
+# Metrics group
 
-## Purpose
+Run-local measurements (training curves, validation scores, performance
+counters) are stored in the `metrics` group. Published scientific series
+belong under [Observables](observables.md).
 
-`metrics` stores append-oriented runtime measurements. It is part of the **run
-surface** (with [Status](status.md) and [Method](method.md)) — see
-[Run surface](run.md).
+## Events
 
-It is a recommended record section — a convention layered on the general model
-(see [Overview](overview.md)), not part of the core model.
+Each logical event has a type, a slash-separated series key, a wall-clock
+time, a value, and optionally a step and tags:
 
-It is designed for training curves, validation scores, performance counters, diagnostics, and other
-run-local values that are useful while a record is being produced. The convention follows Molexp's
-run-local metrics stream while staying backend-neutral.
+| Field | Type | Meaning |
+|-------|------|---------|
+| `type` | string | `scalar` for a number; a custom type names a module under `meta/modules` |
+| `key` | string | the series key, slash-separated (`train/loss`) |
+| `step` | integer, optional | the producer's iteration counter |
+| `wall_time` | string | when the event happened: [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339) **with an explicit offset** (`2026-08-04T12:00:00Z`, `…+02:00`) |
+| `value` | number | for `scalar`, a finite JSON number |
+| `tags` | object, optional | free-form labels, preserved |
 
-**Observables vs metrics.** Use [Observables](observables.md) for scientific
-quantities that are part of the *interpreted* record (e.g. a published RDF).
-Use `metrics` for run-local monitoring (loss, learning rate, wall time). Do not
-store training loss only under `observables` solely because it is numeric.
+A series is the events of one `key`, in the order they were logged. Within a
+series, two events with the same `step` are one point: **the later one
+wins** (a resumed run that re-logs step 100 replaces the earlier value).
+Events without a `step` are never merged.
 
-## Structure
+## The closed form: dense series
 
 ```text
 metrics
-\-- records
-|   \-- <record_id>
-|       +-- type: String[]
-|       +-- key: String[]
-|       +-- (step: Float[])
-|       +-- wall_time: String[]
-|       +-- value: <metric-value>
-|       +-- (tags)
-|       \-- ...
-\-- (index)
-    +-- line_count: Integer[]
-    +-- series_count: Integer[]
-    \-- series
-        \-- <key>
-            +-- type: String[]
-            +-- count: Integer[]
-            +-- (latest_step: Float[])
-            +-- (latest_timestamp: String[])
-            +-- (latest_value)
+ +-- (catalog document)                  the group's attributes
+ \-- series
+ |    \-- <safe_name>: f64[n]            one value per point
+ \-- (steps)
+ |    \-- (<safe_name>: i64[n])          the point's step, when the series has steps
+ \-- (wall_time)
+ |    \-- (<safe_name>: string[n])       the point's RFC 3339 time
+ \-- (metrics.jsonl)                     the live WAL, a plain file (not a Zarr node)
 ```
 
-The logical fields are `type`, `key`, `step`, `wall_time`, `value`, and `tags`.
+- `metrics/series/<safe_name>` holds one `f64` per point of the series, in
+  log order after the duplicate-step rule above. `steps/` and `wall_time/`
+  hold the matching per-point step (`i64`) and time (`string`), aligned
+  index for index; a series with no steps has no `steps/` array.
+- The array name is the series key's **safe name**: every byte of the UTF-8
+  key outside `[A-Za-z0-9._-]` becomes `%XX` with uppercase hex (`train/loss`
+  → `train%2Floss`). The encoding is total and reversible. Because a safe
+  name is one node name it must also not be one Zarr forbids: a key that is
+  `.` or `..`, or that would start with `__`, has its first byte escaped too
+  (`.` → `%2E`, `..` → `%2E.`, `__x` → `%5F_x`), and a reader decodes it back
+  the same way. The empty string is not a series key.
 
-## JSONL reference binding (append path)
+## The catalog
 
-The **authoritative on-disk binding for live metrics** is append-only **JSONL**,
-not Zarr. High-frequency writers (training steps, MD monitors) MUST append one
-JSON object per line. Chunked array stores (including Zarr) are a poor fit for
-per-step scalar append: they force chunk realignment, metadata churn, and make
-crash recovery harder than a line-oriented log.
-
-### Physical layout
-
-```text
-metrics/
-├── metrics.jsonl    # authoritative stream (one metric record per line)
-└── index.json       # optional, derived summary (rebuildable)
-```
-
-When the MolRec package is the openable record root, those paths are
-`<record-root>/metrics/metrics.jsonl` and `<record-root>/metrics/index.json`.
-A host that uses the record root as its run directory (e.g. molexp) may keep
-the same relative paths under the run dir.
-
-### Compact field names
-
-JSONL writers use the compact keys (shared with molexp):
-
-| Logical field | Compact field |
-|---------------|---------------|
-| `type` | `t` |
-| `key` | `k` |
-| `step` | `s` |
-| `wall_time` | `w` |
-| `value` | `v` |
-| `tags` | `tags` |
-
-Example line:
-
-```json
-{"t":"scalar","k":"train/loss","s":120,"w":"2026-08-04T12:00:00","v":0.42}
-```
-
-Encoding rules:
-
-- UTF-8 text, one JSON object per line, terminated by `\n`
-- omit keys whose value would be JSON `null` (optional fields may be absent)
-- writers MUST NOT rewrite or delete historical lines
-- readers MUST skip blank lines; malformed lines SHOULD be counted and skipped
-- `metrics.jsonl` is the source of truth; `index.json` is never authoritative
-
-### Derived index
-
-`metrics/index.json` (when present) is a rebuildable summary. Recommended shape:
+The `metrics/` group attributes are the catalog document:
 
 ```json
 {
-  "line_count": 3,
-  "series_count": 2,
+  "wal": { "lines": 3, "bytes": 233 },
   "series": {
-    "train/loss": {
-      "type": "scalar",
-      "count": 2,
-      "latest_step": 2,
-      "latest_timestamp": "2026-08-04T12:00:01"
-    }
+    "train/loss": { "type": "scalar", "count": 2, "latest_step": 2,
+                    "latest_timestamp": "2026-08-04T00:00:02+00:00" }
   }
 }
 ```
 
-Writers MAY rebuild the index on flush / close rather than on every append.
+- `series` names every densified series: its `type`, its point `count`, and
+  the step and time of its last point (`null` when it has none).
+- `wal` is the **watermark**: the dense series hold exactly the first
+  `lines` complete lines (`bytes` bytes) of `metrics/metrics.jsonl`. Up to
+  the watermark the dense series are authoritative; WAL lines past it are
+  newer and a reader appends them, under the same duplicate-step rule. A
+  catalog without `wal` covers no WAL: the dense series are the whole
+  record.
+- Other keys are preserved.
 
-### Relationship to Zarr / hybrid roots
-
-- **Live append** → JSONL under `metrics/` as above.
-- **Closed snapshot** (optional): a pure Zarr aggregate MAY store a small
-  metrics *summary* as group attributes for tooling that only opens Zarr.
-  That summary is not a substitute for the stream; consumers that need the
-  curve MUST read `metrics.jsonl` when it exists.
-- A single record root MAY be **hybrid**: frame / trajectory / large arrays in
-  Zarr groups, and `metrics/` as a filesystem JSONL sibling section.
-
-See [Record](record.md) (backend binding) and [Run surface](run.md).
-
-## Metric records
-
-Every metric record must include:
-
-- `type`
-- `key`
-- `wall_time`
-- `value`
-
-Optional fields:
-
-- `step`
-- `tags`
-
-Rules:
-
-- `key` must be a non-empty string.
-- `step`, if present, must be a finite number.
-- `wall_time` should be an ISO-8601 timestamp string.
-- `tags`, if present, must be a JSON-compatible object.
-- records are append-oriented; writers should not mutate historical records.
-
-## Metric types
-
-MolRec reserves the Molexp-compatible type vocabulary:
-
-| Type | Value contract |
-|------|----------------|
-| `scalar` | finite number |
-| `histogram` | object with numeric `bins` and numeric `counts` arrays |
-| `text` | string |
-| `image_ref` | object with `path` string and optional `caption` |
-| `json` | any JSON-compatible value |
-
-Custom metric types are allowed when a module declares their parse rules.
-
-## Key namespace
-
-Metric keys should be stable slash-separated names.
-
-Recommended namespaces follow the MolNex `TrainState` convention:
-
-- `train/*` for training metrics such as `train/loss`
-- `eval/*` for validation or evaluation metrics such as `eval/MAE`
-- `test/*` for held-out test metrics
-- `performance/*` for runtime counters such as `performance/step_per_second`
-- `gpu/*` for device counters such as `gpu/alloc_gib`
-
-Keys are case-sensitive. Writers should not use display labels as keys; labels can be stored in
-metadata or tags.
-
-## Index
-
-`metrics/index` is optional and derived.
-
-It may summarize the metric stream for fast listing:
-
-- total record count
-- number of distinct series
-- per-key type
-- per-key count
-- latest step
-- latest timestamp
-- latest scalar value when applicable
-
-Readers must not treat an index as authoritative if the underlying metric records are available.
-Backends may rebuild the index from the record stream.
-
-## Relationship to status
-
-Metrics capture values over time. Status captures the current lifecycle and progress state.
-
-Examples:
-
-- `metrics` records `train/loss` at steps 1, 2, 3, ...
-- `status/global_step` stores the current step.
-- `metrics` records `performance/step_per_second`.
-- `status/state` stores whether execution is `running`, `succeeded`, or `failed`.
-
-## Relationship to observables
-
-If a value is needed to interpret the scientific record, store it in `observables`.
-
-If the same value is also useful for live monitoring, a writer may mirror it into `metrics`, but the
-observable remains the authoritative scientific value.
-
-## Rule
-
-The core rule is:
-
-> `metrics` is an append-oriented measurement stream keyed by stable names; it is not a replacement
-> for `observables`.
+The live WAL is specified in [Metrics WAL](metrics-wal.md).

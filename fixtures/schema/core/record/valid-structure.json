@@ -1,0 +1,115 @@
+{
+  "frame": {
+    "blocks": {
+      "atoms": {
+        "columns": {
+          "mol_id": {
+            "dtype": "u64",
+            "shape": [
+              2
+            ],
+            "validity": [
+              true,
+              false
+            ],
+            "values": [
+              1,
+              0
+            ]
+          },
+          "x": {
+            "dtype": "f64",
+            "shape": [
+              2
+            ],
+            "validity": null,
+            "values": [
+              0.0,
+              1.5
+            ]
+          }
+        },
+        "count": 2,
+        "structural_shape": null
+      }
+    },
+    "box": {
+      "boundary": [
+        true,
+        true,
+        false
+      ],
+      "cell_defined": true,
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "vectors": [
+        [
+          10.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          10.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          10.0
+        ]
+      ]
+    },
+    "meta": {
+      "title": "water"
+    }
+  },
+  "meta": {
+    "created_at": "2026-08-04T00:00:00Z",
+    "creator": {
+      "name": "molrec"
+    },
+    "molrec_version": 1
+  },
+  "method": {
+    "description": "NVT",
+    "engine": {
+      "name": "molrs"
+    },
+    "type": "classical"
+  },
+  "metrics": null,
+  "observables": {
+    "observables": {
+      "ir": {
+        "data": {
+          "dtype": "f64",
+          "shape": [
+            3
+          ],
+          "values": [
+            0.1,
+            0.2,
+            0.3
+          ]
+        },
+        "meta": {
+          "description": "ir",
+          "kind": "spectrum",
+          "time_dependent": false,
+          "x_vendor": null
+        }
+      }
+    }
+  },
+  "status": {
+    "epoch": 3,
+    "started_at": "2026-08-04T00:00:00+00:00",
+    "state": "running"
+  },
+  "system": null,
+  "trajectory": null
+}

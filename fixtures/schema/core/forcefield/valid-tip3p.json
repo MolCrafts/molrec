@@ -1,0 +1,220 @@
+{
+  "name": "TIP3P",
+  "source": {
+    "format": "lammps"
+  },
+  "special_bonds": {
+    "coul": [
+      0.0,
+      0.0,
+      0.8333
+    ],
+    "lj": [
+      0.0,
+      0.0,
+      0.5
+    ]
+  },
+  "styles": [
+    {
+      "category": "atom",
+      "style": "full"
+    },
+    {
+      "category": "bond",
+      "style": "harmonic"
+    },
+    {
+      "category": "pair",
+      "params": {
+        "cutoff": 10.0,
+        "mixing": "arithmetic"
+      },
+      "style": "lj/cut/coul/long"
+    }
+  ],
+  "tables": {
+    "atom.full": {
+      "columns": {
+        "charge": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            -0.834,
+            0.417
+          ]
+        },
+        "element": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            "O",
+            "H"
+          ]
+        },
+        "mass": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            15.999,
+            1.008
+          ]
+        },
+        "name": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            "OW",
+            "HW"
+          ]
+        }
+      },
+      "count": 2,
+      "structural_shape": null,
+      "targets": null
+    },
+    "bond.harmonic": {
+      "columns": {
+        "itom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            1
+          ],
+          "validity": null,
+          "values": [
+            "OW"
+          ]
+        },
+        "jtom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            1
+          ],
+          "validity": null,
+          "values": [
+            "HW"
+          ]
+        },
+        "k": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            1
+          ],
+          "validity": null,
+          "values": [
+            1059.162
+          ]
+        },
+        "name": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            1
+          ],
+          "validity": null,
+          "values": [
+            "OW-HW"
+          ]
+        },
+        "r0": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            1
+          ],
+          "validity": null,
+          "values": [
+            0.9572
+          ]
+        }
+      },
+      "count": 1,
+      "structural_shape": null,
+      "targets": null
+    },
+    "pair.lj%2Fcut%2Fcoul%2Flong": {
+      "columns": {
+        "epsilon": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            1
+          ],
+          "validity": null,
+          "values": [
+            0.1521
+          ]
+        },
+        "itom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            1
+          ],
+          "validity": null,
+          "values": [
+            "OW"
+          ]
+        },
+        "jtom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            1
+          ],
+          "validity": null,
+          "values": [
+            "OW"
+          ]
+        },
+        "name": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            1
+          ],
+          "validity": null,
+          "values": [
+            "OW"
+          ]
+        },
+        "sigma": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            1
+          ],
+          "validity": null,
+          "values": [
+            3.1507
+          ]
+        }
+      },
+      "count": 1,
+      "structural_shape": null,
+      "targets": null
+    }
+  },
+  "units": {
+    "preset": "real"
+  }
+}
