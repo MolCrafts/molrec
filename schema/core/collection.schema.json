@@ -1,0 +1,1908 @@
+{
+  "$defs": {
+    "ArrayModel": {
+      "description": "One typed array of any shape, a 0-d one included.",
+      "properties": {
+        "dtype": {
+          "enum": [
+            "f64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "bool",
+            "string",
+            "c64",
+            "c128"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "shape": {
+          "default": [],
+          "items": {
+            "type": "integer"
+          },
+          "title": "Shape",
+          "type": "array"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Values"
+        }
+      },
+      "required": [
+        "dtype"
+      ],
+      "title": "ArrayModel",
+      "type": "object"
+    },
+    "ArrayNodeModel": {
+      "description": "An array of an unrecognised subtree: its values and its attributes.",
+      "properties": {
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "dtype": {
+          "enum": [
+            "f64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "bool",
+            "string",
+            "c64",
+            "c128"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "shape": {
+          "default": [],
+          "items": {
+            "type": "integer"
+          },
+          "title": "Shape",
+          "type": "array"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Values"
+        }
+      },
+      "required": [
+        "dtype"
+      ],
+      "title": "ArrayNodeModel",
+      "type": "object"
+    },
+    "AuthorModel": {
+      "additionalProperties": true,
+      "description": "The person or group responsible for the record.",
+      "properties": {
+        "email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Email"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "AuthorModel",
+      "type": "object"
+    },
+    "BlockModel": {
+      "additionalProperties": true,
+      "description": "Named columns sharing one count, plus an optional structural shape.\n\nA plain table has implicit shape ``[count]``. A volumetric block declares\n``structural_shape = (nx, ny, nz)`` with ``nx * ny * nz == count`` -- the\nonly thing that makes a flat column reshapable after a roundtrip.\n\nA block imposes no meaning on its column names beyond one: a\n:data:`canonical <CANONICAL_COLUMNS>` key has one dtype and shape wherever\nit appears.\n\n``targets`` declares the block's row references beyond the conventional\none (``atomi`` ... ``atoml`` into ``atoms``): column -> target, each\ncolumn ``u64``. Whether the values are in range is the container's to\ncheck (:class:`FrameModel`, :class:`TrajectoryModel`,\n:class:`RecordModel`), which knows the target's row count.",
+      "properties": {
+        "columns": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ColumnModel"
+          },
+          "title": "Columns",
+          "type": "object"
+        },
+        "count": {
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "structural_shape": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Structural Shape"
+        },
+        "targets": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "pattern": "^(?!/trajectory/)(/[^/]+/[^/]+|[^/]+)$",
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Targets"
+        }
+      },
+      "required": [
+        "count"
+      ],
+      "title": "BlockModel",
+      "type": "object"
+    },
+    "BoxModel": {
+      "description": "A frame's cell: its geometry plus whether there is a cell at all.\n\n``cell_defined`` is not periodicity -- ``boundary`` says which axes wrap,\n``cell_defined`` says whether there is a cell at all. Absent means\n``True``; a writer records it only to say ``False``. An undefined cell's\n``vectors`` mean nothing: a writer writes the identity and a reader\nignores what it finds (:func:`resolve_cell`).",
+      "properties": {
+        "boundary": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Boundary"
+        },
+        "cell_defined": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cell Defined"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Origin"
+        },
+        "vectors": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Vectors",
+          "type": "array"
+        }
+      },
+      "required": [
+        "vectors"
+      ],
+      "title": "BoxModel",
+      "type": "object"
+    },
+    "BoxUpdateModel": {
+      "description": "The cell as of one frame ordinal: its geometry, never its definedness.\n\n``step_index`` is a frame **ordinal** -- a position in the sequence -- and\nnever a step number. Whether there is a cell at all is the section's one\nflag (:attr:`TrajectoryBoxModel.cell_defined`), so an update cannot\ndisagree with it.",
+      "properties": {
+        "box": {
+          "$ref": "#/$defs/CellModel"
+        },
+        "step_index": {
+          "minimum": 0,
+          "title": "Step Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "step_index",
+        "box"
+      ],
+      "title": "BoxUpdateModel",
+      "type": "object"
+    },
+    "CellModel": {
+      "description": "The geometry of a triclinic cell. Columns of ``vectors`` are the lattice\nvectors.\n\nWhat a cell's absent parts mean depends on whether there is a cell at\nall, which the owner says -- a frame's :class:`BoxModel`, or a\ntrajectory's :class:`TrajectoryBoxModel` for every update at once -- so\nthe owner resolves them (:func:`resolve_cell`). On its own a cell only\nholds its parts to their shapes and to ``f64``.",
+      "properties": {
+        "boundary": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Boundary"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Origin"
+        },
+        "vectors": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Vectors",
+          "type": "array"
+        }
+      },
+      "required": [
+        "vectors"
+      ],
+      "title": "CellModel",
+      "type": "object"
+    },
+    "CollectionMetaModel": {
+      "additionalProperties": true,
+      "description": "The collection's document. ``units`` is required; other keys are kept.\n\n``units`` maps a quantity (``length``, ``energy``, ``force``, ``charge``,\n``mass``, ``time``) to a unit string. It is the only place a collection's\nnumbers get a unit: columns and per-step tags carry none.",
+      "properties": {
+        "molrec_version": {
+          "description": "Absent on a store written before version 1; never null.",
+          "maximum": 1,
+          "minimum": 1,
+          "title": "Molrec Version",
+          "type": "integer"
+        },
+        "units": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Units",
+          "type": "object"
+        }
+      },
+      "required": [
+        "units"
+      ],
+      "title": "CollectionMetaModel",
+      "type": "object"
+    },
+    "ColumnModel": {
+      "description": "A typed N-dimensional array, optionally nullable.\n\nThe leading axis length is the owning block's count; trailing axes are\nper-entity structure, so ``Float[count][3]`` is one column, not three.\n\n``validity`` is the column's mask: one flag per row, ``True`` where the\nrow holds a value and ``False`` where it holds none (the value stored\nunder a null row is carried as written and means nothing). ``None`` --\nno mask -- means every row is valid, and an all-``True`` mask *is* no\nmask: it is normalized to ``None``, so the two spellings of \"nothing is\nnull\" are one model.\n\n``precision`` is the column's declared precision (``f64`` only). Like\n``BoxModel`` materializing its defaults, a validated model holds the\n**stored** values -- rounded to the precision's binary grid\n(:func:`molrec.precision.quantize`) -- which is what a writer stores and\na reader hands back. A model built from a store (:data:`STORED`) keeps\nthe values exactly as stored.",
+      "if": {
+        "properties": {
+          "precision": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "precision"
+        ]
+      },
+      "properties": {
+        "dtype": {
+          "enum": [
+            "f64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "bool",
+            "string",
+            "c64",
+            "c128"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "precision": {
+          "anyOf": [
+            {
+              "maximum": 1.0715086071862673e+301,
+              "minimum": 9.332636185032189e-302,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Precision"
+        },
+        "shape": {
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "title": "Shape",
+          "type": "array"
+        },
+        "validity": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validity"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Values"
+        }
+      },
+      "required": [
+        "dtype",
+        "shape"
+      ],
+      "then": {
+        "properties": {
+          "dtype": {
+            "const": "f64"
+          }
+        }
+      },
+      "title": "ColumnModel",
+      "type": "object"
+    },
+    "CreatorModel": {
+      "additionalProperties": true,
+      "description": "The tool that wrote the record.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "CreatorModel",
+      "type": "object"
+    },
+    "EngineModel": {
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "EngineModel",
+      "type": "object"
+    },
+    "ErrorModel": {
+      "additionalProperties": true,
+      "description": "``status.error``: what failed, for a human and for a resume decision.",
+      "properties": {
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "traceback": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Traceback"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "title": "ErrorModel",
+      "type": "object"
+    },
+    "ForceFieldModel": {
+      "additionalProperties": true,
+      "description": "The ``forcefield`` section: the document and one table per style.\n\nEvery field but ``tables`` is the document -- the group's attribute map,\nunknown keys preserved (``extra=\"allow\"``). ``tables`` maps a block name to\nits style table; a table no style names is kept as unknown content.\nLinking a system's types to these rows is by name and is never refused\nhere (``docs/spec/forcefield.md``, linking a system).",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ForceFieldSourceModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "special_bonds": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpecialBondsModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "styles": {
+          "items": {
+            "$ref": "#/$defs/StyleModel"
+          },
+          "title": "Styles",
+          "type": "array"
+        },
+        "tables": {
+          "additionalProperties": {
+            "$ref": "#/$defs/BlockModel"
+          },
+          "title": "Tables",
+          "type": "object"
+        },
+        "units": {
+          "$ref": "#/$defs/ForceFieldUnitsModel"
+        }
+      },
+      "required": [
+        "name",
+        "units"
+      ],
+      "title": "ForceFieldModel",
+      "type": "object"
+    },
+    "ForceFieldSourceModel": {
+      "additionalProperties": true,
+      "description": "``forcefield.source``: where the parameters came from.",
+      "properties": {
+        "format": {
+          "title": "Format",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "uri": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uri"
+        }
+      },
+      "required": [
+        "format"
+      ],
+      "title": "ForceFieldSourceModel",
+      "type": "object"
+    },
+    "ForceFieldUnitsModel": {
+      "additionalProperties": true,
+      "anyOf": [
+        {
+          "required": [
+            "preset"
+          ]
+        },
+        {
+          "required": [
+            "length"
+          ]
+        },
+        {
+          "required": [
+            "energy"
+          ]
+        },
+        {
+          "required": [
+            "angle"
+          ]
+        },
+        {
+          "required": [
+            "charge"
+          ]
+        },
+        {
+          "required": [
+            "mass"
+          ]
+        },
+        {
+          "required": [
+            "time"
+          ]
+        }
+      ],
+      "description": "``forcefield.units``: a preset, the unit of each quantity, or both.\n\nThe numbers of the section are in these units and a reader never\nconverts them. A quantity stated beside a preset is the preset's own\nunit (pint-equivalent).",
+      "properties": {
+        "angle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Angle"
+        },
+        "charge": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Charge"
+        },
+        "energy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Energy"
+        },
+        "length": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Length"
+        },
+        "mass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mass"
+        },
+        "preset": {
+          "anyOf": [
+            {
+              "enum": [
+                "real",
+                "metal",
+                "si",
+                "cgs",
+                "electron",
+                "micro",
+                "nano",
+                "lj"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preset"
+        },
+        "time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time"
+        }
+      },
+      "title": "ForceFieldUnitsModel",
+      "type": "object"
+    },
+    "FrameModel": {
+      "additionalProperties": false,
+      "description": "A map of names to blocks, plus a typed meta document and an optional box.\n\nA frame enforces no relationship between its blocks: block counts are\nindependent and any block name is legal.\n\nEvery ``meta`` value is typed by one of the per-step tags\n(:data:`META_TAGS`), held in ``meta_types``: a key the producer did not\ntag gets the tag it would read back as (:func:`infer_meta_tag`), and\nevery value is coerced to its tag (:func:`coerce_meta_value`), so a\nvalidated frame carries one tag per key -- what a writer stores as the\ngroup's ``_meta_types`` and a reader hands back.",
+      "properties": {
+        "blocks": {
+          "additionalProperties": {
+            "$ref": "#/$defs/BlockModel"
+          },
+          "title": "Blocks",
+          "type": "object"
+        },
+        "box": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoxModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "meta": {
+          "additionalProperties": true,
+          "title": "Meta",
+          "type": "object"
+        },
+        "meta_types": {
+          "additionalProperties": {
+            "enum": [
+              "bool",
+              "i32",
+              "i64",
+              "u32",
+              "u64",
+              "f64",
+              "string",
+              "json",
+              "bool3",
+              "i32x3",
+              "i64x3",
+              "u32x3",
+              "u64x3",
+              "f64x3",
+              "f64x6",
+              "f64x9"
+            ],
+            "type": "string"
+          },
+          "title": "Meta Types",
+          "type": "object"
+        }
+      },
+      "title": "FrameModel",
+      "type": "object"
+    },
+    "MetaModel": {
+      "additionalProperties": true,
+      "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.\n\n``molrec_version`` is stamped by every writer (:func:`stamp_version`). A\nreader validates it only when present: absent is a store written before\nversion 1, read best-effort; present must be an integer in\n``1..=MOLREC_VERSION`` -- ``null``, ``0``, a string, a float or a newer\nversion is refused. Identity of a record is the ``*.mrec`` path suffix\nplus a Zarr root, not this key.\n\n``record_id`` and ``content_hash`` are optional provenance, like\n``creator``, ``author``, ``created_at`` and ``source``.",
+      "properties": {
+        "author": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuthorModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created At"
+        },
+        "creator": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CreatorModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "modules": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/ModuleModel"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Modules"
+        },
+        "molrec_version": {
+          "description": "Absent on a store written before version 1; never null.",
+          "maximum": 1,
+          "minimum": 1,
+          "title": "Molrec Version",
+          "type": "integer"
+        },
+        "record_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Record Id"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        }
+      },
+      "title": "MetaModel",
+      "type": "object"
+    },
+    "MetaSeriesModel": {
+      "description": "One per-step meta key, declared once for the whole sequence.\n\n``dtype`` is a tag from the closed per-step set (:data:`META_TAGS`): a\nscalar dtype, ``f64x3`` / ``bool3`` / ... for a fixed-width vector,\n``json`` for one JSON document per step. The tag is what makes the value\nexact: two runs both handing back ``1`` are not the same run if one wrote\ni32 and the other u64, and nothing in the value says which.\n\n``fill`` is the only thing that lets a frame omit the key. A key declared\nwithout one must be supplied by every frame -- there is **no implicit\nNaN**, so a gap a producer did not declare is refused rather than\ninvented. The fill is coerced to the tag (:func:`coerce_meta_value`),\nmaterialized into the array at the omitting step *and* recorded in the\npinned sequence declaration (``trajectory`` attribute\n``sequence_schema``), so a reader that opens the declaration can hand it\nback.\n\nA fill is declared by **stating** it: ``fill=None`` on a ``json`` key\ndeclares the JSON document ``null``, while leaving ``fill`` out declares\nno fill (:attr:`has_fill`). ``null`` is a fill for ``json`` only.",
+      "properties": {
+        "dtype": {
+          "enum": [
+            "bool",
+            "i32",
+            "i64",
+            "u32",
+            "u64",
+            "f64",
+            "string",
+            "json",
+            "bool3",
+            "i32x3",
+            "i64x3",
+            "u32x3",
+            "u64x3",
+            "f64x3",
+            "f64x6",
+            "f64x9"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "fill": {
+          "description": "The value an omitting frame is completed with, in the typed JSON form of its tag. Absent means no fill; null is a fill only for json.",
+          "title": "Fill"
+        }
+      },
+      "required": [
+        "dtype"
+      ],
+      "title": "MetaSeriesModel",
+      "type": "object"
+    },
+    "MethodModel": {
+      "additionalProperties": true,
+      "description": "The scientific / training context document (``docs/spec/method.md``).\n``type``, ``description`` and ``engine.name`` are required whenever the\nsection exists; a ``workflow`` names its stages in ``order`` and gives\neach one its own method document in ``stages``.",
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "engine": {
+          "$ref": "#/$defs/EngineModel"
+        },
+        "order": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Order"
+        },
+        "stages": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/MethodModel"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stages"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "description",
+        "engine"
+      ],
+      "title": "MethodModel",
+      "type": "object"
+    },
+    "ModuleModel": {
+      "additionalProperties": true,
+      "description": "A shared interpretation beyond this specification, keyed by name under\n``meta/modules``: a major/minor ``version`` plus module-specific keys.",
+      "properties": {
+        "version": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Version",
+          "type": "array"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "title": "ModuleModel",
+      "type": "object"
+    },
+    "NodeModel": {
+      "description": "An unrecognised group, carried through verbatim.\n\nA reader preserves sections it does not interpret: their attributes,\narrays and child groups come back exactly as they were read, and a writer\nlays them down again. Nothing in them is interpreted.",
+      "properties": {
+        "arrays": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ArrayNodeModel"
+          },
+          "title": "Arrays",
+          "type": "object"
+        },
+        "attributes": {
+          "additionalProperties": true,
+          "title": "Attributes",
+          "type": "object"
+        },
+        "groups": {
+          "additionalProperties": {
+            "$ref": "#/$defs/NodeModel"
+          },
+          "title": "Groups",
+          "type": "object"
+        }
+      },
+      "title": "NodeModel",
+      "type": "object"
+    },
+    "ObservableMetaModel": {
+      "additionalProperties": true,
+      "description": "The ``observables/meta/<name>`` document.\n\n``kind``, ``description`` and ``time_dependent`` are required; the rest\nare written only when set. Every other key is a producer's and is kept\nverbatim (``extra=\"allow\"``).",
+      "properties": {
+        "axes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Axes"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "sampling": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sampling"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "time_dependent": {
+          "title": "Time Dependent",
+          "type": "boolean"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "kind",
+        "description",
+        "time_dependent"
+      ],
+      "title": "ObservableMetaModel",
+      "type": "object"
+    },
+    "ObservableModel": {
+      "description": "One named result: its metadata document and its data array -- the two\nhalves the layout stores side by side.",
+      "properties": {
+        "data": {
+          "$ref": "#/$defs/ArrayModel"
+        },
+        "meta": {
+          "$ref": "#/$defs/ObservableMetaModel"
+        }
+      },
+      "required": [
+        "meta",
+        "data"
+      ],
+      "title": "ObservableModel",
+      "type": "object"
+    },
+    "ObservablesModel": {
+      "description": "The section: every named observable of the record.",
+      "properties": {
+        "observables": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ObservableModel"
+          },
+          "title": "Observables",
+          "type": "object"
+        }
+      },
+      "title": "ObservablesModel",
+      "type": "object"
+    },
+    "RecordModel": {
+      "additionalProperties": true,
+      "anyOf": [
+        {
+          "properties": {
+            "frame": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "frame"
+          ]
+        },
+        {
+          "properties": {
+            "system": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "system"
+          ]
+        },
+        {
+          "properties": {
+            "trajectory": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "trajectory"
+          ]
+        },
+        {
+          "properties": {
+            "forcefield": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "forcefield"
+          ]
+        },
+        {
+          "properties": {
+            "status": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "status"
+          ]
+        }
+      ],
+      "description": "The record root.\n\n``meta`` is always present (an empty document is a valid one), plus at\nleast one of ``frame``, ``system``, ``trajectory``, ``forcefield`` or\n``status`` -- a record of ``meta`` and ``forcefield`` alone is a\nforce-field package. Each of\nthose is a valid **sole** section beside ``meta``: a trajectory-only\nrecord is conforming and a reader must not require a frame beside it,\nbecause frames may embed full blocks including topology.\n\n``observables`` is the v1 section (:class:`ObservablesModel`). ``metrics``\n-- the catalog document, the dense series and the live WAL of\n``docs/spec/metrics.md`` -- is carried verbatim as a :class:`NodeModel`:\nmolrec does not interpret run-local monitoring, it only never loses it.",
+      "properties": {
+        "forcefield": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ForceFieldModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "frame": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrameModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "meta": {
+          "$ref": "#/$defs/MetaModel"
+        },
+        "method": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MethodModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "metrics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "observables": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObservablesModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StatusModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "system": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FrameModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "trajectory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TrajectoryModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "meta"
+      ],
+      "title": "RecordModel",
+      "type": "object"
+    },
+    "SequenceBlockModel": {
+      "additionalProperties": true,
+      "description": "One block's declaration: its columns and, when it is a grid, its shape.\n\nA block that declares ``structural_shape`` is a fixed-size object: every\nupdate of it holds exactly ``prod(structural_shape)`` rows, and a writer\nrefuses one that does not.\n\n``targets`` is the block's row references (``docs/spec/frame.md``): on a\ntrajectory the declaration is the only place they are stated, and they\nhold on every resolved frame. Written only when set.\n\n``aligned_with`` names another declared block whose rows this block's\nrows are, one for one, at every resolved frame (``docs/spec/ragged.md``,\naligned blocks): a sparse companion of a block that changes more often.\nDeclared only, never derived; written only when set.",
+      "properties": {
+        "aligned_with": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Aligned With"
+        },
+        "columns": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SequenceColumnModel"
+          },
+          "title": "Columns",
+          "type": "object"
+        },
+        "structural_shape": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Structural Shape"
+        },
+        "targets": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "pattern": "^(?!/trajectory/)(/[^/]+/[^/]+|[^/]+)$",
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Targets"
+        }
+      },
+      "title": "SequenceBlockModel",
+      "type": "object"
+    },
+    "SequenceColumnModel": {
+      "description": "One column's type in a sequence declaration.\n\nA column is fixed for the run by its ``dtype`` -- the same closed\nvocabulary as :class:`ColumnModel` -- and its ``trailing`` axes, the\nper-entity structure after the leading count axis. A ``Float[count][3]``\ncolumn declares ``trailing = [3]``; a scalar column declares\n``trailing = []``.\n\n``nullable`` says the column may carry a validity mask. It is a union over\nthe run -- a column masked in any frame is nullable for all of them -- and\na frame that masks a column the declaration pins non-nullable is refused:\nlanding its values without the mask would lose which rows hold nothing.\n\n``precision`` is the column's declared precision (``f64`` only): on a\ntrajectory the declaration is the only place it is stated, and every\nframe's values are rounded to it.",
+      "if": {
+        "properties": {
+          "precision": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "precision"
+        ]
+      },
+      "properties": {
+        "dtype": {
+          "enum": [
+            "f64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "bool",
+            "string",
+            "c64",
+            "c128"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "nullable": {
+          "default": false,
+          "description": "Whether the column may carry a validity mask; written only when true.",
+          "title": "Nullable",
+          "type": "boolean"
+        },
+        "precision": {
+          "anyOf": [
+            {
+              "maximum": 1.0715086071862673e+301,
+              "minimum": 9.332636185032189e-302,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The column's declared precision (f64 only); written only when declared.",
+          "title": "Precision"
+        },
+        "trailing": {
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "title": "Trailing",
+          "type": "array"
+        }
+      },
+      "required": [
+        "dtype"
+      ],
+      "then": {
+        "properties": {
+          "dtype": {
+            "const": "f64"
+          }
+        }
+      },
+      "title": "SequenceColumnModel",
+      "type": "object"
+    },
+    "SequenceSchemaModel": {
+      "additionalProperties": true,
+      "description": "The ``trajectory/`` group attribute ``sequence_schema``.\n\nThe set of blocks, columns, dtypes, trailing shapes and per-step meta keys\na trajectory may carry, declared when it is created and fixed for its\nlifetime. ``blocks`` mirrors the frame blocks; ``meta`` declares each\nper-step key as ``{dtype, fill?}`` -- the tag the array's ``meta_dtype``\nattribute repeats, and the fill an omitting frame is completed with.\n\nThe attribute carries no version of its own; the record's\n``meta[\"molrec_version\"]`` covers it.",
+      "properties": {
+        "blocks": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SequenceBlockModel"
+          },
+          "title": "Blocks",
+          "type": "object"
+        },
+        "meta": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetaSeriesModel"
+          },
+          "title": "Meta",
+          "type": "object"
+        }
+      },
+      "title": "SequenceSchemaModel",
+      "type": "object"
+    },
+    "SpecialBondsModel": {
+      "additionalProperties": false,
+      "description": "``forcefield.special_bonds``: the 1-2 / 1-3 / 1-4 weights of the\nvan-der-Waals (``lj``) and electrostatic (``coul``) pair styles.",
+      "properties": {
+        "coul": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Coul",
+          "type": "array"
+        },
+        "lj": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Lj",
+          "type": "array"
+        }
+      },
+      "required": [
+        "lj",
+        "coul"
+      ],
+      "title": "SpecialBondsModel",
+      "type": "object"
+    },
+    "StatusModel": {
+      "additionalProperties": true,
+      "description": "The lifecycle document (``docs/spec/status.md``). ``state`` is required\nwhenever the section exists; the other named keys are typed, and every key\na producer adds is preserved as given.",
+      "properties": {
+        "epoch": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Epoch"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finished At"
+        },
+        "global_step": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Global Step"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message"
+        },
+        "progress": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Progress"
+        },
+        "stage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stage"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "state": {
+          "title": "State",
+          "type": "string"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "StatusModel",
+      "type": "object"
+    },
+    "StyleModel": {
+      "additionalProperties": true,
+      "description": "One entry of ``forcefield.styles``: a functional form and its table.\n\nThe table is the block :attr:`block` -- a function of ``(category,\nstyle)``, so the two can never disagree. ``params`` and ``endpoint_key``\nare written only when they say something (non-empty, not ``\"type\"``).",
+      "properties": {
+        "category": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Category",
+          "type": "string"
+        },
+        "endpoint_key": {
+          "default": "type",
+          "enum": [
+            "type",
+            "class",
+            "smirks"
+          ],
+          "title": "Endpoint Key",
+          "type": "string"
+        },
+        "expression": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expression"
+        },
+        "params": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Params",
+          "type": "object"
+        },
+        "style": {
+          "minLength": 1,
+          "title": "Style",
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "style"
+      ],
+      "title": "StyleModel",
+      "type": "object"
+    },
+    "TrajectoryBoxModel": {
+      "description": "The cell section: one cell, indexed by the ordinals it changed at.\n\nA fixed-cell run holds exactly one update. There is no absence marker\nhere: once a run states a cell every later frame resolves to the most\nrecent one, so a frame that drops its cell mid-run reads back carrying the\nprevious cell.\n\n``cell_defined`` is the section's flag, stated once for every update;\neach update's absent parts are resolved against it (:func:`resolve_cell`).",
+      "properties": {
+        "cell_defined": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cell Defined"
+        },
+        "updates": {
+          "items": {
+            "$ref": "#/$defs/BoxUpdateModel"
+          },
+          "minItems": 1,
+          "title": "Updates",
+          "type": "array"
+        }
+      },
+      "required": [
+        "updates"
+      ],
+      "title": "TrajectoryBoxModel",
+      "type": "object"
+    },
+    "TrajectoryModel": {
+      "additionalProperties": false,
+      "description": "An ordered sequence of frames -- the time evolution of the system.\n\nThis is the *logical* content, the thing a reader hands back. The physical\nform is the binding's: one CSR row range per section update, a sparse\nindex of the ordinals a section changed at, and each section written again\nonly when it changed. Two conforming stores of one trajectory are expected\nto differ byte for byte, so none of that appears here.\n\nTwo integers index a trajectory and they are not the same one. A frame's\n**ordinal** is its position in ``frames``; its **step number** is the\nproducer's own iteration counter at ``step[ordinal]``, which may start\nanywhere and may skip values.\n\n``blocks`` and ``meta`` are the pinned declaration. ``blocks`` may be left\nunstated, in which case it is derived from the frames (first presentation\nwins); stated, every frame is held to it. After validation every frame\ncarries every block's carried-forward state (see :class:`BlockState`) and\nevery declared meta key, which is also what a reader hands back.",
+      "properties": {
+        "blocks": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/SequenceBlockModel"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blocks"
+        },
+        "box": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TrajectoryBoxModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "frames": {
+          "items": {
+            "$ref": "#/$defs/FrameModel"
+          },
+          "title": "Frames",
+          "type": "array"
+        },
+        "meta": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MetaSeriesModel"
+          },
+          "title": "Meta",
+          "type": "object"
+        },
+        "step": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Step",
+          "type": "array"
+        },
+        "time": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time"
+        }
+      },
+      "required": [
+        "step"
+      ],
+      "title": "TrajectoryModel",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Many records under one declaration (``docs/spec/collection.md``).\n\nEach record is an ordinary :class:`RecordModel` restricted to ``meta``,\n``system`` and ``trajectory``. Every record's trajectory uses\n``sequence_schema`` -- stated, or derived from the first record that has a\ntrajectory. ``index`` is a block of one row per record whose columns the\nwriter derived from the records; it is handed back, never recomputed.\n``forcefield`` is the one force field every record links into.",
+  "properties": {
+    "forcefield": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ForceFieldModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "index": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BlockModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "meta": {
+      "$ref": "#/$defs/CollectionMetaModel"
+    },
+    "records": {
+      "items": {
+        "$ref": "#/$defs/RecordModel"
+      },
+      "title": "Records",
+      "type": "array"
+    },
+    "sequence_schema": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SequenceSchemaModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "meta"
+  ],
+  "title": "CollectionModel",
+  "type": "object"
+}

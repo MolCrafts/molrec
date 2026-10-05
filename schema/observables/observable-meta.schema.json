@@ -1,0 +1,89 @@
+{
+  "additionalProperties": true,
+  "description": "The ``observables/meta/<name>`` document.\n\n``kind``, ``description`` and ``time_dependent`` are required; the rest\nare written only when set. Every other key is a producer's and is kept\nverbatim (``extra=\"allow\"``).",
+  "properties": {
+    "axes": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Axes"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "domain": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Domain"
+    },
+    "kind": {
+      "minLength": 1,
+      "title": "Kind",
+      "type": "string"
+    },
+    "sampling": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sampling"
+    },
+    "target": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target"
+    },
+    "time_dependent": {
+      "title": "Time Dependent",
+      "type": "boolean"
+    },
+    "unit": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Unit"
+    }
+  },
+  "required": [
+    "kind",
+    "description",
+    "time_dependent"
+  ],
+  "title": "ObservableMetaModel",
+  "type": "object"
+}

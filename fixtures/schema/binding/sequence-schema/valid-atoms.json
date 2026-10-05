@@ -1,0 +1,23 @@
+{
+  "blocks": {
+    "atoms": {
+      "columns": {
+        "mol_id": {
+          "dtype": "u64",
+          "nullable": true,
+          "trailing": []
+        },
+        "x": {
+          "dtype": "f64",
+          "trailing": []
+        }
+      }
+    }
+  },
+  "meta": {
+    "pe": {
+      "dtype": "f64",
+      "fill": "NaN"
+    }
+  }
+}

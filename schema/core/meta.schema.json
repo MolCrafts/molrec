@@ -1,7 +1,99 @@
 {
+  "$defs": {
+    "AuthorModel": {
+      "additionalProperties": true,
+      "description": "The person or group responsible for the record.",
+      "properties": {
+        "email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Email"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "AuthorModel",
+      "type": "object"
+    },
+    "CreatorModel": {
+      "additionalProperties": true,
+      "description": "The tool that wrote the record.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "CreatorModel",
+      "type": "object"
+    },
+    "ModuleModel": {
+      "additionalProperties": true,
+      "description": "A shared interpretation beyond this specification, keyed by name under\n``meta/modules``: a major/minor ``version`` plus module-specific keys.",
+      "properties": {
+        "version": {
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "Version",
+          "type": "array"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "title": "ModuleModel",
+      "type": "object"
+    }
+  },
   "additionalProperties": true,
-  "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.",
+  "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.\n\n``molrec_version`` is stamped by every writer (:func:`stamp_version`). A\nreader validates it only when present: absent is a store written before\nversion 1, read best-effort; present must be an integer in\n``1..=MOLREC_VERSION`` -- ``null``, ``0``, a string, a float or a newer\nversion is refused. Identity of a record is the ``*.mrec`` path suffix\nplus a Zarr root, not this key.\n\n``record_id`` and ``content_hash`` are optional provenance, like\n``creator``, ``author``, ``created_at`` and ``source``.",
   "properties": {
+    "author": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuthorModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "content_hash": {
       "anyOf": [
         {
@@ -14,10 +106,10 @@
       "default": null,
       "title": "Content Hash"
     },
-    "format_name": {
+    "created_at": {
       "anyOf": [
         {
-          "const": "molrec",
+          "format": "date-time",
           "type": "string"
         },
         {
@@ -25,7 +117,40 @@
         }
       ],
       "default": null,
-      "title": "Format Name"
+      "title": "Created At"
+    },
+    "creator": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CreatorModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "modules": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/ModuleModel"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Modules"
+    },
+    "molrec_version": {
+      "description": "Absent on a store written before version 1; never null.",
+      "maximum": 1,
+      "minimum": 1,
+      "title": "Molrec Version",
+      "type": "integer"
     },
     "record_id": {
       "anyOf": [
@@ -39,15 +164,19 @@
       "default": null,
       "title": "Record Id"
     },
-    "record_schema_version": {
-      "minimum": 1,
-      "title": "Record Schema Version",
-      "type": "integer"
+    "source": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source"
     }
   },
-  "required": [
-    "record_schema_version"
-  ],
   "title": "MetaModel",
   "type": "object"
 }

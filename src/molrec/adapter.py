@@ -8,8 +8,16 @@ Two methods per module, and both directions are exercised:
   codec; hand back something shaped like the model.
 
 ``read`` may return anything duck-compatible: a dict, a dataclass, your own
-native object. The suite validates it with ``from_attributes=True``. What it
-must *not* do is assert -- every assertion belongs to the suite.
+native object. It is compared *as returned*, before any model validation
+could fill a default, carry a block forward or resolve a fill on its behalf:
+a reader hands back every value the model holds (a field the model holds as
+``None`` may be left out). Only then is it validated with
+``from_attributes=True``. What it must *not* do is assert -- every assertion
+belongs to the suite.
+
+A negative case is passed only by a *refusal*: a :class:`~molrec.Refusal`, or
+an exception of a type the adapter declares in ``refusal_types``. Any other
+exception is a defect and is reported as ``error``.
 """
 
 from __future__ import annotations
@@ -27,6 +35,16 @@ class Adapter(ABC):
 
     module: ClassVar[str]
     backends: ClassVar[tuple[str, ...]] = ()
+    #: The native exception types the implementation refuses malformed input
+    #: with (``(ValueError,)`` for most Python bindings). The harness counts
+    #: them, and :class:`~molrec.Refusal`, as a refusal; nothing else.
+    refusal_types: ClassVar[tuple[type[Exception], ...]] = ()
+    #: Case ids this adapter declares out of its implementation's scope, each
+    #: with the reason (the API the implementation lacks). The harness reports
+    #: them as ``skip`` with that reason -- never as a pass -- and judges every
+    #: other case. A case id prefixed by a module's own wrapping (``frame/``
+    #: in the record suite) is matched as written.
+    unsupported: ClassVar[dict[str, str]] = {}
 
     @abstractmethod
     def write(self, model: BaseModel, store: Store) -> None:
@@ -47,7 +65,7 @@ class Implementation:
         class Molrs(Implementation):
             name    = "molrs"
             version = molrs.__version__
-            frame   = MolrsFrameAdapter()
+            record  = MolrsRecordAdapter()
     """
 
     name: ClassVar[str] = "unnamed"

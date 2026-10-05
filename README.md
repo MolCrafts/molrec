@@ -19,12 +19,11 @@
 
 </div>
 
-MolRec defines **what a scientific record means** — not a store product, not a
-class named `MolStore` / `SimStore`, and not “Frame only.”
+MolRec defines **what a scientific record means**.
 
 Any project that shares:
 
-- molecular **systems** (topology, types, parameters),
+- molecular **systems** (topology, types),
 - **snapshots** and **trajectories**,
 - **scientific observables**, or
 - **training / job execution logs** (status + metrics + method)
@@ -44,69 +43,127 @@ codes invent different formats. MolRec provides one language-agnostic contract:
 - Metadata is explicit — meaning is never inferred from array shape alone.
 - The same root serves MD packages, electronic-structure results, and training runs.
 
-## Record structure
+## Root layout
 
 ```text
 /
-+-- meta                  # required — identity, schema version
-+-- system                # recommended — system definition (no required xyz)
-+-- frame                 # recommended — instantaneous snapshot
++-- meta                  # required — identity document (may be empty)
++-- system                # optional — system definition (no required xyz)
++-- frame                 # optional — instantaneous snapshot
 +-- trajectory            # optional — frame sequence
++-- forcefield            # optional — force-field parameters (document + style tables)
 +-- observables           # optional — scientific results
 +-- status                # optional — lifecycle / progress (run surface)
 +-- metrics               # optional — append-only run measurements
 +-- method                # optional — scientific / training context
 ```
 
-There is **no** root `parameters/` (use `system/parameters` or `method`).
+Force-field parameters live in the [`forcefield`](docs/spec/forcefield.md) section; how a job was run lives under `method`.
 
-`meta` is mandatory. A record must also include **at least one of** `frame`,
-`system`, or `status`. A **Run**-shaped record (`meta` + `status`) does not
-require a frame. Trajectory may omit `system/`. The cell is **Box** only; the
-sole version key is **`record_schema_version` (1)**. See
-[docs/spec/record.md](docs/spec/record.md) and
-[docs/spec/run.md](docs/spec/run.md).
-
-## Layers
-
-| Layer | Role |
-|-------|------|
-| L0 Vocabulary | dtypes, units, hard naming rules |
-| L1 Containers | Column · Block · Frame · Box |
-| L2 Record | Root sections and minimum shapes |
-| L3 Conventions | Domain section and field names |
-| L4 Backend binding | One Zarr root (arrays + document attrs) · metrics JSONL buffer ([storage](docs/spec/storage.md)) |
+`meta` is mandatory (an empty document is valid); `system` and `frame` are
+optional. A record also includes **at least one of** `frame`, `system`,
+`trajectory`, `forcefield`, or `status`. A **Run**-shaped record (`meta` + `status`) is
+valid on its own; a trajectory-only record (`meta` + `trajectory`) is
+equally valid, and trajectory may omit `system/`. The cell is **Box**.
+Every writer stamps `meta["molrec_version"]` (currently `1`); readers
+validate it only when present — an absent key marks a store written before
+version 1. A record is identified by its `*.mrec` path suffix plus its Zarr
+root. See the [format specification](docs/spec/specification.md).
 
 ## Key design principles
 
-- **Record first.** Frame is an L1 container; the unit of ecosystem interchange is the Record.
-- **Single root.** One Record is one openable root — no nested Record trees in L2.
-- **System ≠ state.** `system/` defines the system; coordinates live on `frame` / `trajectory`.
+- **Record first.** Column / Block / Frame / Box are how a record holds array data. A trajectory is a record section.
+- **Single root.** One Record is one openable root.
+- **System and state.** `system/` defines the system; coordinates live on `frame` / `trajectory`.
 - **Run surface.** Training and jobs use `status` + `metrics` + `method` as one surface.
-- **Box only.** The cell contract name is `Box` / `box` — not `simbox`.
-- **One schema version.** `meta.record_schema_version` (starts at 1); no parallel `frame_schema_version` or layout `meta.version`.
-- **Zarr + metrics WAL.** One Zarr V3 root holds arrays and document sections (group attributes). Closed metrics densify to Zarr series; live metrics use an append-only JSONL WAL (`metrics/metrics.jsonl`) — not a parallel `.json` document tree. Never a second layout named MolStore.
-- **Hard cut.** New writers do not dual-read retired keys or private layouts; migrate offline.
-- **Collections, not only atoms.** Named blocks carry any entity set.
+- **Box.** The cell contract name is `Box` / `box`.
+- **One schema version.** Writers stamp `meta["molrec_version"]` (integer, currently 1); readers validate it when present and refuse a newer one.
+- **Zarr + metrics WAL.** One Zarr V3 root holds arrays and document sections (group attributes). Closed metrics densify to Zarr series; live metrics use an append-only JSONL WAL (`metrics/metrics.jsonl`). The trajectory encoding is the [ragged CSR layout](docs/spec/ragged.md).
+- **Hard cut.** Writers emit the current keys (`sequence_schema`, `meta_dtype`, no vendor prefixes); migrate older files offline.
+- **Collections.** Named blocks carry any entity set.
 - **Preserve the unknown.** Readers keep sections, blocks, and columns they do not interpret.
-- **Backend-neutral.** Semantics do not require Zarr; the Zarr root + JSONL buffer is the reference binding only.
+- **Backend-neutral.** Semantics are independent of the store; the Zarr root + JSONL buffer is the reference binding.
 
 ## Documentation
 
-Full specification: [docs/index.md](docs/index.md)
+Full specification: [docs/index.md](docs/index.md) ·
+[format specification](docs/spec/specification.md)
+
+## Install
+
+```bash
+pip install molrec          # models, reference codecs (Zarr V3), conformance suite
+pip install "molrec[lmdb]"  # + the LMDB collection binding
+```
+
+From a checkout, with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv sync --locked --extra test               # everything but the reference implementation
+uv run --locked pytest -q -m "not molrs"    # the suite judging molrec's own codecs
+```
+
+The `dev` extra adds [molrs](https://github.com/MolCrafts/molrs), built from
+the sibling checkout `../molrs` (Rust; a build machine is needed):
+
+```bash
+uv sync --locked --extra dev
+MOLREC_REQUIRE_MOLRS=1 uv run --locked pytest -q   # judges molrs too
+```
+
+## Write an adapter
+
+An implementation is judged by writing one adapter per module it claims —
+two methods, no assertions; every assertion is the suite's. `write` lays a
+model down with your library; `read` hands back anything shaped like the
+model (a dict, a dataclass, your own object). A refusal of malformed input
+is a declared exception type (or `molrec.Refusal`); anything else your code
+raises is a defect.
+
+```python
+import molrec
+
+
+class MyRecordAdapter(molrec.RecordAdapter):
+    backends = ("zarr",)
+    refusal_types = (ValueError,)
+
+    def write(self, model, store):
+        mylib.write_record(store.uri, to_native(model))
+
+    def read(self, store):
+        return from_native(mylib.read_record(store.uri))
+
+
+class MyLib(molrec.Implementation):
+    name = "mylib"
+    version = mylib.__version__
+    record = MyRecordAdapter()
+
+
+report = molrec.ConformanceSuite(MyLib()).run()
+report.report()
+assert report.ok
+```
+
+Each positive case runs in both directions (you write, the reference codec
+reads; the reference codec writes, you read). `tests/molrs_adapter.py` is
+the adapter for molrs.
 
 ## Reference implementation
 
-[molrs](https://github.com/MolCrafts/molrs) implements L1 containers and the
-reference Zarr binding. Other packages **consume** the contract; they must not
-ship a parallel store product name for the same layout.
+[molrs](https://github.com/MolCrafts/molrs) is the reference implementation:
+its containers and its Zarr reader and writer implement the binding this
+repository specifies. The binding itself is the specification, not molrs's
+code. Other packages **consume** the contract; they must not ship a parallel
+store product name for the same layout.
 
 ## MolCrafts ecosystem
 
 | Project | Role |
 |---------|------|
 | [molpy](https://github.com/MolCrafts/molpy) | Python toolkit & workflows |
-| [molrs](https://github.com/MolCrafts/molrs) | Rust core — containers & compute (reference MolRec binding) |
+| [molrs](https://github.com/MolCrafts/molrs) | Rust core — containers & compute (reference MolRec implementation) |
 | [molpack](https://github.com/MolCrafts/molpack) | Molecular packing |
 | [molvis](https://github.com/MolCrafts/molvis) | Visualization |
 | [molexp](https://github.com/MolCrafts/molexp) | Experiment / run management |

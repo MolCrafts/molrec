@@ -2,7 +2,7 @@
   "$defs": {
     "BlockModel": {
       "additionalProperties": true,
-      "description": "Named columns sharing one count, plus an optional structural shape.\n\nA plain table has implicit shape ``[count]``. A volumetric block declares\n``structural_shape = (nx, ny, nz)`` with ``nx * ny * nz == count`` -- the\nonly thing that makes a flat column reshapable after a roundtrip.\n\nA block imposes no meaning on its column names.",
+      "description": "Named columns sharing one count, plus an optional structural shape.\n\nA plain table has implicit shape ``[count]``. A volumetric block declares\n``structural_shape = (nx, ny, nz)`` with ``nx * ny * nz == count`` -- the\nonly thing that makes a flat column reshapable after a roundtrip.\n\nA block imposes no meaning on its column names beyond one: a\n:data:`canonical <CANONICAL_COLUMNS>` key has one dtype and shape wherever\nit appears.\n\n``targets`` declares the block's row references beyond the conventional\none (``atomi`` ... ``atoml`` into ``atoms``): column -> target, each\ncolumn ``u64``. Whether the values are in range is the container's to\ncheck (:class:`FrameModel`, :class:`TrajectoryModel`,\n:class:`RecordModel`), which knows the target's row count.",
       "properties": {
         "columns": {
           "additionalProperties": {
@@ -30,6 +30,22 @@
           ],
           "default": null,
           "title": "Structural Shape"
+        },
+        "targets": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "pattern": "^(?!/trajectory/)(/[^/]+/[^/]+|[^/]+)$",
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Targets"
         }
       },
       "required": [
@@ -39,7 +55,7 @@
       "type": "object"
     },
     "BoxModel": {
-      "description": "The triclinic cell. Columns of ``vectors`` are the lattice vectors.\n\nA box belongs to a frame, so fixed-cell and variable-cell runs are both\nnatural -- each frame in a trajectory carries its own.",
+      "description": "A frame's cell: its geometry plus whether there is a cell at all.\n\n``cell_defined`` is not periodicity -- ``boundary`` says which axes wrap,\n``cell_defined`` says whether there is a cell at all. Absent means\n``True``; a writer records it only to say ``False``. An undefined cell's\n``vectors`` mean nothing: a writer writes the identity and a reader\nignores what it finds (:func:`resolve_cell`).",
       "properties": {
         "boundary": {
           "anyOf": [
@@ -47,6 +63,8 @@
               "items": {
                 "type": "boolean"
               },
+              "maxItems": 3,
+              "minItems": 3,
               "type": "array"
             },
             {
@@ -56,10 +74,26 @@
           "default": null,
           "title": "Boundary"
         },
+        "cell_defined": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cell Defined"
+        },
         "origin": {
           "anyOf": [
             {
-              "items": {},
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
               "type": "array"
             },
             {
@@ -70,7 +104,16 @@
           "title": "Origin"
         },
         "vectors": {
-          "items": {},
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "maxItems": 3,
+          "minItems": 3,
           "title": "Vectors",
           "type": "array"
         }
@@ -82,12 +125,20 @@
       "type": "object"
     },
     "ColumnModel": {
-      "description": "A typed N-dimensional array.\n\nThe leading axis length is the owning block's count; trailing axes are\nper-entity structure, so ``Float[count][3]`` is one column, not three.",
+      "description": "A typed N-dimensional array, optionally nullable.\n\nThe leading axis length is the owning block's count; trailing axes are\nper-entity structure, so ``Float[count][3]`` is one column, not three.\n\n``validity`` is the column's mask: one flag per row, ``True`` where the\nrow holds a value and ``False`` where it holds none (the value stored\nunder a null row is carried as written and means nothing). ``None`` --\nno mask -- means every row is valid, and an all-``True`` mask *is* no\nmask: it is normalized to ``None``, so the two spellings of \"nothing is\nnull\" are one model.\n\n``precision`` is the column's declared precision (``f64`` only). Like\n``BoxModel`` materializing its defaults, a validated model holds the\n**stored** values -- rounded to the precision's binary grid\n(:func:`molrec.precision.quantize`) -- which is what a writer stores and\na reader hands back. A model built from a store (:data:`STORED`) keeps\nthe values exactly as stored.",
+      "if": {
+        "properties": {
+          "precision": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "precision"
+        ]
+      },
       "properties": {
         "dtype": {
           "enum": [
-            "f16",
-            "f32",
             "f64",
             "i8",
             "i16",
@@ -105,6 +156,20 @@
           "title": "Dtype",
           "type": "string"
         },
+        "precision": {
+          "anyOf": [
+            {
+              "maximum": 1.0715086071862673e+301,
+              "minimum": 9.332636185032189e-302,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Precision"
+        },
         "shape": {
           "items": {
             "type": "integer"
@@ -112,6 +177,21 @@
           "minItems": 1,
           "title": "Shape",
           "type": "array"
+        },
+        "validity": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validity"
         },
         "values": {
           "anyOf": [
@@ -131,12 +211,19 @@
         "dtype",
         "shape"
       ],
+      "then": {
+        "properties": {
+          "dtype": {
+            "const": "f64"
+          }
+        }
+      },
       "title": "ColumnModel",
       "type": "object"
     }
   },
-  "additionalProperties": true,
-  "description": "A map of names to blocks, plus free-form meta and an optional box.\n\nA frame enforces no relationship between blocks: block counts are\nindependent and any block name is legal.",
+  "additionalProperties": false,
+  "description": "A map of names to blocks, plus a typed meta document and an optional box.\n\nA frame enforces no relationship between its blocks: block counts are\nindependent and any block name is legal.\n\nEvery ``meta`` value is typed by one of the per-step tags\n(:data:`META_TAGS`), held in ``meta_types``: a key the producer did not\ntag gets the tag it would read back as (:func:`infer_meta_tag`), and\nevery value is coerced to its tag (:func:`coerce_meta_value`), so a\nvalidated frame carries one tag per key -- what a writer stores as the\ngroup's ``_meta_types`` and a reader hands back.",
   "properties": {
     "blocks": {
       "additionalProperties": {
@@ -159,6 +246,31 @@
     "meta": {
       "additionalProperties": true,
       "title": "Meta",
+      "type": "object"
+    },
+    "meta_types": {
+      "additionalProperties": {
+        "enum": [
+          "bool",
+          "i32",
+          "i64",
+          "u32",
+          "u64",
+          "f64",
+          "string",
+          "json",
+          "bool3",
+          "i32x3",
+          "i64x3",
+          "u32x3",
+          "u64x3",
+          "f64x3",
+          "f64x6",
+          "f64x9"
+        ],
+        "type": "string"
+      },
+      "title": "Meta Types",
       "type": "object"
     }
   },

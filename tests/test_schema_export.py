@@ -10,7 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from molrec.schema_export import PUBLISHED, export
+from molrec.core.model import CANONICAL_COLUMNS, DTYPES
+from molrec.schema_export import PUBLISHED, VOCABULARY, export
 
 REPO = Path(__file__).resolve().parents[1]
 SCHEMA = REPO / "schema"
@@ -27,7 +28,14 @@ def test_regenerating_matches_what_is_committed(tmp_path):
 
 def test_every_published_model_lands_on_disk(tmp_path):
     expected = sum(len(models) for models in PUBLISHED.values())
-    assert len(export(tmp_path)) == expected
+    # ... plus the canonical vocabulary.
+    assert len(export(tmp_path)) == expected + 1
+
+
+def test_the_vocabulary_is_the_canonical_table():
+    committed = json.loads((SCHEMA / VOCABULARY).read_text())
+    assert committed == CANONICAL_COLUMNS
+    assert set(committed.values()) <= set(DTYPES)
 
 
 def test_committed_schemas_are_valid_json_objects():
@@ -35,5 +43,7 @@ def test_committed_schemas_are_valid_json_objects():
     assert files, "nothing was exported"
     for path in files:
         document = json.loads(path.read_text())
+        if "$ref" in document:  # a recursive model publishes its root as a $def
+            document = document["$defs"][document["$ref"].rsplit("/", 1)[1]]
         assert document["type"] == "object"
         assert "properties" in document

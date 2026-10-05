@@ -1,80 +1,90 @@
-# Observables
+# Observables group
 
-## Purpose
+Named scientific result quantities — a total energy, a dipole moment, a
+per-atom charge — are stored in the `observables` group. A record need not
+carry one.
 
-`observables` is a recommended record section for named derived or reported
-quantities that are part of the interpreted scientific record — a total energy, a
-dipole moment, a per-atom charge. It is a convention layered on the general model
-(see [Overview](overview.md)); a record need not carry one.
+Observables are scientific results a reader would treat as part of the
+chemistry or physics payload. Run-local monitoring (training loss, step
+time, throughput) belongs under [metrics](metrics.md).
 
-**Not the same as metrics.** Run-local monitoring series (training loss, step
-time, throughput) belong under [Metrics](metrics.md) as part of the
-[run surface](run.md). Observables are scientific results a reader would treat as
-part of the chemistry/physics payload, not job telemetry.
+## Layout
 
-Each observable is a pair:
-
-- `observables/<name>` — the data, a column (see [Types](types.md));
-- `observables/meta/<name>` — its semantic metadata.
-
-When the section is present the pairing is mandatory: observable data are never
-standalone.
-
-Physical form: **Zarr array groups** with per-name semantic **attributes** —
-see [Storage](storage.md).
-
-## Structure
+`observables` is an **array section**: one data array per name, beside one
+metadata document per name. It is not frame-shaped — there are no blocks,
+and an observable's array has whatever shape its `kind` and `axes` say.
 
 ```text
 observables
-├── meta/
-│   └── <name>/                 # semantic metadata (JSON attrs in Zarr binding)
-│       +-- kind: string        # "scalar" | "vector"
-│       +-- description: string
-│       +-- time_dependent: bool
-│       +-- (unit: string)
-│       +-- (axes: string[])    # names of trailing axes
-│       \-- (target: string)    # e.g. "/frame/atoms"
-└── <name>: <dtype>[...]        # data column / array
+ \-- meta
+ |    \-- <name>
+ |         +-- kind: string[]
+ |         +-- description: string[]
+ |         +-- time_dependent: bool[]
+ |         +-- (unit: string[])
+ |         +-- (axes: string[...])
+ |         +-- (sampling: string[])
+ |         +-- (domain: string[])
+ |         +-- (target: string[])
+ |         +-- (<any other key>)
+ \-- <name>: <dtype>[...]
 ```
 
-## Kinds
-
-MolRec defines two observable kinds:
-
-| Kind | Meaning | Typical shape |
-|------|---------|---------------|
-| `scalar` | one value per sample | `[]` or `[ntimestep]` |
-| `vector` | an ordered tuple of components per sample | `[ncomp]` or `[ntimestep][ncomp]` |
-
-Higher-rank data (tensors), volumetric fields, and tables are expressed with the
-same two kinds plus `axes` metadata naming the trailing axes. A producer that
-needs a distinct kind declares it in a module under `meta/modules`.
+- The data of observable `<name>` is the array `observables/<name>`: any
+  shape (a 0-d array is a single value), any [column dtype](frame.md#data-types).
+- Its metadata is the attribute map of the group `observables/meta/<name>`.
+- **The pairing is mandatory.** A data array without its metadata group, or
+  a metadata group without its data array, is malformed and a reader refuses
+  it.
+- `<name>` is one node name: non-empty, no `/`, not `.` or `..`, no leading
+  `__`, and not `meta`, which names the metadata group.
 
 ## Metadata
 
-Required for every observable:
+`kind`
 
-- `kind`
-- `description`
-- `time_dependent`
+How the array is read: `scalar` (one value per sample) or `vector` (an
+ordered tuple of components per sample). Higher-rank data are expressed with
+the same two kinds plus `axes` naming the trailing axes. Required.
 
-Recommended when applicable:
+A producer that needs a distinct kind uses its own name for it (and
+declares a module under `meta/modules` when other tools must agree on what
+it means). **A reader carries a kind it does not know through unchanged**:
+it neither refuses the observable nor rewrites the kind, and a writer that
+read one writes it back as it found it.
 
-- `unit` — physical unit of the values;
-- `axes` — names of the trailing axes when the rank is greater than zero;
-- `target` — the block an entity-aligned observable indexes (e.g.
-  `/frame/atoms`).
+`description`
 
-## Time dependence
+Free text. Required.
 
-Time dependence is stated in metadata, not inferred from shape. When
-`time_dependent = true`, the leading axis is the trajectory axis (named
-`timestep` by convention).
+`time_dependent`
 
-## Relationship to metrics
+Time dependence is stated in metadata, not inferred from shape. When true,
+the leading axis is the trajectory axis, so the array has at least one
+axis. Required.
 
-Use `observables` for values that are part of the interpreted scientific record;
-use [metrics](metrics.md) for run-local monitoring streams. A writer may mirror a
-value into metrics for live display, but the observable remains the authoritative
-scientific value.
+`unit`, `axes`
+
+Optional. `unit` is a unit string; `axes` names the trailing axes, in
+order.
+
+`sampling`, `domain`
+
+Optional free-text provenance: how the quantity was sampled (e.g.
+`per_frame`, `time_average`) and what domain it is defined over.
+
+`target`
+
+The block an entity-aligned observable indexes (e.g. `/frame/atoms`).
+
+Every other key is a producer's: a reader preserves it verbatim, a
+`null`-valued one included.
+
+## Draft
+
+A dims-based redesign of this section (named dimensions instead of `kind` /
+`time_dependent`, xarray-style shared coordinates) exists as a **draft**
+(`schema/draft/observables/`, the `draft/observables` conformance module).
+It is not part of version 1, and a conformance run that names no modules
+does not judge an implementation by it. Adopting it is a normative change
+and requires a `molrec_version` bump.

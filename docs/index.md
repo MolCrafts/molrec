@@ -1,87 +1,145 @@
-# MolRec
+---
+title: MolRec
+description: Backend-neutral record contract for the MolCrafts ecosystem.
+hide:
+  - navigation
+  - toc
+hero:
+  kicker: MolRec Specification
+  title: MolRec
+  description: "One standard for heterogeneous molecular records — high information density, FAIR by construction. Systems, snapshots, trajectories, observables, and run logs in a single self-describing package."
+  install:
+    label: Install
+    command: pip install molrec
+  badges:
+    - img: https://img.shields.io/badge/python-3.12%2B-blue.svg
+      href: https://github.com/MolCrafts/molrec
+      alt: Python 3.12+
+    - img: https://img.shields.io/badge/license-BSD--3-Clause-18432B?style=flat-square
+      href: https://github.com/MolCrafts/molrec/blob/master/LICENSE
+      alt: License BSD-3-Clause
+  actions:
+    - label: Specification
+      href: spec/specification/
+      style: primary
+    - label: Conventions
+      href: spec/conventions/
+    - label: Why Zarr
+      href: spec/zarr/
+---
 
-MolRec is the **backend-neutral record contract** for the MolCrafts ecosystem.
+<h1 class="molcrafts-sr-only">MolRec</h1>
 
-It is not a store product, not a class named `MolStore`, and not “only a Frame
-format.” A **Record** is anything tools must share for reproducibility: molecular
-systems, snapshots and trajectories, scientific observables, **and** training or
-job execution logs.
+<div class="molcrafts-manual-home" markdown>
 
-MolRec defines:
+<section class="molcrafts-manual-section molcrafts-manual-section--compact" markdown>
 
-1. A small general **data model** (Column / Block / Frame).
-2. A **Record** root layout (sections under one package).
-3. **Conventions** so independent tools agree on names.
+<div class="molcrafts-manual-section__header" markdown>
 
-A reader that knows only the model can traverse any record. A reader that also
-knows the conventions can interpret it.
+<span class="molcrafts-manual-eyebrow">At a glance</span>
 
-## The model (L1)
+## One standard, one root
 
-Three general containers:
+A record is the unit of interchange. Heterogeneous payload — definition,
+state, time series, observables, and run logs — under a single
+self-describing root. A reader walks it from the groups on disk.
+
+</div>
 
 ```text
-Column     a typed N-dimensional array
-Block      named columns sharing one length (+ optional structural shape)
-Frame      named blocks + free-form metadata + an optional box
+root
+ \-- meta
+ \-- (system)
+ \-- (frame)
+ \-- (trajectory)
+ \-- (forcefield)
+ \-- (observables)
+ \-- (method)
+ \-- (status)
+ \-- (metrics)
 ```
 
-No key is privileged; no field is required by the model itself. Domain meaning
-is convention — see [Conventions](spec/conventions.md).
+</section>
 
-## The Record (L2)
+<section class="molcrafts-manual-section molcrafts-manual-section--stack" markdown>
 
-```text
-<record-root>/
-├── meta/              # required
-├── system/            # definition of the chemical/physical system
-├── frame/             # instantaneous snapshot
-├── trajectory/        # time series of frames
-├── observables/       # scientific results
-├── method/            # how it was produced
-├── status/            # lifecycle / progress (run surface)
-└── metrics/           # append-only run measurements
-```
+<div class="molcrafts-manual-section__header" markdown>
 
-No root `parameters/`. Minimum shapes: Structure, System-def, Trajectory
-(system optional), **Run** (`meta`+`status`, frame optional). Contract cell name
-is **Box**; sole version is **`record_schema_version`**. Details:
-[Record](spec/record.md), [Run surface](spec/run.md).
+<span class="molcrafts-manual-eyebrow">Features</span>
 
-## Storage (L4)
+## One standard for heterogeneous, FAIR records
 
-One Zarr root; JSONL only as a metrics append buffer — full chapter:
-[Storage](spec/storage.md).
+</div>
 
-| Form | Use |
-|------|-----|
-| Zarr V3 root | Whole package — array groups + document **group attributes** |
-| Dense Zarr series | Closed metrics curves under `metrics/` |
-| JSONL text WAL | Live metrics only: `metrics/metrics.jsonl` |
+<div class="molcrafts-manual-grid molcrafts-manual-grid--cols-2">
+  <a href="spec/specification/">
+    <strong>One standard</strong>
+    <em>One contract. Every MolCrafts tool opens the same root.</em>
+  </a>
+  <a href="spec/overview/">
+    <strong>Heterogeneous</strong>
+    <em>Topology, state, observables, and runs in one package.</em>
+  </a>
+  <a href="spec/ragged/">
+    <strong>High density</strong>
+    <em>Write on change. No padded <code>N_max</code>. File count ignores <code>nstep</code>.</em>
+  </a>
+  <a href="spec/zarr/">
+    <strong>FAIR</strong>
+    <em>Self-describing, open, reusable.</em>
+  </a>
+</div>
 
-## Reading guide
+</section>
 
-| Chapter | What it covers |
-|---------|----------------|
-| [Overview](spec/overview.md) | L0–L4, model, minimum records, invariants |
-| [Record](spec/record.md) | Root layout, versioning, section map |
-| [Storage](spec/storage.md) | Zarr root + metrics JSONL buffer |
-| [Meta](spec/meta.md) | Record-level metadata and schema version |
-| [Types](spec/types.md) | Column dtypes and structural shape |
-| [Frame](spec/frame.md) | Frame, Block, Column, Box |
-| [System](spec/system.md) | System definition vs frame state |
-| [Conventions](spec/conventions.md) | Recommended block/field names |
-| [Trajectory](spec/trajectory.md) | Frame sequences |
-| [Run surface](spec/run.md) | Training / job logs as records |
-| [Observables](spec/observables.md) | Scientific result quantities |
-| [Status](spec/status.md) | Execution lifecycle |
-| [Metrics](spec/metrics.md) | Append-oriented measurements |
-| [Method](spec/method.md) | Scientific context |
+<section class="molcrafts-manual-section molcrafts-manual-section--stack" markdown>
 
-## Reference implementation
+<div class="molcrafts-manual-section__header" markdown>
 
-[molrs](https://github.com/MolCrafts/molrs) provides the reference L1 containers
-and the Zarr V3 binding for the record root (arrays + document attributes). The
-metrics JSONL buffer sits under that root ([Storage](spec/storage.md)).
-Consumers (molpy, molnex, molexp, …) adopt this contract; they must not invent a
-parallel store product name for the same layout.
+<span class="molcrafts-manual-eyebrow">Find your page</span>
+
+## Specification, then the binding
+
+</div>
+
+<nav class="molcrafts-manual-index" aria-label="Documentation entry points">
+  <a href="layout/">
+    <span>00</span>
+    <strong>Layout by example</strong>
+    <em>Annotated trees of real records, generated from the codecs: what lands on disk.</em>
+  </a>
+  <a href="spec/specification/">
+    <span>01</span>
+    <strong>Objective</strong>
+    <em>Scope, notation, and how a record is organised.</em>
+  </a>
+  <a href="spec/overview/">
+    <span>02</span>
+    <strong>Overview</strong>
+    <em>Sections, how they compose, and how to add your own content.</em>
+  </a>
+  <a href="spec/conventions/">
+    <span>03</span>
+    <strong>Conventions</strong>
+    <em>Standardized identifiers: <code>atoms</code>, <code>atomi</code>/<code>atomj</code>, split coordinates.</em>
+  </a>
+  <a href="spec/zarr/">
+    <span>04</span>
+    <strong>Why Zarr V3</strong>
+    <em>What Zarr V3 gives a record, and how a scientific path is branded <code>*.mrec/</code>.</em>
+  </a>
+  <a href="spec/storage/">
+    <span>05</span>
+    <strong>Root layout</strong>
+    <em>Groups, documents as attributes, host metrics vs a scientific package.</em>
+  </a>
+  <a href="spec/ragged/">
+    <span>06</span>
+    <strong>Ragged trajectory</strong>
+    <em>CSR layout, present / empty / absent blocks, pinned <code>sequence_schema</code>, growth example.</em>
+  </a>
+</nav>
+
+</section>
+
+</div>

@@ -9,28 +9,33 @@ What is here:
 * **Models** (``FrameModel``, ``BlockModel``, ...) -- pydantic models that
   *are* the specification. The JSON Schema published for other languages is
   generated from them.
-* **Stores and bindings** -- one per (module x backend) pair. Zarr is one
-  backend, not the backend; metrics land in JSONL, datasets in tables.
+* **Stores and bindings** -- one per (module x backend) pair: the Zarr V3
+  record root (frames, records, trajectories, observables) and LMDB
+  (collections, trajectories).
 * **Adapters** -- the only thing an implementation author writes. Two methods
-  per module, no assertions.
+  per module, no assertions; refusals are typed (:class:`Refusal`).
 * **Suites** -- the conformance harness and the benchmark harness, side by
   side, driven by the same adapter.
 
 Usage::
 
-    class MolrsFrameAdapter(molrec.FrameAdapter):
+    class MolrsRecordAdapter(molrec.RecordAdapter):
         backends = ("zarr",)
+        refusal_types = (ValueError,)  # what molrs refuses malformed input with
 
         def write(self, model, store):
-            molrs.write_frame(self._build(model), store.uri)
+            molrs.io.write_mrec(store.uri, self._build(model.frame), meta=...)
 
         def read(self, store):
-            return self._describe(molrs.read_frame(store.uri))
+            return {
+                "meta": molrs.io.read_mrec_meta(store.uri),
+                "frame": self._describe(molrs.io.read_mrec(store.uri)),
+            }
 
     class Molrs(molrec.Implementation):
         name    = "molrs"
         version = molrs.__version__
-        frame   = MolrsFrameAdapter()
+        record  = MolrsRecordAdapter()
 
     molrec.ConformanceSuite(Molrs()).run().report()
     molrec.BenchmarkSuite(Molrs()).run().report()
@@ -50,30 +55,54 @@ from molrec.case import Case
 from molrec.compare import diff
 from molrec.core import (
     BlockModel,
+    BlockState,
     BoxModel,
+    BoxUpdateModel,
+    CellModel,
+    CollectionAdapter,
+    CollectionMetaModel,
+    CollectionModel,
+    CollectionStore,
     ColumnModel,
+    ForceFieldAdapter,
+    ForceFieldModel,
+    ForceFieldStore,
     FrameAdapter,
     FrameModel,
     FrameStore,
     MetaModel,
+    MetaSeriesModel,
+    MethodModel,
     RecordAdapter,
     RecordModel,
     RecordStore,
+    SequenceBlockModel,
+    SequenceColumnModel,
+    SequenceSchemaModel,
+    StatusModel,
+    TrajectoryAdapter,
+    TrajectoryBoxModel,
+    TrajectoryModel,
+    TrajectoryStore,
 )
+from molrec.draft import observables as _draft_observables  # noqa: F401  (registers)
 from molrec.observables import (
-    Array,
+    ArrayModel,
     ObservableAdapter,
+    ObservableMetaModel,
     ObservableModel,
     ObservablesModel,
     ObservableStore,
-    Source,
 )
 from molrec.ref import Ref
+from molrec.refusal import Refusal
 from molrec.registry import REGISTRY
 from molrec.report import CaseResult, Report, Violation
 from molrec.store import Store
 from molrec.suite import ConformanceSuite, Suite
 
+#: The one place the package version is written; ``pyproject.toml`` reads it
+#: from here (``[tool.hatch.version]``).
 __version__ = "0.1.0"
 
 __all__ = [
@@ -84,30 +113,51 @@ __all__ = [
     "BenchmarkSuite",
     "Binding",
     "BlockModel",
+    "BlockState",
     "BoxModel",
+    "BoxUpdateModel",
+    "CellModel",
+    "CollectionAdapter",
+    "CollectionMetaModel",
+    "CollectionModel",
+    "CollectionStore",
     "Case",
     "CaseResult",
     "Codec",
     "ColumnModel",
     "ConformanceSuite",
+    "ForceFieldAdapter",
+    "ForceFieldModel",
+    "ForceFieldStore",
     "FrameAdapter",
     "FrameModel",
     "FrameStore",
     "Implementation",
     "MetaModel",
+    "MetaSeriesModel",
+    "MethodModel",
     "NDArray",
     "RecordAdapter",
     "RecordModel",
     "RecordStore",
     "Report",
+    "SequenceBlockModel",
+    "SequenceColumnModel",
+    "SequenceSchemaModel",
+    "StatusModel",
     "Store",
-    "Array",
+    "TrajectoryAdapter",
+    "TrajectoryBoxModel",
+    "TrajectoryModel",
+    "TrajectoryStore",
+    "ArrayModel",
     "ObservableAdapter",
+    "ObservableMetaModel",
     "ObservableModel",
     "ObservableStore",
     "ObservablesModel",
     "Ref",
-    "Source",
+    "Refusal",
     "Suite",
     "Timing",
     "Violation",

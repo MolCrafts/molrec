@@ -1,0 +1,17 @@
+{
+  "blocks": {},
+  "meta": {
+    "com": [
+      0.0,
+      0.5,
+      1.0
+    ],
+    "n": 3,
+    "title": "water"
+  },
+  "meta_types": {
+    "com": "f64x3",
+    "n": "i32",
+    "title": "string"
+  }
+}

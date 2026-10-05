@@ -5,15 +5,15 @@ it; it never manages the lifecycle, never builds a path, never cleans up.
 
 Two axes:
 
-* **module axis** -- ``FrameStore`` / ``TrajectoryStore`` / ``MetricsStore``
-  / ``DatasetStore``. Different modules have genuinely different access
-  semantics (an array tree is not an append-only stream), so each declares
-  its own abstract base.
+* **module axis** -- ``FrameStore`` / ``TrajectoryStore`` / ``RecordStore``
+  / ``CollectionStore`` / ``ObservableStore``. Different modules have
+  genuinely different access semantics (an array tree is not an append-only
+  stream), so each declares its own abstract base.
 
-* **backend axis** -- ``ZarrFrameStore`` / ``JsonlMetricsStore`` /
-  ``SqliteMetricsStore`` ... The handle is backend-specific and typed. A
-  database-backed store has no URI, so there is deliberately no universal
-  ``uri`` field to paper over the difference.
+* **backend axis** -- ``ZarrStore`` subclasses, ``LmdbCollectionStore``, the
+  draft's ``JsonlObservableStore``. The handle is backend-specific and typed,
+  so there is deliberately no universal handle on the base to paper over the
+  difference.
 """
 
 from __future__ import annotations

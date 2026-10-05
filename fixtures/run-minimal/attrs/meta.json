@@ -1,6 +1,5 @@
 {
-  "record_schema_version": 1,
-  "format_name": "molrec",
+  "molrec_version": 1,
   "creator": {
     "name": "molrec-fixtures",
     "version": "0.0.0"

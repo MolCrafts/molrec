@@ -1,167 +1,76 @@
-# Metrics
+# Metrics group
 
-## Purpose
+Run-local measurements (training curves, validation scores, performance
+counters) are stored in the `metrics` group. Published scientific series
+belong under [Observables](observables.md).
 
-`metrics` stores **run-local** measurements (training curves, validation
-scores, performance counters). It is part of the **run surface** (with
-[Status](status.md) and [Method](method.md)) — see [Run surface](run.md).
+## Events
 
-It is a recommended record section: a convention layered on the general model
-([Overview](overview.md)), not part of L0–L2.
+Each logical event has a type, a slash-separated series key, a wall-clock
+time, a value, and optionally a step and tags:
 
-**Not the same as observables.** Scientific results that are part of the
-interpreted chemistry/physics payload belong under [Observables](observables.md).
-Do not put training loss only under `observables` solely because it is numeric.
-Do not put published scientific series only under `metrics`.
+| Field | Type | Meaning |
+|-------|------|---------|
+| `type` | string | `scalar` for a number; a custom type names a module under `meta/modules` |
+| `key` | string | the series key, slash-separated (`train/loss`) |
+| `step` | integer, optional | the producer's iteration counter |
+| `wall_time` | string | when the event happened: [RFC 3339](https://www.rfc-editor.org/rfc/rfc3339) **with an explicit offset** (`2026-08-04T12:00:00Z`, `…+02:00`) |
+| `value` | number | for `scalar`, a finite JSON number |
+| `tags` | object, optional | free-form labels, preserved |
 
-## Logical model
+A series is the events of one `key`, in the order they were logged. Within a
+series, two events with the same `step` are one point: **the later one
+wins** (a resumed run that re-logs step 100 replaces the earlier value).
+Events without a `step` are never merged.
 
-`metrics` is a **dense series catalog** — named series of points, not a
-columnar L1 table and not a nested `records/<id>/` tree.
-
-Each **logical event** (for live append and interchange dialects) has:
-
-| Logical field | Required | Meaning |
-|---------------|----------|---------|
-| `type` | yes | Metric type (`scalar`, `histogram`, …) |
-| `key` | yes | Stable slash-separated series name |
-| `wall_time` | yes | ISO-8601 timestamp string |
-| `value` | yes | Payload; shape depends on `type` |
-| `step` | no | Finite number (training / sim step) |
-| `tags` | no | JSON object of free-form tags |
-
-Rules:
-
-- `key` MUST be a non-empty string.
-- `step`, if present, MUST be a finite number.
-- Live append is ordered: writers MUST NOT mutate or delete historical events
-  in the WAL.
-- The **closed source of truth** for curves is the **dense Zarr binding**
-  (per-series arrays), not the WAL.
-
-Foreign dialects (event JSONL, CSV, LAMMPS thermo, TensorBoard, …) are
-**equal sources**. Hosts normalize them into this model; they are not alternate
-SoTs.
-
-## Physical binding (reference)
-
-Full root rules: [Storage](storage.md).
-
-### Dense Zarr SoT (closed / densified)
-
-Under the record (or host run) root:
+## The closed form: dense series
 
 ```text
-metrics/
-  zarr/                    # Zarr V3 store (host layout) OR metrics/ group arrays
-    zarr.json
-    series/
-      <safe_name>/         # float64 values [n]
-      <safe_name>__steps/  # optional float64 [n]
-      <safe_name>__wall/   # optional float64 unix times [n]
+metrics
+ +-- (catalog document)                  the group's attributes
+ \-- series
+ |    \-- <safe_name>: f64[n]            one value per point
+ \-- (steps)
+ |    \-- (<safe_name>: i64[n])          the point's step, when the series has steps
+ \-- (wall_time)
+ |    \-- (<safe_name>: string[n])       the point's RFC 3339 time
+ \-- (metrics.jsonl)                     the live WAL, a plain file (not a Zarr node)
 ```
 
-Store root attributes (catalog):
+- `metrics/series/<safe_name>` holds one `f64` per point of the series, in
+  log order after the duplicate-step rule above. `steps/` and `wall_time/`
+  hold the matching per-point step (`i64`) and time (`string`), aligned
+  index for index; a series with no steps has no `steps/` array.
+- The array name is the series key's **safe name**: every byte of the UTF-8
+  key outside `[A-Za-z0-9._-]` becomes `%XX` with uppercase hex (`train/loss`
+  → `train%2Floss`). The encoding is total and reversible. Because a safe
+  name is one node name it must also not be one Zarr forbids: a key that is
+  `.` or `..`, or that would start with `__`, has its first byte escaped too
+  (`.` → `%2E`, `..` → `%2E.`, `__x` → `%5F_x`), and a reader decodes it back
+  the same way. The empty string is not a series key.
 
-| Attribute | Meaning |
-|-----------|---------|
-| `format_name` | `molmetrics` |
-| `binding` | `zarr-v3` |
-| `version` | integer schema of this catalog (starts at **1**) |
-| `series` | map of original key → `{type, count, array, steps_array?, wall_array?, …}` |
-| `series_count` | number of keys |
-| `point_count` | total scalar points |
+## The catalog
 
-Consumers that need the curve **MUST** read the dense Zarr arrays when the
-store exists.
-
-On a pure MolRec record root that *is* the Zarr V3 package, series arrays MAY
-live directly under the `metrics/` group (same catalog attrs on that group)
-instead of a nested `metrics/zarr/` store. Hosts that are not full Zarr roots
-(e.g. molexp Run directories) use the nested `metrics/zarr/` store.
-
-### Live WAL (append-only text)
-
-High-frequency append is a poor fit for per-step Zarr chunk realignment. Live
-writes use a plain UTF-8 **JSONL WAL** beside the dense store:
-
-```text
-metrics/metrics.jsonl
-```
-
-- One JSON object per line, terminated by `\n`
-- omit keys whose value would be JSON `null`
-- writers MUST NOT rewrite or delete historical lines
-- readers MUST skip blank lines; malformed lines SHOULD be counted and skipped
-- **not** the closed SoT: on flush / close, writers densify into Zarr
-
-Compact field names (WAL dialect only):
-
-| Logical field | Compact key |
-|---------------|-------------|
-| `type` | `t` |
-| `key` | `k` |
-| `step` | `s` |
-| `wall_time` | `w` |
-| `value` | `v` |
-| `tags` | `tags` |
-
-Example lines:
+The `metrics/` group attributes are the catalog document:
 
 ```json
-{"t":"scalar","k":"train/loss","s":1,"w":"2026-08-04T00:00:01+00:00","v":0.5}
-{"t":"scalar","k":"train/loss","s":2,"w":"2026-08-04T00:00:02+00:00","v":0.25}
+{
+  "wal": { "lines": 3, "bytes": 233 },
+  "series": {
+    "train/loss": { "type": "scalar", "count": 2, "latest_step": 2,
+                    "latest_timestamp": "2026-08-04T00:00:02+00:00" }
+  }
+}
 ```
 
-### Closed summary vs dense store vs WAL
+- `series` names every densified series: its `type`, its point `count`, and
+  the step and time of its last point (`null` when it has none).
+- `wal` is the **watermark**: the dense series hold exactly the first
+  `lines` complete lines (`bytes` bytes) of `metrics/metrics.jsonl`. Up to
+  the watermark the dense series are authoritative; WAL lines past it are
+  newer and a reader appends them, under the same duplicate-step rule. A
+  catalog without `wal` covers no WAL: the dense series are the whole
+  record.
+- Other keys are preserved.
 
-| Artifact | Authoritative for curves? | When |
-|----------|---------------------------|------|
-| `metrics/zarr/` (or `metrics/` series arrays) | **Yes** when present | After densify / close |
-| `metrics/metrics.jsonl` | Live only; fallback if no dense store | During a run; pre-flush |
-| Group attributes summary only | No — listing aid | Optional |
-
-There is **no** first-class `metrics/index.json` in the reference binding;
-hosts MAY keep a rebuildable listing cache.
-
-## Metric types
-
-| Type | Value contract |
-|------|----------------|
-| `scalar` | finite number |
-| `histogram` | object with numeric `bins` and numeric `counts` arrays |
-| `text` | string |
-| `image_ref` | object with `path` string and optional `caption` |
-| `json` | any JSON-compatible value |
-
-Scalar series densify to float64 arrays. Non-scalar types MAY remain WAL-only
-until a denser encoding is declared in `meta.modules`.
-
-## Key namespace
-
-Keys should be stable slash-separated names. Recommended namespaces (MolNex
-`TrainState` convention):
-
-| Prefix | Use |
-|--------|-----|
-| `train/*` | training metrics (`train/loss`) |
-| `eval/*` | validation (`eval/MAE`) |
-| `test/*` | held-out test |
-| `performance/*` | runtime counters (`performance/step_per_second`) |
-| `gpu/*` | device counters (`gpu/alloc_gib`) |
-
-Keys are case-sensitive. Writers should not use display labels as keys; put
-labels in tags or surrounding metadata.
-
-## Relationship to status
-
-| Section | Role |
-|---------|------|
-| `metrics` | values over time (many points) — dense Zarr + optional WAL |
-| `status` | current lifecycle / progress snapshot — **Zarr attributes** |
-
-## Rule
-
-> `metrics` is a dense series catalog (Zarr arrays) with an optional JSONL WAL
-> for live append; foreign logs are dialects, not alternate SoTs. It is not a
-> replacement for `observables`.
+The live WAL is specified in [Metrics WAL](metrics-wal.md).

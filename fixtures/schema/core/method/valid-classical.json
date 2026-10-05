@@ -1,0 +1,7 @@
+{
+  "description": "NVT",
+  "engine": {
+    "name": "molrs"
+  },
+  "type": "classical"
+}

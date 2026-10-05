@@ -1,0 +1,491 @@
+{
+  "$defs": {
+    "BlockModel": {
+      "additionalProperties": true,
+      "description": "Named columns sharing one count, plus an optional structural shape.\n\nA plain table has implicit shape ``[count]``. A volumetric block declares\n``structural_shape = (nx, ny, nz)`` with ``nx * ny * nz == count`` -- the\nonly thing that makes a flat column reshapable after a roundtrip.\n\nA block imposes no meaning on its column names beyond one: a\n:data:`canonical <CANONICAL_COLUMNS>` key has one dtype and shape wherever\nit appears.\n\n``targets`` declares the block's row references beyond the conventional\none (``atomi`` ... ``atoml`` into ``atoms``): column -> target, each\ncolumn ``u64``. Whether the values are in range is the container's to\ncheck (:class:`FrameModel`, :class:`TrajectoryModel`,\n:class:`RecordModel`), which knows the target's row count.",
+      "properties": {
+        "columns": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ColumnModel"
+          },
+          "title": "Columns",
+          "type": "object"
+        },
+        "count": {
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "structural_shape": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Structural Shape"
+        },
+        "targets": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "pattern": "^(?!/trajectory/)(/[^/]+/[^/]+|[^/]+)$",
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Targets"
+        }
+      },
+      "required": [
+        "count"
+      ],
+      "title": "BlockModel",
+      "type": "object"
+    },
+    "ColumnModel": {
+      "description": "A typed N-dimensional array, optionally nullable.\n\nThe leading axis length is the owning block's count; trailing axes are\nper-entity structure, so ``Float[count][3]`` is one column, not three.\n\n``validity`` is the column's mask: one flag per row, ``True`` where the\nrow holds a value and ``False`` where it holds none (the value stored\nunder a null row is carried as written and means nothing). ``None`` --\nno mask -- means every row is valid, and an all-``True`` mask *is* no\nmask: it is normalized to ``None``, so the two spellings of \"nothing is\nnull\" are one model.\n\n``precision`` is the column's declared precision (``f64`` only). Like\n``BoxModel`` materializing its defaults, a validated model holds the\n**stored** values -- rounded to the precision's binary grid\n(:func:`molrec.precision.quantize`) -- which is what a writer stores and\na reader hands back. A model built from a store (:data:`STORED`) keeps\nthe values exactly as stored.",
+      "if": {
+        "properties": {
+          "precision": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "precision"
+        ]
+      },
+      "properties": {
+        "dtype": {
+          "enum": [
+            "f64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "bool",
+            "string",
+            "c64",
+            "c128"
+          ],
+          "title": "Dtype",
+          "type": "string"
+        },
+        "precision": {
+          "anyOf": [
+            {
+              "maximum": 1.0715086071862673e+301,
+              "minimum": 9.332636185032189e-302,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Precision"
+        },
+        "shape": {
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1,
+          "title": "Shape",
+          "type": "array"
+        },
+        "validity": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validity"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Values"
+        }
+      },
+      "required": [
+        "dtype",
+        "shape"
+      ],
+      "then": {
+        "properties": {
+          "dtype": {
+            "const": "f64"
+          }
+        }
+      },
+      "title": "ColumnModel",
+      "type": "object"
+    },
+    "ForceFieldSourceModel": {
+      "additionalProperties": true,
+      "description": "``forcefield.source``: where the parameters came from.",
+      "properties": {
+        "format": {
+          "title": "Format",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "uri": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uri"
+        }
+      },
+      "required": [
+        "format"
+      ],
+      "title": "ForceFieldSourceModel",
+      "type": "object"
+    },
+    "ForceFieldUnitsModel": {
+      "additionalProperties": true,
+      "anyOf": [
+        {
+          "required": [
+            "preset"
+          ]
+        },
+        {
+          "required": [
+            "length"
+          ]
+        },
+        {
+          "required": [
+            "energy"
+          ]
+        },
+        {
+          "required": [
+            "angle"
+          ]
+        },
+        {
+          "required": [
+            "charge"
+          ]
+        },
+        {
+          "required": [
+            "mass"
+          ]
+        },
+        {
+          "required": [
+            "time"
+          ]
+        }
+      ],
+      "description": "``forcefield.units``: a preset, the unit of each quantity, or both.\n\nThe numbers of the section are in these units and a reader never\nconverts them. A quantity stated beside a preset is the preset's own\nunit (pint-equivalent).",
+      "properties": {
+        "angle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Angle"
+        },
+        "charge": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Charge"
+        },
+        "energy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Energy"
+        },
+        "length": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Length"
+        },
+        "mass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mass"
+        },
+        "preset": {
+          "anyOf": [
+            {
+              "enum": [
+                "real",
+                "metal",
+                "si",
+                "cgs",
+                "electron",
+                "micro",
+                "nano",
+                "lj"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preset"
+        },
+        "time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time"
+        }
+      },
+      "title": "ForceFieldUnitsModel",
+      "type": "object"
+    },
+    "SpecialBondsModel": {
+      "additionalProperties": false,
+      "description": "``forcefield.special_bonds``: the 1-2 / 1-3 / 1-4 weights of the\nvan-der-Waals (``lj``) and electrostatic (``coul``) pair styles.",
+      "properties": {
+        "coul": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Coul",
+          "type": "array"
+        },
+        "lj": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Lj",
+          "type": "array"
+        }
+      },
+      "required": [
+        "lj",
+        "coul"
+      ],
+      "title": "SpecialBondsModel",
+      "type": "object"
+    },
+    "StyleModel": {
+      "additionalProperties": true,
+      "description": "One entry of ``forcefield.styles``: a functional form and its table.\n\nThe table is the block :attr:`block` -- a function of ``(category,\nstyle)``, so the two can never disagree. ``params`` and ``endpoint_key``\nare written only when they say something (non-empty, not ``\"type\"``).",
+      "properties": {
+        "category": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Category",
+          "type": "string"
+        },
+        "endpoint_key": {
+          "default": "type",
+          "enum": [
+            "type",
+            "class",
+            "smirks"
+          ],
+          "title": "Endpoint Key",
+          "type": "string"
+        },
+        "expression": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expression"
+        },
+        "params": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Params",
+          "type": "object"
+        },
+        "style": {
+          "minLength": 1,
+          "title": "Style",
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "style"
+      ],
+      "title": "StyleModel",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "The ``forcefield`` section: the document and one table per style.\n\nEvery field but ``tables`` is the document -- the group's attribute map,\nunknown keys preserved (``extra=\"allow\"``). ``tables`` maps a block name to\nits style table; a table no style names is kept as unknown content.\nLinking a system's types to these rows is by name and is never refused\nhere (``docs/spec/forcefield.md``, linking a system).",
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ForceFieldSourceModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "special_bonds": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SpecialBondsModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "styles": {
+      "items": {
+        "$ref": "#/$defs/StyleModel"
+      },
+      "title": "Styles",
+      "type": "array"
+    },
+    "tables": {
+      "additionalProperties": {
+        "$ref": "#/$defs/BlockModel"
+      },
+      "title": "Tables",
+      "type": "object"
+    },
+    "units": {
+      "$ref": "#/$defs/ForceFieldUnitsModel"
+    }
+  },
+  "required": [
+    "name",
+    "units"
+  ],
+  "title": "ForceFieldModel",
+  "type": "object"
+}

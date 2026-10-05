@@ -1,187 +1,164 @@
 # Overview
 
-## Purpose
-
-MolRec is a **backend-neutral record contract** for the MolCrafts ecosystem.
-
-It defines:
-
-1. A minimal, fully general **data model** (containers with no privileged field names).
-2. A **Record** root — the unit of interchange across tools.
-3. Recommended **conventions** (domain section names and column names).
-4. A **reference storage binding** (one Zarr root + metrics JSONL buffer).
-
-It does **not** define a product class named `MolStore`, `SimStore`, or similar.
-Implementations may provide record I/O APIs; the specification names **layout and
-semantics**, not a store brand.
-
-The design rule for L1 containers is: **the model has no special fields.**
-Atoms, bonds, coordinates, charge density, and energy are conventional names
-for ordinary blocks and columns. This keeps the model tiny and lets it carry
-data its authors never anticipated.
-
-## Layers (L0–L4)
-
-| Layer | Name | Contents | Normativity |
-|-------|------|----------|-------------|
-| L0 | Vocabulary | dtypes, units, hard naming rules | Normative |
-| L1 | Containers | Column · Block · Frame · Box | Normative |
-| L2 | Record | Root sections, versioning, minimum shapes | Normative |
-| L3 | Conventions | `system`, `trajectory`, `status`, `metrics`, … | Recommended |
-| L4 | Backend binding | Zarr V3 root (arrays + document attrs) · metrics JSONL buffer | Reference only |
-
-Details of L4: [Storage](storage.md).
-
-## The model (L1)
-
-### Column
-
-A `Column` is a typed N-dimensional array. Its element type (`dtype`) is one of:
+The root of a MolRec package holds named **sections**. `meta` is always
+present (an empty document is a valid one). Every other section — `system`
+and `frame` included — is optional: take the ones that match the data,
+leave the rest off.
 
 ```text
-float      64-bit floating point
-int        signed integer
-uint       unsigned integer
-u8         8-bit unsigned integer
-bool       boolean
-string     UTF-8 string
+root
+ \-- meta
+ \-- (system)
+ \-- (frame)
+ \-- (trajectory)
+ \-- (forcefield)
+ \-- (observables)
+ \-- (method)
+ \-- (status)
+ \-- (metrics)
 ```
 
-The dtype set is closed; see [Types](types.md).
+A package includes `meta` and at least one of `frame`, `system`,
+`trajectory`, `forcefield`, or `status`. Inside a section, every group or array is again
+optional unless that section's chapter says otherwise.
 
-### Block
+Typical compositions:
 
-A `Block` is a set of named columns that share a common leading length, the
-block's **count**:
+| Composition | Sections | Typical use |
+|-------------|----------|-------------|
+| Structure | `meta`, `frame` | one conformation |
+| System def | `meta`, `system` | topology without coordinates |
+| Force field | `meta`, `forcefield` | a parameter set, distributed on its own |
+| Trajectory | `meta`, `trajectory` | MD time series (`system` optional) |
+| Run | `meta`, `status` | training job / workflow (`metrics` and/or `method` recommended) |
+
+## Section kinds
+
+A section is a named group at the root. Content falls into four kinds:
+
+**Document.** A JSON object stored as group attributes. Small, structured
+facts: identity, lifecycle, scientific context. `meta`, `status`, and
+`method` are documents.
+
+**Frame-shaped.** Named [blocks](frame.md) of columns, a `meta` document
+(the group's attributes), optional `box`. Instantaneous or definitional
+tables. `frame`, `system` and [`forcefield`](forcefield.md) are
+frame-shaped ([Frame-shaped group](storage.md#frame-shaped-group)).
+
+**Array.** Named arrays, each beside a metadata document. `observables` is
+an array section: one data array of any shape per name, with its `kind` and
+the rest of its metadata under `observables/meta/<name>`; see
+[Observables](observables.md).
+
+**Sequence.** An ordered series of frames with `step` and optional `time`.
+`trajectory` is the sequence section. Time-dependent data lives here; see
+[Trajectory](trajectory.md).
+
+Live `metrics` append as text and densify to arrays; that hybrid is
+specified with the [metrics](metrics.md) section.
+
+## Design principles
+
+**Peer sections.** Sections sit side by side at the root. A trajectory is a
+section, the same kind of thing as `frame` or `status`.
+
+**Compose what you have.** A training run is `meta` + `status` + `metrics`.
+A packed snapshot is `meta` + `frame`. An MD package is `meta` + `system` +
+`trajectory`. The unused names stay absent.
+
+**Unknown siblings stay.** A reader preserves sections and keys it does not
+recognise. That is how new content enters the ecosystem: add a sibling, and
+older tools carry it through.
+
+**Conventional names, new names.** If the data *is* atoms, bonds, a box, use
+the [standardized identifiers](conventions.md). If it is something else —
+a mesh, a k-point grid, a docking pose — pick a new section or block name
+and keep it. Reserved names keep their meaning.
+
+**Facts vs arrays.** Structured facts that fit in JSON belong on a document
+section (or a frame's meta document). N-dimensional values belong in
+columns. The parameters that *define* the energy model live in the
+[`forcefield`](forcefield.md) section; how a job was run lives under
+`method`.
+
+**Modules name extra rules.** A shared interpretation beyond this
+specification is declared under `meta/modules/<name>` with a major/minor
+version. Custom `method` types and custom metric types point there.
+
+## Adding your own content
+
+Four places, in increasing size of the addition:
+
+1. **Extra keys** on an existing document (`meta`, `status`, `method`).
+   Readers preserve them.
+2. **Extra columns or blocks** on `frame`, `system`, or `trajectory`. Same
+   containers; your names. Readers preserve them.
+3. **A new sibling section** at the root. Same four kinds: document,
+   frame-shaped, array, or sequence. Older tools ignore the name and keep
+   the group.
+4. **A module** under `meta/modules` when independent tools must agree on
+   what that extra content means.
+
+Worked sketches:
+
+- A volumetric density already fits: a block with structural shape
+  `[nx][ny][nz]` on `frame`, cell on `box`.
+- A docking score is an [observable](observables.md) (`kind` `scalar`,
+  `target` `/frame/atoms`) or a column on a new `poses` block.
+- A custom optimiser log is `metrics` (run-local curves) plus extra keys on
+  `method`.
+- A domain-specific tree (QM basis, crystal symmetry operations) is a new
+  root section; declare a module if a second package must parse it.
+
+## Metadata
+
+Identity of the package lives in `meta`. In the reference binding the
+contents are group attributes (one JSON object):
 
 ```text
-block
-+-- <name>: Column
-+-- <name>: Column
-\-- ...
+meta
+ +-- molrec_version: i64[]           (absent only on a pre-1 store)
+ +-- (creator)
+ |    +-- name: string[]
+ |    +-- (version: string[])
+ +-- (author)
+ |    +-- name: string[]
+ |    +-- (email: string[])
+ +-- (created_at: string[])            RFC 3339 with an explicit offset
+ +-- (source: string[])
+ \-- (modules)
+      \-- <module1>
+           +-- version: i64[2]
 ```
 
-Every column in a block has the same axis-0 length. A block may also carry an
-optional structural **shape** whose product equals the count — this lets one
-block describe an N-D object (e.g. a volumetric grid `[nx, ny, nz]`) with the same
-container as a flat table. When no shape is set, the block is a plain table of
-`count` rows.
+`molrec_version`
 
-### Frame
+The integer version of this contract the package was written against. It
+covers the whole package — layout, containers, dtypes, and the trajectory
+sequence declaration. The current version is `1`.
 
-A `Frame` is a snapshot: a set of named blocks, free-form metadata, and an
-optional box.
+- **Writers always emit it.** A writer stamps `molrec_version: 1` on every
+  record it writes (a producer that supplied its own valid value keeps it).
+- **Readers validate it only when present.** An absent key marks a store
+  written before version 1; a reader opens it best-effort and performs no
+  version check. A present key must be a JSON integer in
+  `1 ..= <newest the reader supports>`. `null`, `0`, a string, a float, a
+  boolean, or a newer version is refused — present means validated.
 
-```text
-frame
-+-- <block>: Block
-+-- <block>: Block
-+-- meta: key -> value
-\-- (box)
-```
+Identity of a record is the path brand `*.mrec/` / `*.mrec.zip` plus a Zarr
+root, not this key. A bump indicates a change to a normative rule. Additive
+content that older readers can carry through unrecognised needs no bump.
 
-A frame enforces no relationship between its blocks — it is a general container.
-The count of one block is independent of another's, and any block name is legal.
+`record_id`, `content_hash`
 
-### Box
+Optional provenance: a producer-chosen identifier and a content digest.
 
-`box` is an optional property of a frame: a triclinic simulation cell. It carries
-cell vectors (columns are lattice vectors), an origin, and per-axis periodic
-boundary flags. See [Frame](frame.md#box).
+`creator`, `author`, `created_at`, `source`
 
-### Trajectory
+Optional provenance. Producers may add any other keys; a reader preserves
+keys it does not recognise.
 
-A `trajectory` is an ordered sequence of frames, with optional `step` (integer)
-and `time` (float) index arrays aligned to the sequence. It is a plain carrier;
-the canonical entity remains the frame. See [Trajectory](trajectory.md).
+`modules`
 
-## Model vs conventions
-
-- **L0–L2** — this chapter, [Types](types.md), [Frame](frame.md), [Record](record.md)
-  — are normative.
-- **L3** — [Conventions](conventions.md), [System](system.md), [Run surface](run.md),
-  and the section chapters — are recommended so tools interoperate.
-- **L4** — [Storage](storage.md) — is the reference binding only.
-
-A conforming reader must traverse the model. Interpreting an unknown convention
-is optional, but unknown blocks and columns MUST be preserved.
-
-## Records (L2)
-
-A **Record** bundles optional companion sections under one root. See
-[Record](record.md) for the full section map and versioning.
-
-```text
-/
-+-- meta            required
-+-- (system)        system definition
-+-- (frame)         snapshot
-+-- (trajectory)    frame sequence
-+-- (observables)   scientific results
-+-- (method)        scientific / training context
-+-- (status)        execution lifecycle
-\-- (metrics)       append-only run measurements
-```
-
-No record-root `parameters/`. Parameters: `system/parameters` or `method`.
-
-### Minimum shapes
-
-| Shape | Required | Notes |
-|-------|----------|-------|
-| Structure | `meta` + `frame` | Single snapshot |
-| System def | `meta` + `system` | Definition without coordinates |
-| Trajectory | `meta` + `trajectory` | `system` optional; with system prefer coords/state-only updates |
-| **Run** | `meta` + `status` (+ `metrics` and/or `method`) | **No `frame` required** |
-| Full | combinations | Experiment package |
-
-A record MUST include `meta` and **at least one of** `frame`, `system`, or
-`status`.
-
-`system` vs `frame`: definition vs instantaneous state — see [System](system.md).
-Training / job logs: see [Run surface](run.md).
-
-## Backend binding (L4)
-
-The specification does not mandate a storage engine. The **reference** binding
-is documented in [Storage](storage.md):
-
-| Content | Reference form |
-|---------|----------------|
-| Openable package | **One Zarr V3 root** |
-| Dense L1 tables (`frame`, `system`, `trajectory`, large observables) | Zarr array groups (molrs) |
-| Documents (`meta`, `status`, `method`) | **Zarr group attributes** (not sibling `.json` files) |
-| Closed metrics | **Dense Zarr series** under `metrics/` (catalog attrs + arrays) |
-| Live metrics WAL | **Append-only JSONL** `metrics/metrics.jsonl` (densify on flush) |
-
-Contract rules that travel with L4:
-
-- No product API name `MolStore` / `SimStore`.
-- Cell name is **`Box` / `box` only**.
-- Sole schema version key: **`record_schema_version`** (starts at 1).
-- Reference I/O lands in **molrs first**; consumers re-export — never a second
-  layout brand.
-- **No backward-compatible dual reads** of retired keys; migrate offline.
-
-## Normative invariants
-
-The following invariants define the current MolRec contract
-(`record_schema_version = 1`):
-
-1. L1 has exactly three containers — Column, Block, Frame — with no privileged
-   field names.
-2. A Column's dtype is one of `float`, `int`, `uint`, `u8`, `bool`, `string`.
-3. All columns in a Block share the same count (axis-0 length).
-4. A Block's optional structural shape has product equal to its count.
-5. A Frame is a general map of names to Blocks; it enforces no cross-block
-   relationship.
-6. `box`, when present, is a triclinic cell whose `vectors` columns are lattice
-   vectors.
-7. A trajectory is an ordered list of frames with optional aligned `step`/`time`
-   arrays.
-8. A reader must preserve blocks, columns, and record sections it does not
-   recognize.
-9. A Record requires `meta` and at least one of `frame`, `system`, or `status`.
-10. Instantaneous Cartesian coordinates are not required content of `system/`.
-11. Live metrics use the JSONL text buffer when present; Zarr metrics attributes
-    are summary-only.
+Each module is a subgroup keyed by name, holding a major/minor `version`
+pair and any module-specific information.

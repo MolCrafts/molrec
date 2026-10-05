@@ -1,25 +1,10 @@
 {
   "$defs": {
-    "Array": {
-      "description": "A named-dimension array: the one building block observables are made of.",
+    "ArrayModel": {
+      "description": "One typed array of any shape, a 0-d one included.",
       "properties": {
-        "data": {
-          "items": {},
-          "title": "Data",
-          "type": "array"
-        },
-        "dims": {
-          "default": [],
-          "items": {
-            "type": "string"
-          },
-          "title": "Dims",
-          "type": "array"
-        },
         "dtype": {
           "enum": [
-            "f16",
-            "f32",
             "f64",
             "i8",
             "i16",
@@ -45,6 +30,94 @@
           "title": "Shape",
           "type": "array"
         },
+        "values": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Values"
+        }
+      },
+      "required": [
+        "dtype"
+      ],
+      "title": "ArrayModel",
+      "type": "object"
+    },
+    "ObservableMetaModel": {
+      "additionalProperties": true,
+      "description": "The ``observables/meta/<name>`` document.\n\n``kind``, ``description`` and ``time_dependent`` are required; the rest\nare written only when set. Every other key is a producer's and is kept\nverbatim (``extra=\"allow\"``).",
+      "properties": {
+        "axes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Axes"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "sampling": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sampling"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "time_dependent": {
+          "title": "Time Dependent",
+          "type": "boolean"
+        },
         "unit": {
           "anyOf": [
             {
@@ -59,152 +132,33 @@
         }
       },
       "required": [
-        "dtype",
-        "data"
+        "kind",
+        "description",
+        "time_dependent"
       ],
-      "title": "Array",
+      "title": "ObservableMetaModel",
       "type": "object"
     },
     "ObservableModel": {
-      "additionalProperties": true,
-      "description": "One quantity and where it came from.\n\nIt carries no coordinates of its own. Its domain is named by\n``values.dims``, and the arrays for those dimensions live once at the\nsection level -- which is what keeps a hundred curves sharing one ``step``\nfrom storing a hundred identical copies of it.",
+      "description": "One named result: its metadata document and its data array -- the two\nhalves the layout stores side by side.",
       "properties": {
-        "description": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Description"
+        "data": {
+          "$ref": "#/$defs/ArrayModel"
         },
-        "payload": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Payload"
-        },
-        "source": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Source"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "values": {
-          "$ref": "#/$defs/Array"
+        "meta": {
+          "$ref": "#/$defs/ObservableMetaModel"
         }
       },
       "required": [
-        "values"
+        "meta",
+        "data"
       ],
       "title": "ObservableModel",
       "type": "object"
-    },
-    "Ref": {
-      "additionalProperties": true,
-      "description": "A resolvable pointer.\n\n``select`` narrows the target: ``{\"frame\": 12}`` for one frame of a\ntrajectory, ``{\"rows\": [0, 5]}`` for part of a block. Its keys are the\ntarget kind's business, not this type's.",
-      "properties": {
-        "hash": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Hash"
-        },
-        "kind": {
-          "anyOf": [
-            {
-              "enum": [
-                "record",
-                "section",
-                "frame",
-                "block",
-                "observable",
-                "sample"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Kind"
-        },
-        "select": {
-          "additionalProperties": true,
-          "title": "Select",
-          "type": "object"
-        },
-        "uri": {
-          "minLength": 1,
-          "title": "Uri",
-          "type": "string"
-        }
-      },
-      "required": [
-        "uri"
-      ],
-      "title": "Ref",
-      "type": "object"
-    },
-    "Source": {
-      "additionalProperties": true,
-      "description": "Where an observable came from.\n\nDerivedness is not a property of a number -- it is a property of its\nhistory, and it is recursive with no fixed point. So it is recorded as\nprovenance rather than used to classify anything.",
-      "properties": {
-        "method_ref": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Ref"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "refs": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/Ref"
-          },
-          "title": "Refs",
-          "type": "array"
-        }
-      },
-      "title": "Source",
-      "type": "object"
     }
   },
-  "additionalProperties": true,
-  "description": "The section: shared coordinates plus the quantities over them.\n\nThis is xarray's ``Dataset`` -- shared dimensions, shared coordinates, and\nmany variables defined over them -- and it is shaped that way for a\nmeasured reason. With coordinates held per-observable, a hundred curves\non one ``step`` axis stored a hundred identical copies: half the bytes on\ndisk and four times the write cost, for information that was the same\nevery time.\n\nDifferent cadences need no grouping concept. They are simply different\ndimensions: a training curve over ``point`` and an evaluation curve over\n``eval_point`` coexist because the dimension name *is* the grouping.\n\n``dims`` is derived, never stored. A dimension table beside the arrays\nwould be the same fact written twice, and two copies of a fact can\ndisagree.",
+  "description": "The section: every named observable of the record.",
   "properties": {
-    "coordinates": {
-      "additionalProperties": {
-        "$ref": "#/$defs/Array"
-      },
-      "title": "Coordinates",
-      "type": "object"
-    },
     "observables": {
       "additionalProperties": {
         "$ref": "#/$defs/ObservableModel"

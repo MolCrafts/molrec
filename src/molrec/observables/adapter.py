@@ -1,4 +1,4 @@
-"""Adapter base for the observables module."""
+"""Adapter base for the v1 observables module."""
 
 from __future__ import annotations
 
@@ -6,15 +6,15 @@ from abc import abstractmethod
 from typing import Any, ClassVar
 
 from molrec.adapter import Adapter
-from molrec.observables.model import ObservablesModel
+from molrec.core.model import ObservablesModel
 from molrec.observables.store import ObservableStore
 
 
 class ObservableAdapter(Adapter):
-    """Implement this to have your observables judged.
+    """Implement this to have your v1 ``observables`` section judged.
 
-    Declare every backend you support; the suite runs the module once per
-    backend and scopes out the cases that backend cannot honestly carry.
+    The store is a record root holding ``meta`` and ``observables``; ``read``
+    hands back something shaped like :class:`ObservablesModel`.
     """
 
     module: ClassVar[str] = "observables"
