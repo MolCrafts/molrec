@@ -2,7 +2,7 @@
   "$defs": {
     "BlockModel": {
       "additionalProperties": true,
-      "description": "Named columns sharing one count, plus an optional structural shape.\n\nA plain table has implicit shape ``[count]``. A volumetric block declares\n``structural_shape = (nx, ny, nz)`` with ``nx * ny * nz == count`` -- the\nonly thing that makes a flat column reshapable after a roundtrip.\n\nA block imposes no meaning on its column names beyond one: a\n:data:`canonical <CANONICAL_COLUMNS>` key has one dtype and shape wherever\nit appears.\n\n``targets`` declares the block's row references beyond the conventional\none (``atomi`` ... ``atoml`` into ``atoms``): column -> target, each\ncolumn ``u64``. Whether the values are in range is the container's to\ncheck (:class:`FrameModel`, :class:`TrajectoryModel`,\n:class:`RecordModel`), which knows the target's row count.",
+      "description": "Named columns sharing one count, plus an optional structural shape.\n\nA plain table has implicit shape ``[count]``. A volumetric block declares\n``structural_shape = (nx, ny, nz)`` with ``nx * ny * nz == count`` -- the\nonly thing that makes a flat column reshapable after a roundtrip.\n\nA block imposes no meaning on its column names beyond one: a\n:data:`canonical <CANONICAL_COLUMNS>` key has one dtype and shape wherever\nit appears.\n\n``targets`` declares the block's row references beyond the conventional\none (``atomi`` ... ``atomm`` into ``atoms``): column -> target, each\ncolumn ``u64``. Whether the values are in range is the container's to\ncheck (:class:`FrameModel`, :class:`TrajectoryModel`,\n:class:`RecordModel`), which knows the target's row count.",
       "properties": {
         "columns": {
           "additionalProperties": {

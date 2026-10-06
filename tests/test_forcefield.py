@@ -9,11 +9,20 @@ import zarr
 from pydantic import ValidationError
 
 from molrec.core.bindings.zarr import ZarrForceFieldCodec, ZarrForceFieldStore
-from molrec.core.ffsuite import atoms, forcefield, round_trip_forcefield, style, table
+from molrec.core.ffsuite import (
+    atoms,
+    cmap,
+    cmap_grid,
+    forcefield,
+    round_trip_forcefield,
+    style,
+    table,
+)
 from molrec.core.model import (
     CollectionMetaModel,
     CollectionModel,
     ColumnModel,
+    ForceFieldModel,
     ForceFieldUnitsModel,
     MetaModel,
     RecordModel,
@@ -160,3 +169,118 @@ class TestPairRows:
                 )
             ]
         )
+
+
+def _grid_column(values: np.ndarray, **fields) -> ColumnModel:
+    array = np.asarray(values)
+    dtype = "string" if array.dtype.kind == "U" else "f64"
+    return ColumnModel(dtype=dtype, shape=array.shape, values=array, **fields)
+
+
+def _with_grid(grid: ColumnModel) -> ForceFieldModel:
+    """A force field of one ``cmap`` table whose ``grid`` column is ``grid``."""
+    cmap_style, rows = cmap(np.zeros((grid.count, 2, 2)))
+    rows = rows.model_copy(update={"columns": {**rows.columns, "grid": grid}})
+    return forcefield([(cmap_style, rows)])
+
+
+class TestCmapGrid:
+    """The trailing-axis exception: a ``cmap`` table's grid is ``f64[T, N, N]``."""
+
+    @pytest.mark.parametrize("n", [2, 24])
+    def test_a_square_grid_of_any_size_from_two(self, n: int) -> None:
+        _with_grid(_grid_column(np.stack([cmap_grid(n, 0.1), cmap_grid(n, 0.2)])))
+
+    @pytest.mark.parametrize(
+        ("values", "why"),
+        [
+            (np.zeros((2, 3, 4)), "not square"),
+            (np.zeros((2, 1, 1)), "N < 2"),
+            (np.zeros((2, 4)), "one trailing axis"),
+            (np.zeros(2), "no trailing axes"),
+            (np.zeros((2, 2, 2, 2)), "three trailing axes"),
+            (np.array(["24x24", "24x24"]), "a string"),
+        ],
+    )
+    def test_a_malformed_grid_is_refused(self, values: np.ndarray, why: str) -> None:
+        with pytest.raises(ValidationError, match="the cmap grid is f64"):
+            _with_grid(_grid_column(values))
+
+    def test_a_grid_declares_no_precision(self) -> None:
+        with pytest.raises(ValidationError, match="with a declared precision"):
+            _with_grid(_grid_column(np.zeros((2, 2, 2)), precision=0.5))
+
+    def test_a_non_null_row_is_finite_and_a_null_one_is_not_read(self) -> None:
+        values = np.zeros((2, 2, 2))
+        values[1, 0, 1] = np.inf
+        with pytest.raises(ValidationError, match="row 1 holds a non-finite value"):
+            _with_grid(_grid_column(values))
+        _with_grid(_grid_column(values, validity=np.array([True, False])))
+
+    def test_no_other_column_has_trailing_axes(self) -> None:
+        grid = _grid_column(np.zeros((2, 2, 2)))
+        for category in ("bond", "cross_term"):
+            rows = table(["a", "b"], itom=["C", "N"], jtom=["N", "C"], grid=grid)
+            with pytest.raises(ValidationError, match="parameter 'grid'"):
+                forcefield([(style(category, "example"), rows)])
+        cmap_style, rows = cmap(np.zeros((2, 2, 2)))
+        rows = rows.model_copy(update={"columns": {**rows.columns, "other": grid}})
+        with pytest.raises(ValidationError, match="parameter 'other'"):
+            forcefield([(cmap_style, rows)])
+
+    def test_a_cmap_row_names_five_endpoints(self) -> None:
+        cmap_style, rows = cmap(np.zeros((1, 2, 2)))
+        rows = rows.model_copy(
+            update={"columns": {k: v for k, v in rows.columns.items() if k != "mtom"}}
+        )
+        with pytest.raises(ValidationError, match="a cmap row names endpoints"):
+            forcefield([(cmap_style, rows)])
+
+    def test_an_unknown_category_may_name_mtom_as_its_fifth_endpoint(self) -> None:
+        ends = {column: ["C"] for column in ("itom", "jtom", "ktom", "ltom", "mtom")}
+        forcefield([(style("cross_term", "example"), table(["c"], **ends))])
+        del ends["ltom"]
+        with pytest.raises(ValidationError, match="no prefix of itom..mtom"):
+            forcefield([(style("cross_term", "example"), table(["c"], **ends))])
+
+    def test_the_grid_round_trips_through_zarr_bit_for_bit(self, tmp_path) -> None:
+        grids = np.stack([cmap_grid(24, 0.1), cmap_grid(24, -0.35)])
+        model = forcefield([cmap(grids)])
+        store = ZarrForceFieldStore(tmp_path / "cmap.mrec")
+        ZarrForceFieldCodec().write(model, store)
+        array = zarr.open_group(store=store.path, mode="r")["forcefield/cmap.charmm/grid"]
+        assert array.shape == (2, 24, 24)
+        back = ZarrForceFieldCodec().read(store)
+        assert back == model
+        assert back.tables["cmap.charmm"].columns["grid"].values.tobytes() == grids.tobytes()
+
+
+def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:
+    """A cmap table molrec's codec writes is a ``molrs.ff.CmapType`` per row,
+    its ``grid`` a float64 numpy array equal bit for bit."""
+    if not hasattr(molrs.ff, "CmapStyle"):
+        pytest.skip("molrs lacks molrs.ff.CmapStyle (the cmap category)")
+    grids = np.stack([cmap_grid(24, 0.1), cmap_grid(24, -0.35)])
+    model = forcefield([atoms(["C", "NH1", "CT1"], mass=[12.011, 14.007, 12.011]), cmap(grids)])
+    store = ZarrForceFieldStore(tmp_path / "cmap.mrec")
+    ZarrForceFieldCodec().write(model, store)
+
+    ff = molrs.ff.ForceField.from_section(molrs.io.read_mrec_forcefield(store.path))
+    style_ = ff.get_style("cmap", "charmm")
+    assert isinstance(style_, molrs.ff.CmapStyle)
+    types = sorted(style_.types, key=lambda t: t.name)
+    assert [t.name for t in types] == ["cmap0", "cmap1"]
+    for row, cmap_type in enumerate(types):
+        assert isinstance(cmap_type, molrs.ff.CmapType)
+        ends = [t.name for t in cmap_type.endpoints]
+        expected = model.tables["cmap.charmm"].columns
+        assert ends == [
+            str(expected[c].values[row]) for c in ("itom", "jtom", "ktom", "ltom", "mtom")
+        ]
+        grid = cmap_type["grid"]
+        assert isinstance(grid, np.ndarray) and grid.dtype == np.float64
+        assert grid.tobytes() == grids[row].tobytes()
+
+    # And back: molrs's section of the force field holds the same table.
+    table_ = ff.to_section().table("cmap", "charmm")
+    assert np.asarray(table_["grid"]).tobytes() == grids.tobytes()

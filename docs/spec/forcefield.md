@@ -29,9 +29,10 @@ forcefield
  +-- styles: [{category, style, (params), (expression), (endpoint_key)}, ...]
  \-- <category>.<style>             one block per entry of styles
       \-- name: string[T]
-      \-- (itom | jtom | ktom | ltom: string[T])
+      \-- (itom | jtom | ktom | ltom | mtom: string[T])
       \-- (<annotation>: string[T])
       \-- (<param>: f64[T] | string[T])
+      \-- (grid: f64[T, N, N])          a cmap table only
       \-- (_validity)
 ```
 
@@ -161,7 +162,7 @@ Required, `string`, never null, unique within the table. The label a system
 row names ([Linking a system](#linking-a-system)). Any UTF-8 string; it is
 never parsed into endpoints.
 
-`itom`, `jtom`, `ktom`, `ltom`
+`itom`, `jtom`, `ktom`, `ltom`, `mtom`
 
 The endpoints, `string`, never null: the first *arity* of them, in this
 order, and no others ([Categories](#categories)). A pair row always carries
@@ -191,9 +192,26 @@ that is not a canonical key (a periodicity) is an `f64`. A parameter a row
 does not have is null in that row ([nullable columns](frame.md#nullable-columns)),
 never a sentinel such as `0` or `NaN`. A column declares no
 [precision](frame.md#declared-precision): parameters are stored exactly.
+Every column of a table is one value per row (`[T]`, no trailing axes), with
+one exception, `grid` on a `cmap` table (below); a style-level parameter is
+always a scalar.
 
 An atom table additionally recognises `mass` (`f64`, `units.mass`), `charge`
 (`f64`, `units.charge`) and `atomic_number` (`u64`).
+
+`grid`
+
+On a `cmap` table only: the row's correction table, `f64[T, N, N]` — one
+`N × N` grid of energies (`units.energy`) per row, `N ≥ 2`, one `N` for every
+row of the table. The first trailing axis is φ, the dihedral
+`itom`–`jtom`–`ktom`–`ltom`; the second is ψ, the dihedral
+`jtom`–`ktom`–`ltom`–`mtom`; `grid[a][b]` is the correction at
+φ = −π + 2πa/N, ψ = −π + 2πb/N. It declares no precision, and every value of
+a row that is not null is finite. A reader **MUST** refuse a `cmap` grid of
+another dtype or shape (one trailing axis, a non-square `N × M`, `N < 2`), a
+non-finite value in a non-null row, and a column with trailing axes anywhere
+else: another column of a `cmap` table, a `grid` of another category, any
+column of an unknown category.
 
 ### Endpoints
 
@@ -230,11 +248,12 @@ needs none of this.
 | `constraint` | 2 | a constrained distance type | `constraints` |
 | `virtual_site` | 0 | a virtual-site construction | `virtual_sites` |
 | `drude` | 2 | a core–Drude pair type (`itom` core, `jtom` Drude) | `drudes` |
+| `cmap` | 5 | a CMAP cross-term type over the two consecutive dihedrals `itom`…`ltom` and `jtom`…`mtom` (CHARMM φ/ψ); its `grid` is the correction | `cmaps` |
 
 The system blocks are [standardized identifiers](conventions.md). A category
 outside this table is legal and preserved; its arity is the number of
 endpoint columns its table carries, which **MUST** be a prefix of `itom`,
-`jtom`, `ktom`, `ltom`.
+`jtom`, `ktom`, `ltom`, `mtom`.
 
 A `pair14` row replaces, for a 1-4 pair of its two types, the parameters the
 same-named `pair` style would give it, and that pair's `special_bonds` 1-4
@@ -495,8 +514,10 @@ The force-field suite (`module = "forcefield"`) pins down:
   `style`;
 - `ff-per-instance-style`: a style with no rows beside relation columns that
   carry its parameters;
-- `ff-unknown-style-with-expression` and `ff-unknown-category`: preserved
-  verbatim;
+- `ff-unknown-style-with-expression` and `ff-unknown-category` (a
+  `cross_term.example` table): preserved verbatim;
+- `ff-cmap-grid`: a `cmap` table's five endpoints and its `f64[T, N, N]`
+  `grid` come back bit for bit;
 - `ff-units-preserved`: `nm` / `kJ/mol` numbers come back unconverted;
 - `ff-lj-preset`: `preset lj` with no quantity strings;
 - `ff-smirks-keyed`: a `smirks`-keyed table with no endpoint columns;
@@ -508,8 +529,12 @@ The force-field suite (`module = "forcefield"`) pins down:
   `reject-ff-duplicate-type-name`, `reject-ff-wrong-arity`,
   `reject-ff-param-dtype`, `reject-ff-null-name`,
   `reject-ff-class-key-without-class`, `reject-ff-pair-conflict` (`B`–`A`
-  restating `A`–`B` with another `epsilon`).
+  restating `A`–`B` with another `epsilon`), `reject-ff-cmap-grid-shape` (a
+  non-square `f64[T, 3, 4]` grid), `reject-ff-cmap-grid-nonfinite` (a `NaN`
+  in a non-null row), `reject-ff-grid-outside-cmap` (a `grid` with trailing
+  axes on a bond table).
 
 The record suite adds `record-with-forcefield` (a `system` whose `atoms.type`
 and `bonds.type` link into it) and `forcefield-only-record`; the collection
-suite adds `collection-forcefield`.
+suite adds `collection-forcefield` and `collection-cmap` (a `cmap` grid under
+the LMDB key `ff`, linked from `cmaps` rows).
