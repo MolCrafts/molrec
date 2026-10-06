@@ -15,6 +15,7 @@ import numpy as np
 
 from molrec.case import Case
 from molrec.core.model import (
+    ENDPOINT_COLUMNS,
     BlockModel,
     ColumnModel,
     ForceFieldModel,
@@ -44,6 +45,30 @@ def _floats(values: list[float], validity: list[bool] | None = None) -> ColumnMo
         values=np.array(values, dtype="float64"),
         validity=None if validity is None else np.array(validity),
     )
+
+
+def _grids(values: np.ndarray) -> ColumnModel:
+    """An ``f64[T, ...]`` column: one array per row."""
+    array = np.asarray(values, dtype="float64")
+    return ColumnModel(dtype="f64", shape=array.shape, values=array)
+
+
+def cmap_grid(n: int, scale: float) -> np.ndarray:
+    """An ``n x n`` correction grid whose values are no short decimals."""
+    return scale * np.arange(n * n, dtype="float64").reshape(n, n) / 3.0 - 0.7
+
+
+def cmap(grids: np.ndarray) -> tuple[StyleModel, BlockModel]:
+    """A ``cmap charmm`` style of one row per grid, ``cmap0``, ``cmap1``, ...:
+    row ``r`` names the backbone types C-NH1-CT1-C-NH1-C from position ``r``."""
+    backbone = ["C", "NH1", "CT1"] * 3
+    count = len(grids)
+    endpoints = {
+        column: [backbone[row + i] for row in range(count)]
+        for i, column in enumerate(ENDPOINT_COLUMNS)
+    }
+    names = [f"cmap{row}" for row in range(count)]
+    return style("cmap", "charmm"), table(names, **endpoints, grid=_grids(grids))
 
 
 def table(names: list[str], **columns: ColumnModel | list[Any]) -> BlockModel:
@@ -344,16 +369,28 @@ class ForceFieldSuite(Suite):
             model=forcefield(
                 [
                     (
-                        style("cmap", "charmm"),
+                        style("cross_term", "example"),
                         table(
-                            ["C-N-CA-C-N"],
+                            ["C-N-CA-C"],
                             itom=["C"],
                             jtom=["NH1"],
                             ktom=["CT1"],
                             ltom=["C"],
-                            grid=["24x24:0.1,0.2"],
+                            coefficients=["0.1,0.2"],
                         ),
                     )
+                ]
+            ),
+        )
+
+        yield Case(
+            id="ff-cmap-grid",
+            exercises="a cmap table names five endpoints, itom..mtom, and its f64[T, N, N] grid "
+            "comes back bit for bit",
+            model=forcefield(
+                [
+                    atoms(["C", "NH1", "CT1"], mass=[12.011, 14.007, 12.011]),
+                    cmap(np.stack([cmap_grid(24, 0.1), cmap_grid(24, -0.35)])),
                 ]
             ),
         )
@@ -450,6 +487,18 @@ class ForceFieldSuite(Suite):
             }
 
         lj = style("pair", "lj/cut")
+        cmap_style, cmap_table = cmap(np.zeros((1, 2, 2)))
+
+        def _cmap_rows(grids: np.ndarray) -> BlockModel:
+            return BlockModel.model_construct(
+                count=cmap_table.count,
+                columns={**cmap_table.columns, "grid": _grids(grids)},
+                structural_shape=None,
+                targets=None,
+            )
+
+        nonfinite = cmap_grid(2, 1.0)[None].copy()
+        nonfinite[0, 1, 0] = np.nan
         refusals: list[tuple[str, str, ForceFieldModel]] = [
             (
                 "reject-ff-no-units",
@@ -544,9 +593,44 @@ class ForceFieldSuite(Suite):
                     },
                 ),
             ),
+            (
+                "reject-ff-cmap-grid-shape",
+                "a cmap grid is f64[T, N, N]: a non-square f64[T, 3, 4] grid is refused",
+                _unvalidated(
+                    base,
+                    styles=[*base.styles, cmap_style],
+                    tables={**base.tables, cmap_style.block: _cmap_rows(np.zeros((1, 3, 4)))},
+                ),
+            ),
+            (
+                "reject-ff-cmap-grid-nonfinite",
+                "every value of a non-null cmap grid row is finite: a NaN is refused",
+                _unvalidated(
+                    base,
+                    styles=[*base.styles, cmap_style],
+                    tables={**base.tables, cmap_style.block: _cmap_rows(nonfinite)},
+                ),
+            ),
+            (
+                "reject-ff-grid-outside-cmap",
+                "only a cmap table's grid has trailing axes: a bond table's f64[T, 2, 2] grid "
+                "is refused",
+                _unvalidated(
+                    base,
+                    tables=broken_table(**bonds.columns, grid=_grids(np.zeros((1, 2, 2)))),
+                ),
+            ),
         ]
         for case_id, why, model in refusals:
             yield Case(id=case_id, exercises=why, expect_violation="bad_forcefield", model=model)
 
 
-__all__ = ["ForceFieldSuite", "forcefield", "round_trip_forcefield", "style", "table"]
+__all__ = [
+    "ForceFieldSuite",
+    "cmap",
+    "cmap_grid",
+    "forcefield",
+    "round_trip_forcefield",
+    "style",
+    "table",
+]

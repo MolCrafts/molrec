@@ -119,6 +119,11 @@ _PENDING: tuple[tuple[str, bool, dict[str, tuple[str, ...]]], ...] = (
         {"forcefield": ("reject-ff-pair-conflict",)},
     ),
     (
+        "molrs.ff.CmapStyle (the cmap category and its f64[T, N, N] grid)",
+        hasattr(molrs.ff, "CmapStyle"),
+        {"forcefield": ("ff-cmap-grid",)},
+    ),
+    (
         "molrs.io.mrec.SequenceSchema.declare_aligned (aligned blocks, molrec F5)",
         hasattr(_MREC.SequenceSchema, "declare_aligned"),
         {

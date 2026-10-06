@@ -474,6 +474,7 @@ CANONICAL_U64: frozenset[str] = frozenset(
         "atomj",
         "atomk",
         "atoml",
+        "atomm",
         "ibead",
         "bond_type",
         "bond_number",
@@ -500,7 +501,7 @@ CANONICAL_COLUMNS: dict[str, DType] = {
 
 #: The relation endpoint columns, and the block they reference unless the
 #: block's ``targets`` says otherwise (``docs/spec/frame.md``, row references).
-ENDPOINTS: tuple[str, ...] = ("atomi", "atomj", "atomk", "atoml")
+ENDPOINTS: tuple[str, ...] = ("atomi", "atomj", "atomk", "atoml", "atomm")
 DEFAULT_TARGET = "atoms"
 
 #: The section a row reference may never point into: a trajectory block's row
@@ -589,7 +590,7 @@ class BlockModel(BaseModel):
     it appears.
 
     ``targets`` declares the block's row references beyond the conventional
-    one (``atomi`` ... ``atoml`` into ``atoms``): column -> target, each
+    one (``atomi`` ... ``atomm`` into ``atoms``): column -> target, each
     column ``u64``. Whether the values are in range is the container's to
     check (:class:`FrameModel`, :class:`TrajectoryModel`,
     :class:`RecordModel`), which knows the target's row count.
@@ -1864,7 +1865,7 @@ class NodeModel(BaseModel):
 # ---------------------------------------------------------------------------
 
 #: Endpoint columns of a style table, in position order.
-ENDPOINT_COLUMNS: tuple[str, ...] = ("itom", "jtom", "ktom", "ltom")
+ENDPOINT_COLUMNS: tuple[str, ...] = ("itom", "jtom", "ktom", "ltom", "mtom")
 
 #: Arity of each known category (``docs/spec/forcefield.md``, categories).
 CATEGORY_ARITY: dict[str, int] = {
@@ -1878,7 +1879,12 @@ CATEGORY_ARITY: dict[str, int] = {
     "constraint": 2,
     "virtual_site": 0,
     "drude": 2,
+    "cmap": 5,
 }
+
+#: The one parameter column with trailing axes: a ``cmap`` row's correction
+#: table, ``f64[T, N, N]`` (``docs/spec/forcefield.md``, rows and columns).
+CMAP_GRID = "grid"
 
 #: The categories whose rows are resolved through the unordered pair of atom
 #: types they name (``docs/spec/forcefield.md``, linking a system, rule 3).
@@ -2140,7 +2146,7 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
                 f"{where}: a {style.category} row names endpoints {expected}, found {present}"
             )
     elif present != list(ENDPOINT_COLUMNS[: len(present)]):
-        raise ValueError(f"{where}: endpoint columns {present} are no prefix of itom..ltom")
+        raise ValueError(f"{where}: endpoint columns {present} are no prefix of itom..mtom")
     for endpoint in present:
         column = table.columns[endpoint]
         if column.dtype != "string" or column.validity is not None:
@@ -2148,6 +2154,9 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
 
     for column_name, column in table.columns.items():
         if column_name == "name" or column_name in ENDPOINT_COLUMNS:
+            continue
+        if style.category == "cmap" and column_name == CMAP_GRID:
+            _check_cmap_grid(where, column)
             continue
         canonical = CANONICAL_COLUMNS.get(column_name)
         if column_name in ANNOTATION_COLUMNS:
@@ -2168,6 +2177,28 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
         )
     if style.category in PAIR_CATEGORIES and present == ["itom", "jtom"]:
         _check_pair_restatements(where, table, names)
+
+
+def _check_cmap_grid(where: str, column: ColumnModel) -> None:
+    """The trailing-axis exception: a ``cmap`` table's grid is ``f64[T, N, N]``,
+    ``N >= 2``, with no precision, every value of a non-null row finite."""
+    trailing = column.shape[1:]
+    square = len(trailing) == 2 and trailing[0] == trailing[1] and trailing[0] >= 2
+    if column.dtype != "f64" or not square or column.precision is not None:
+        raise ValueError(
+            f"{where}: the cmap grid is f64[T, N, N] with N >= 2 and no precision, found "
+            f"{column.dtype}{list(trailing)}"
+            + (" with a declared precision" if column.precision is not None else "")
+        )
+    if column.values is None:
+        return
+    rows = np.isfinite(np.asarray(column.values)).all(axis=(1, 2))
+    if column.validity is not None:
+        rows |= ~np.asarray(column.validity)
+    if not rows.all():
+        raise ValueError(
+            f"{where}: the cmap grid of row {int(np.argmin(rows))} holds a non-finite value"
+        )
 
 
 def _cells(column: ColumnModel, count: int) -> list[Any]:

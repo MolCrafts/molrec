@@ -608,9 +608,9 @@ peroxide.mrec/
 - **One block per style, named `<category>.<style>`.** Bytes of the style
   name outside `A–Z a–z 0–9 - _` are percent-encoded, so `pair` / `lj/cut`
   lives at `pair.lj%2Fcut`.
-- **A table has one row per type.** `name` labels the row; `itom` … `ltom`
+- **A table has one row per type.** `name` labels the row; `itom` … `mtom`
   name the atom types at its endpoints, as many as the category has (none
-  for `atom`, two for `bond`, four for `dihedral`). Every other column is a
+  for `atom`, two for `bond`, four for `dihedral`, five for `cmap`). Every other column is a
   parameter, `f64` or `string`.
 - **The empty string is a wildcard.** The second torsion row,
   `X-O1-O1-X`, has `""` at both ends: it matches any type there.

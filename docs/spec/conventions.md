@@ -30,7 +30,7 @@ row (`<dtype>[N]`, no trailing axes), at the dtype the trees below give it.
 | `x` `y` `z` `vx` `vy` `vz` `fx` `fy` `fz` `charge` `mass` | `f64` |
 | `quatw` `quati` `quatj` `quatk` `mux` `muy` `muz` `axis_x` `axis_y` `axis_z` `occupancy` `b_factor` | `f64` |
 | `id` `atomic_number` `type_id` `mol_id` `res_id` `atom_map` | `u64` |
-| `atomi` `atomj` `atomk` `atoml` `ibead` `bond_type` `bond_number` | `u64` |
+| `atomi` `atomj` `atomk` `atoml` `atomm` `ibead` `bond_type` `bond_number` | `u64` |
 | `formal_charge` | `i64` |
 | `ix` `iy` `iz` | `i32` |
 | `free` `is_14` `exclude_14` | `bool` |
@@ -46,7 +46,7 @@ The table is published as
   write the canonical dtype.
 - The unsigned identifiers and relation endpoints — `id`, `atomic_number`,
   `type_id`, `mol_id`, `res_id`, `atomi`, `atomj`, `atomk`, `atoml`,
-  `ibead`, `bond_type`, `bond_number` — are **exactly `u64`**. A reader **MUST**
+  `atomm`, `ibead`, `bond_type`, `bond_number` — are **exactly `u64`**. A reader **MUST**
   refuse one stored at any other width or signedness rather than widen it on
   read: a store that holds one narrower came from a writer that broke the
   contract, and reading it back as `u64` would hide that.
@@ -203,7 +203,7 @@ reader of a fractional format converts at its boundary.
 ## Relations
 
 Relation blocks reference atoms by 0-based `u64` row indices into the
-`atoms` block (`atomi` … `atoml`) — integers, never object references; a
+`atoms` block (`atomi` … `atomm`) — integers, never object references; a
 relation that references another block says so with
 [`targets`](frame.md#row-references).
 
@@ -236,6 +236,7 @@ is no float `order` column.
 | `constraints` | `atomi`, `atomj` | `type`, `type_id`, `style` |
 | `virtual_sites` | `atomi` (the site), `atomj`, `atomk`, `atoml` (constructing atoms) | `type`, `type_id`, `style` |
 | `drudes` | `atomi` (core), `atomj` (Drude particle) | `type`, `type_id`, `style` |
+| `cmaps` | `atomi` … `atomm` | `type`, `type_id`, `style` |
 | `members` | `ibead` → `atoms`, `atom` (declared) | — |
 
 `type` names a row of the record's [force field](forcefield.md#linking-a-system)
@@ -251,7 +252,10 @@ them (`r0` on `constraints`, `kb` on an MMFF `bonds`).
 A `virtual_sites` row constructs the particle `atomi` (an `atoms` row,
 usually massless) from up to three others; a site built from fewer leaves
 the trailing endpoints null. A `drudes` row pairs a core atom with its Drude
-particle; both are `atoms` rows.
+particle; both are `atoms` rows. A `cmaps` row is a CMAP cross term over two
+consecutive dihedrals, `atomi`–`atomj`–`atomk`–`atoml` (φ) and
+`atomj`–`atomk`–`atoml`–`atomm` (ψ); its `type` names a row of a
+[`cmap` table](forcefield.md#categories).
 
 A coarse-grained frame stores its beads as `atoms` rows (with `bead_type`)
 and its bonds in `bonds`. `members` maps beads to the atoms they group, one
