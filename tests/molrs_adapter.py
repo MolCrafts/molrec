@@ -62,6 +62,35 @@ _MREC = molrs.io.mrec
 #: Whether this molrs build carries a block's row references (molrec F4).
 _HAS_TARGETS = hasattr(molrs.Block, "set_target") and hasattr(molrs.Block, "targets")
 
+
+def _refuses_pair_conflicts() -> bool:
+    """Whether this molrs build refuses, on reading a section, a pair table that
+    restates ``{A, B}`` as ``B``-``A`` with another epsilon (molrec forcefield
+    rule 3). molrs 0.15.1 refuses it only when it compiles the kernel."""
+    if not hasattr(_MREC, "ForceFieldSection"):
+        return False
+    rows = molrs.Block()
+    rows.resize(2)
+    for column, values in {
+        "name": ["A-B", "B-A"],
+        "itom": ["A", "B"],
+        "jtom": ["B", "A"],
+        "epsilon": [0.9, 0.8],
+        "sigma": [2.0, 2.0],
+    }.items():
+        rows.insert(column, np.array(values))
+    document = {
+        "name": "probe",
+        "units": {"preset": "real"},
+        "styles": [{"category": "pair", "style": "lj/cut"}],
+    }
+    try:
+        _MREC.ForceFieldSection(document, {"pair.lj%2Fcut": rows}).validate()
+    except _REFUSALS:
+        return True
+    return False
+
+
 _PENDING: tuple[tuple[str, bool, dict[str, tuple[str, ...]]], ...] = (
     (
         "molrs.Block.set_target / Block.targets (row references, molrec F4)",
@@ -82,6 +111,12 @@ _PENDING: tuple[tuple[str, bool, dict[str, tuple[str, ...]]], ...] = (
         "molrs.io.mrec.SequenceSchema.declare_target (row references, molrec F4)",
         hasattr(_MREC.SequenceSchema, "declare_target"),
         {"trajectory": ("targets-pinned", "reject-target-out-of-range-resolved")},
+    ),
+    (
+        "molrs.io.mrec.ForceFieldSection.validate refusing conflicting pair rows "
+        "(molrec forcefield rule 3)",
+        _refuses_pair_conflicts(),
+        {"forcefield": ("reject-ff-pair-conflict",)},
     ),
     (
         "molrs.io.mrec.SequenceSchema.declare_aligned (aligned blocks, molrec F5)",
