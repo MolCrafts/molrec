@@ -63,21 +63,47 @@ Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract.
 ## Commands
 
 - Pure suite (no molrs, nothing compiles): `uv run --locked --extra test
-  pytest -q -m "not molrs"`. This is what the pre-push hook runs.
+  pytest -q -m "not molrs"`.
 - Lint: `uvx ruff@0.16.5 format --check . && uvx ruff@0.16.5 check .`.
 - Layout chapter: `docs/layout.md`'s trees are generated from the codecs by
   `scripts/layout_examples.py`; after a codec or layout change run it with
   `--write` (`tests/test_layout_doc.py` fails on drift).
-- Full suite against molrs: `uv sync --locked --extra dev` builds molrs from
-  `../molrs/molrs-python` (Rust) — **only on a build machine, never a login
-  node** — then `MOLREC_REQUIRE_MOLRS=1 uv run --locked pytest -q`. On the
-  cluster: take a compute allocation, build a wheel there with `maturin
-  build --release -o <node-local dir> --manifest-path
-  ../molrs/molrs-python/Cargo.toml` (`CARGO_TARGET_DIR` node-local), install
-  it with this package's deps into a node-local venv, and run
-  `MOLREC_REQUIRE_MOLRS=1 PYTHONPATH=src python -m pytest -q` there.
-- A Rust change in `../molrs` is not seen by `uv sync` on its own:
-  `uv sync --extra dev --reinstall-package molcrafts-molrs`.
+- Full suite against molrs, exactly as CI runs it (molrs built from the commit
+  `.github/partners.env` pins, in a layout of its own -- never `../molrs`):
+  `scripts/partners.py run -- env MOLREC_REQUIRE_MOLRS=1 uv run --locked
+  --python 3.12 --extra dev pytest -q`. It compiles molrs: **only on a build
+  machine, never a login node** (the pre-push hook dispatches it for you).
+- Bumping molrs: change `MOLRS_REF` in `.github/partners.env` and relock in
+  the same commit, since the lock records the pinned molrs version:
+  `scripts/partners.py run -- sh -c 'uv lock && cp uv.lock "$PARTNERS_SOURCE/"'`.
+
+## Hooks
+
+`prek install` (or `pre-commit install`) installs both hook types from
+`.pre-commit-config.yaml`; every CI job has a hook running the same command.
+**Never `git commit --no-verify` / `git push --no-verify`**, and never merge
+a red PR.
+
+- **pre-commit** (staged files, cheap, in place): file hygiene
+  (whitespace, EOF, yaml/toml/json, merge markers, large files) and ruff.
+- **pre-push**: the same hygiene hooks on `--all-files` (as ci.yml `checks`
+  runs them); `scripts/partners.py check` (every pin in
+  `.github/partners.env` exists on its remote, no path source CI cannot
+  resolve, no workflow spelling a partner commit of its own); `uv lock
+  --check` and the bare `import molrec`, both against the pinned molrs; the
+  docs build (`zensical build --clean --strict` in a fresh `.[docs]` env, as
+  Cloudflare Pages builds it; on docs/src/zensical.toml/pyproject changes);
+  and the full suite with `MOLREC_REQUIRE_MOLRS=1` against a molrs wheel
+  built from the pinned commit.
+- **Dispatch:** the full suite compiles molrs, so its entry goes through
+  `scripts/hook-run.sh`, which hands the command to `$MOLCRAFTS_HOOK_RUNNER`
+  when that is set and it is not already inside a Slurm job. On the MolCrafts
+  cluster the shared `core.hooksPath` sets it to `.build-alloc/hookrun`, which
+  runs the command on a compute node (allocation `$USER-hooks`; fails after
+  20 min without a node, never passes). Everything else runs in place, so a
+  commit never waits for Slurm. Elsewhere nothing sets the variable and every
+  hook runs locally. `$MOLCRAFTS_PARTNER_CACHE`, when set, keeps the pinned
+  molrs checkout and its build between pushes.
 
 ## Spec hygiene
 
