@@ -19,6 +19,7 @@ from molrec.compare import diff, lookup
 from molrec.core.ffsuite import cmap as ff_cmap
 from molrec.core.ffsuite import cmap_grid as ff_cmap_grid
 from molrec.core.ffsuite import forcefield as ff_forcefield
+from molrec.core.ffsuite import no_rows as ff_no_rows
 from molrec.core.ffsuite import round_trip_forcefield
 from molrec.core.ffsuite import style as ff_style
 from molrec.core.ffsuite import table as ff_table
@@ -1052,7 +1053,9 @@ def _canonical_topology() -> FrameModel:
             "impropers": relation(
                 4, [[1, 0, 2, 0]], **labels(1, "i"), exclude_14=_column("bool", [False])
             ),
-            "pairs": relation(2, [[0, 2]], **labels(1, "p"), is_14=_column("bool", [True])),
+            "pairs": relation(
+                2, [[0, 2]], type_id=_column("u64", [0]), is_14=_column("bool", [True])
+            ),
             "exclusions": relation(2, [[0, 1], [1, 2]]),
             "constraints": relation(2, [[1, 2]], **labels(1, "c"), r0=_column("f64", [0.96])),
             "virtual_sites": BlockModel(
@@ -2258,6 +2261,14 @@ class RecordSuite(Suite):
         )
 
         yield Case(
+            id="record-pair-overrides",
+            exercises="a system's pairs rows carry the pair overrides (epsilon, sigma, "
+            "charge_product, lj_scale, coul_scale), null where a row takes the style's value, "
+            "beside a pair lj/charmm force field",
+            model=RecordModel(meta=meta, system=_overridden_pairs(), forcefield=_charmm_pairs()),
+        )
+
+        yield Case(
             id="forcefield-only-record",
             exercises="meta and a forcefield alone are a record: a force-field package",
             model=RecordModel(meta=meta, forcefield=round_trip_forcefield()),
@@ -2290,12 +2301,12 @@ def _linked_forcefield() -> ForceFieldModel:
             (ff_style("atom", "full"), ff_table(["OW", "HW"], mass=[15.999, 1.008])),
             (
                 ff_style("bond", "harmonic"),
-                ff_table(["OW-HW"], itom=["OW"], jtom=["HW"], k=[1059.162], r0=[0.9572]),
+                ff_table(["OW-HW"], itom=["OW"], jtom=["HW"], k=[529.581], r0=[0.9572]),
             ),
             (
                 ff_style("bond", "morse"),
                 ff_table(
-                    ["OW-HW"], itom=["OW"], jtom=["HW"], D=[101.9], alpha=[2.567], r0=[0.9572]
+                    ["OW-HW"], itom=["OW"], jtom=["HW"], d0=[101.9], alpha=[2.567], r0=[0.9572]
                 ),
             ),
         ]
@@ -2315,6 +2326,68 @@ def _typed_topology() -> FrameModel:
                     "atomj": _column("u64", [1, 2]),
                     "type": _column("string", ["OW-HW", "OW-HW"]),
                     "style": _column("string", ["harmonic", "morse"]),
+                },
+            ),
+        }
+    )
+
+
+def _charmm_pairs() -> ForceFieldModel:
+    """A CHARMM-style field: lj/charmm with 1-4 parameters, special_bonds 0 0 0."""
+    return ff_forcefield(
+        [
+            (
+                ff_style("atom", "full"),
+                ff_table(["CT3", "HA3", "OH1"], mass=[12.011, 1.008, 15.999]),
+            ),
+            (
+                ff_style("pair", "lj/charmm", params={"mixing": "arithmetic", "cutoff": 12.0}),
+                ff_table(
+                    ["CT3", "HA3", "OH1"],
+                    itom=["CT3", "HA3", "OH1"],
+                    jtom=["CT3", "HA3", "OH1"],
+                    epsilon=[0.078, 0.024, 0.1521],
+                    sigma=[3.6705, 2.3876, 3.1506],
+                    epsilon14=[0.01, 0.024, 0.1521],
+                    sigma14=[3.3854, 2.3876, 3.1506],
+                ),
+            ),
+            (ff_style("pair", "coul/cut", params={"cutoff": 12.0}), ff_no_rows(2)),
+        ],
+        special_bonds={"lj": (0.0, 0.0, 0.0), "coul": (0.0, 0.0, 0.0)},
+    )
+
+
+def _overridden_pairs() -> FrameModel:
+    """Methanol whose ``pairs`` rows override the styles for three pairs: an
+    OpenMM-style exception (charge product, sigma, epsilon, both scales 1), a
+    GROMACS-style one (sigma, epsilon, lj_scale 1), and an AMBER-style pair of
+    weights alone; a null cell takes the style's value."""
+    on = [True, True, False]
+    return FrameModel(
+        blocks={
+            "atoms": BlockModel(
+                count=6,
+                columns={
+                    "type": _column("string", ["CT3", "OH1", "HA3", "HA3", "HA3", "HA3"]),
+                    "charge": _column("f64", [-0.04, -0.66, 0.09, 0.09, 0.09, 0.43]),
+                },
+            ),
+            "pairs": BlockModel(
+                count=3,
+                columns={
+                    "atomi": _column("u64", [2, 3, 4]),
+                    "atomj": _column("u64", [5, 5, 5]),
+                    "is_14": _column("bool", [True, True, True]),
+                    "epsilon": _column("f64", [0.05, 0.03, 0.0], validity=on),
+                    "sigma": _column("f64", [2.9, 2.5, 0.0], validity=on),
+                    "charge_product": _column(
+                        "f64", [0.0387, 0.0, 0.0], validity=[True, False, False]
+                    ),
+                    "lj_scale": _column("f64", [1.0, 1.0, 0.5]),
+                    "coul_scale": _column(
+                        "f64", [1.0, 0.0, 0.8333333333333334], validity=[True, False, True]
+                    ),
                 },
             ),
         }

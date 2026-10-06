@@ -66,11 +66,22 @@ class TestDocument:
         ForceFieldUnitsModel(length="nm")
 
     def test_a_quantity_beside_a_preset_is_the_presets(self) -> None:
-        ForceFieldUnitsModel(preset="real", energy="kcal/mol", angle="radian")
+        ForceFieldUnitsModel(preset="real", energy="kcal/mol", angle="degree")
         with pytest.raises(ValidationError, match="disagrees"):
             ForceFieldUnitsModel(preset="real", energy="kJ/mol")
         with pytest.raises(ValidationError, match="disagrees"):
             ForceFieldUnitsModel(preset="lj", length="angstrom")
+
+    @pytest.mark.parametrize(
+        "preset", ["real", "metal", "si", "cgs", "electron", "micro", "nano", "lj"]
+    )
+    def test_every_preset_states_angle_values_in_degrees(self, preset: str) -> None:
+        ForceFieldUnitsModel(preset=preset, angle="degree")
+        with pytest.raises(ValidationError, match="angle 'radian' disagrees"):
+            ForceFieldUnitsModel(preset=preset, angle="radian")
+
+    def test_without_a_preset_the_angle_is_as_stated(self) -> None:
+        ForceFieldUnitsModel(length="nm", energy="kJ/mol", angle="degree")
 
     def test_reserved_style_params(self) -> None:
         StyleModel(category="pair", style="lj/cut", params={"mixing": "sixthpower"})
@@ -127,9 +138,9 @@ class TestPairRows:
     """Rule 3 of linking: a pair table prices each unordered pair once."""
 
     @staticmethod
-    def _pair(category: str = "pair", **columns) -> None:
+    def _pair(**columns) -> None:
         names = [f"r{i}" for i in range(len(columns["itom"]))]
-        forcefield([(style(category, "lj/cut"), table(names, **columns))])
+        forcefield([(style("pair", "lj/cut"), table(names, **columns))])
 
     def test_a_cross_row_and_its_equal_restatements_are_one_row(self) -> None:
         self._pair(
@@ -139,13 +150,36 @@ class TestPairRows:
             sigma=[3.0, 3.6, 2.0, 2.0, 2.0],
         )
 
-    @pytest.mark.parametrize("category", ["pair", "pair14"])
     @pytest.mark.parametrize(("itom", "jtom"), [(["A", "A"], ["B", "B"]), (["A", "B"], ["B", "A"])])
     def test_a_restatement_with_other_parameters_is_refused(
-        self, category: str, itom: list[str], jtom: list[str]
+        self, itom: list[str], jtom: list[str]
     ) -> None:
         with pytest.raises(ValidationError, match=r"'r0' and 'r1' both price .* \['epsilon'\]"):
-            self._pair(category, itom=itom, jtom=jtom, epsilon=[0.9, 0.8], sigma=[2.0, 2.0])
+            self._pair(itom=itom, jtom=jtom, epsilon=[0.9, 0.8], sigma=[2.0, 2.0])
+
+    def test_a_cross_row_may_leave_a_parameter_to_mixing(self) -> None:
+        """A GROMACS [ pairtypes ] row: lj/charmm's 1-4 parameters only."""
+        forcefield(
+            [
+                (
+                    style("pair", "lj/charmm"),
+                    table(
+                        ["A", "A-B"],
+                        itom=["A", "A"],
+                        jtom=["A", "B"],
+                        epsilon=_nullable([0.1, 0.0], [True, False]),
+                        epsilon14=_nullable([0.0, 0.05], [False, True]),
+                    ),
+                )
+            ]
+        )
+
+    def test_pair14_is_retired_to_an_unknown_category(self) -> None:
+        """No pair14 category: such a table is preserved as any unknown one --
+        its arity is its endpoint prefix and its rows are not pair-resolved."""
+        rows = table(["r0", "r1"], itom=["A", "B"], jtom=["B", "A"], epsilon=[0.9, 0.8])
+        model = forcefield([(style("pair14", "lj/cut"), rows)])
+        assert model.styles[0].arity is None
 
     def test_a_null_differs_from_a_value(self) -> None:
         with pytest.raises(ValidationError, match=r"differ in \['shift'\]"):

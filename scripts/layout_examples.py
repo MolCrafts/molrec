@@ -200,7 +200,9 @@ def h2o2_system(full: bool = True) -> FrameModel:
 
 def h2o2_forcefield() -> ForceFieldModel:
     """A small force field for H2O2: one table per style, a wildcard torsion
-    row, a string parameter (``ptype``) and absent second-term parameters."""
+    row, a string parameter (``ptype``) and absent second-term parameters.
+    The numbers are in the registry's conventions: LAMMPS's un-halved ``K``,
+    angles and phases in degrees."""
 
     def names(*values: str) -> ColumnModel:
         return column("string", list(values))
@@ -230,7 +232,7 @@ def h2o2_forcefield() -> ForceFieldModel:
                 "name": names("O1-O1", "O1-H1"),
                 "itom": names("O1", "O1"),
                 "jtom": names("O1", "H1"),
-                "k": column("f64", [600.0, 1106.0]),
+                "k": column("f64", [300.0, 553.0]),
                 "r0": column("f64", [1.475, 0.967]),
             }
         ),
@@ -240,8 +242,8 @@ def h2o2_forcefield() -> ForceFieldModel:
                 "itom": names("H1"),
                 "jtom": names("O1"),
                 "ktom": names("O1"),
-                "k": column("f64", [100.0]),
-                "theta0": column("f64", [1.7488]),
+                "k": column("f64", [50.0]),
+                "theta0": column("f64", [100.2]),
             }
         ),
         dihedral: block(
@@ -256,7 +258,7 @@ def h2o2_forcefield() -> ForceFieldModel:
                 "phase1": column("f64", [0.0, 0.0]),
                 "k2": column("f64", [0.8, 0.0], validity=second_term),
                 "periodicity2": column("f64", [2.0, 0.0], validity=second_term),
-                "phase2": column("f64", [math.pi, 0.0], validity=second_term),
+                "phase2": column("f64", [180.0, 0.0], validity=second_term),
             }
         ),
         pair: block(

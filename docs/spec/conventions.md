@@ -231,7 +231,7 @@ is no float `order` column.
 | `angles` | `atomi`, `atomj` (vertex), `atomk` | `type`, `type_id`, `style` |
 | `dihedrals` | `atomi` … `atoml` | `type`, `type_id`, `style`, `exclude_14` |
 | `impropers` | `atomi` … `atoml` | `type`, `type_id`, `style`, `exclude_14` |
-| `pairs` | `atomi`, `atomj` | `type`, `type_id`, `style`, `is_14` |
+| `pairs` | `atomi`, `atomj` | `type_id`, `is_14`, `epsilon`, `sigma`, `charge_product`, `lj_scale`, `coul_scale` |
 | `exclusions` | `atomi`, `atomj` | — |
 | `constraints` | `atomi`, `atomj` | `type`, `type_id`, `style` |
 | `virtual_sites` | `atomi` (the site), `atomj`, `atomk`, `atoml` (constructing atoms) | `type`, `type_id`, `style` |
@@ -246,7 +246,11 @@ carry per-instance parameters as further columns named as its style names
 them (`r0` on `constraints`, `kb` on an MMFF `bonds`).
 
 `is_14` marks a `pairs` row as a 1-4 pair; `exclude_14` marks a torsion whose
-1-4 non-bonded term is suppressed (AMBER's negative third index).
+1-4 non-bonded term is suppressed (AMBER's negative third index). A `pairs`
+row links no force-field row: its pair is priced by the pair styles through
+its atoms' types, and its nullable `f64` columns `epsilon`, `sigma`,
+`charge_product`, `lj_scale` and `coul_scale` override them for that one pair
+([pair overrides](forcefield.md#pair-overrides)).
 `exclusions` lists pairs excluded from non-bonded interaction.
 
 A `virtual_sites` row constructs the particle `atomi` (an `atoms` row,

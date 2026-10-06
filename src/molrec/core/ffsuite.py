@@ -71,6 +71,11 @@ def cmap(grids: np.ndarray) -> tuple[StyleModel, BlockModel]:
     return style("cmap", "charmm"), table(names, **endpoints, grid=_grids(grids))
 
 
+def no_rows(arity: int) -> BlockModel:
+    """The table of a style with no rows (charges from atoms, or per-instance)."""
+    return table([], **{column: _strings([]) for column in ENDPOINT_COLUMNS[:arity]})
+
+
 def table(names: list[str], **columns: ColumnModel | list[Any]) -> BlockModel:
     """A style table: ``name`` plus columns; a list of str is a string column,
     any other list an ``f64`` one."""
@@ -113,7 +118,8 @@ def _unvalidated(model: ForceFieldModel, **changes: Any) -> ForceFieldModel:
 
 
 def round_trip_forcefield() -> ForceFieldModel:
-    """The ``ff-round-trip`` field: every common category, two pair styles."""
+    """The ``ff-round-trip`` field: every common category, two pair styles,
+    in the registry's conventions (LAMMPS's un-halved ``K``, degrees)."""
     types = ["CT", "HC", "OH"]
     return forcefield(
         [
@@ -130,14 +136,14 @@ def round_trip_forcefield() -> ForceFieldModel:
                     ["CT-HC", "CT-OH"],
                     itom=["CT", "CT"],
                     jtom=["HC", "OH"],
-                    k=[680.0, 640.0],
+                    k=[340.0, 320.0],
                     r0=[1.09, 1.41],
                 ),
             ),
             (
                 style("angle", "harmonic"),
                 table(
-                    ["HC-CT-HC"], itom=["HC"], jtom=["CT"], ktom=["HC"], k=[66.0], theta0=[1.8814]
+                    ["HC-CT-HC"], itom=["HC"], jtom=["CT"], ktom=["HC"], k=[33.0], theta0=[107.8]
                 ),
             ),
             (
@@ -153,7 +159,7 @@ def round_trip_forcefield() -> ForceFieldModel:
                     phase1=[0.0],
                     k2=[0.45],
                     periodicity2=[3.0],
-                    phase2=[0.0],
+                    phase2=[180.0],
                 ),
             ),
             (
@@ -165,7 +171,7 @@ def round_trip_forcefield() -> ForceFieldModel:
                     ktom=["HC"],
                     ltom=["OH"],
                     k=[10.5],
-                    chi0=[0.0],
+                    chi0=[35.26],
                 ),
             ),
             (
@@ -178,10 +184,7 @@ def round_trip_forcefield() -> ForceFieldModel:
                     sigma=[3.5, 2.5, 3.12, 3.3],
                 ),
             ),
-            (
-                style("pair", "coul/long/pme", params={"cutoff": 10.0}),
-                table([], itom=_strings([]), jtom=_strings([])),
-            ),
+            (style("pair", "coul/long/pme", params={"cutoff": 10.0}), no_rows(2)),
         ],
         special_bonds=SpecialBondsModel(lj=(0.0, 0.0, 0.5), coul=(0.0, 0.0, 0.8333)),
         source=ForceFieldSourceModel(format="openmm-xml", sha256="0" * 63 + "1"),
@@ -253,7 +256,7 @@ class ForceFieldSuite(Suite):
                             phase1=[0.0, 0.0],
                             k2=_floats([0.25, 0.0], [True, False]),
                             periodicity2=_floats([2.0, 0.0], [True, False]),
-                            phase2=_floats([3.141592653589793, 0.0], [True, False]),
+                            phase2=_floats([180.0, 0.0], [True, False]),
                         ),
                     )
                 ]
@@ -314,12 +317,12 @@ class ForceFieldSuite(Suite):
                 [
                     (
                         style("bond", "harmonic"),
-                        table(["CT-HC"], itom=["CT"], jtom=["HC"], k=[680.0], r0=[1.09]),
+                        table(["CT-HC"], itom=["CT"], jtom=["HC"], k=[340.0], r0=[1.09]),
                     ),
                     (
                         style("bond", "morse"),
                         table(
-                            ["CT-HC"], itom=["CT"], jtom=["HC"], D=[105.0], alpha=[1.8], r0=[1.09]
+                            ["CT-HC"], itom=["CT"], jtom=["HC"], d0=[105.0], alpha=[1.8], r0=[1.09]
                         ),
                     ),
                 ]
@@ -330,9 +333,7 @@ class ForceFieldSuite(Suite):
             id="ff-per-instance-style",
             exercises="a style with a table of no rows declares a per-instance style (its "
             "parameters are relation columns)",
-            model=forcefield(
-                [(style("bond", "mmff_bond"), table([], itom=_strings([]), jtom=_strings([])))]
-            ),
+            model=forcefield([(style("bond", "mmff_bond"), no_rows(2))]),
         )
 
         yield Case(
@@ -396,16 +397,80 @@ class ForceFieldSuite(Suite):
         )
 
         yield Case(
+            id="ff-angle-charmm",
+            exercises="angle charmm (LAMMPS's Urey-Bradley angle: k, theta0 in degrees, k_ub, "
+            "r_ub) beside dihedral charmm with its 1-4 weight w",
+            model=forcefield(
+                [
+                    atoms(["CT1", "HA", "NH1"], mass=[12.011, 1.008, 14.007]),
+                    (
+                        style("angle", "charmm"),
+                        table(
+                            ["HA-CT1-HA", "NH1-CT1-HA"],
+                            itom=["HA", "NH1"],
+                            jtom=["CT1", "CT1"],
+                            ktom=["HA", "HA"],
+                            k=[35.5, 48.0],
+                            theta0=[108.4, 108.0],
+                            k_ub=_floats([5.4, 0.0], [True, False]),
+                            r_ub=_floats([1.802, 0.0], [True, False]),
+                        ),
+                    ),
+                    (
+                        style("dihedral", "charmm"),
+                        table(
+                            ["X-CT1-NH1-X", "HA-CT1-CT1-HA"],
+                            itom=["", "HA"],
+                            jtom=["CT1", "CT1"],
+                            ktom=["NH1", "CT1"],
+                            ltom=["", "HA"],
+                            k=[0.0, 0.2],
+                            periodicity=[1.0, 3.0],
+                            phase=[0.0, 180.0],
+                            w=[1.0, 0.5],
+                        ),
+                    ),
+                ],
+                special_bonds=SpecialBondsModel(lj=(0.0, 0.0, 0.0), coul=(0.0, 0.0, 0.0)),
+            ),
+        )
+
+        yield Case(
+            id="ff-pair-lj-charmm",
+            exercises="pair lj/charmm: self rows that carry or leave null epsilon14/sigma14, and "
+            "a cross row that carries only them (a GROMACS [ pairtypes ] row)",
+            model=forcefield(
+                [
+                    atoms(["CT1", "HA", "NH1"], mass=[12.011, 1.008, 14.007]),
+                    (
+                        style("pair", "lj/charmm", params={"mixing": "arithmetic", "cutoff": 12.0}),
+                        table(
+                            ["CT1", "HA", "NH1", "CT1-NH1-14"],
+                            itom=["CT1", "HA", "NH1", "CT1"],
+                            jtom=["CT1", "HA", "NH1", "NH1"],
+                            epsilon=_floats([0.02, 0.022, 0.2, 0.0], [True, True, True, False]),
+                            sigma=_floats([4.0538, 2.3876, 3.2963, 0.0], [True, True, True, False]),
+                            epsilon14=_floats([0.01, 0.0, 0.0, 0.0447], [True, False, False, True]),
+                            sigma14=_floats([3.3854, 0.0, 0.0, 3.3409], [True, False, False, True]),
+                        ),
+                    ),
+                    (style("pair", "coul/cut", params={"cutoff": 12.0}), no_rows(2)),
+                ],
+                special_bonds=SpecialBondsModel(lj=(0.0, 0.0, 0.0), coul=(0.0, 0.0, 0.0)),
+            ),
+        )
+
+        yield Case(
             id="ff-units-preserved",
             exercises="numbers in nm and kJ/mol come back bit for bit, never converted",
             model=forcefield(
                 [
                     (
                         style("bond", "harmonic"),
-                        table(["CT-HC"], itom=["CT"], jtom=["HC"], r0=[0.1090], k=[284512.0]),
+                        table(["CT-HC"], itom=["CT"], jtom=["HC"], r0=[0.1090], k=[142256.0]),
                     )
                 ],
-                units=ForceFieldUnitsModel(length="nm", energy="kJ/mol", angle="radian"),
+                units=ForceFieldUnitsModel(length="nm", energy="kJ/mol", angle="degree"),
             ),
         )
 
@@ -435,11 +500,11 @@ class ForceFieldSuite(Suite):
                             ["b1", "b2"],
                             smirks=["[#6X4:1]-[#6X4:2]", "[#6X4:1]-[#1:2]"],
                             r0=[1.527, 1.09],
-                            k=[620.0, 740.0],
+                            k=[310.0, 370.0],
                         ),
                     )
                 ],
-                units=ForceFieldUnitsModel(length="angstrom", energy="kcal/mol", angle="radian"),
+                units=ForceFieldUnitsModel(length="angstrom", energy="kcal/mol", angle="degree"),
                 source=ForceFieldSourceModel(format="offxml", uri="openff-2.1.0.offxml"),
             ),
         )
@@ -470,7 +535,7 @@ class ForceFieldSuite(Suite):
                 atoms(["CT", "HC"], mass=[12.011, 1.008]),
                 (
                     style("bond", "harmonic"),
-                    table(["CT-HC"], itom=["CT"], jtom=["HC"], k=[680.0], r0=[1.09]),
+                    table(["CT-HC"], itom=["CT"], jtom=["HC"], k=[340.0], r0=[1.09]),
                 ),
             ]
         )
@@ -514,6 +579,17 @@ class ForceFieldSuite(Suite):
                 ),
             ),
             (
+                "reject-ff-radian-angle-unit",
+                "every preset's angle is the degree: angle radian beside preset real is refused "
+                "(a section in the radian convention says so, and is not read as degrees)",
+                _unvalidated(
+                    base,
+                    units=ForceFieldUnitsModel.model_construct(
+                        preset="real", length="angstrom", energy="kcal/mol", angle="radian"
+                    ),
+                ),
+            ),
+            (
                 "reject-ff-duplicate-style",
                 "a (category, style) pair appears once",
                 _unvalidated(base, styles=[*base.styles, bond]),
@@ -543,7 +619,7 @@ class ForceFieldSuite(Suite):
                 _unvalidated(
                     base,
                     tables=broken_table(
-                        name=_strings(["CT-HC"]), itom=_strings(["CT"]), k=_floats([680.0])
+                        name=_strings(["CT-HC"]), itom=_strings(["CT"]), k=_floats([340.0])
                     ),
                 ),
             ),
@@ -630,6 +706,7 @@ __all__ = [
     "cmap",
     "cmap_grid",
     "forcefield",
+    "no_rows",
     "round_trip_forcefield",
     "style",
     "table",

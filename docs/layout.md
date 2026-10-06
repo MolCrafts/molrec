@@ -525,9 +525,9 @@ peroxide.mrec/
       |    |    zarr: chunk [1] · vlen-utf8 → gzip(1) → crc32c
       |    \-- ktom: string[1] = ["O1"]
       |    |    zarr: chunk [1] · vlen-utf8 → gzip(1) → crc32c
-      |    \-- k: f64[1] = [100.0]
+      |    \-- k: f64[1] = [50.0]
       |    |    zarr: chunk [1] · bytes → crc32c
-      |    \-- theta0: f64[1] = [1.7488]
+      |    \-- theta0: f64[1] = [100.2]
       |         zarr: chunk [1] · bytes → crc32c
       \-- atom.full/
       |    +-- count: 2
@@ -549,7 +549,7 @@ peroxide.mrec/
       |    |    zarr: chunk [2] · vlen-utf8 → gzip(1) → crc32c
       |    \-- jtom: string[2] = ["O1", "H1"]
       |    |    zarr: chunk [2] · vlen-utf8 → gzip(1) → crc32c
-      |    \-- k: f64[2] = [600.0, 1106.0]
+      |    \-- k: f64[2] = [300.0, 553.0]
       |    |    zarr: chunk [2] · bytes → crc32c
       |    \-- r0: f64[2] = [1.475, 0.967]
       |         zarr: chunk [2] · bytes → crc32c
@@ -575,7 +575,7 @@ peroxide.mrec/
       |    |    zarr: chunk [2] · bytes → crc32c
       |    \-- phase1: f64[2] = [0.0, 0.0]
       |    |    zarr: chunk [2] · bytes → crc32c
-      |    \-- phase2: f64[2] = [3.141592654, 0.0]
+      |    \-- phase2: f64[2] = [180.0, 0.0]
       |    |    zarr: chunk [2] · bytes → crc32c
       |    \-- _validity/
       |         \-- k2: bool[2] = [true, false]
@@ -601,7 +601,7 @@ peroxide.mrec/
 
 - **The document** is plain JSON in the group's attributes: the `name`; the
   `units` every number in the section is in (here the `real` preset:
-  ångström, kcal/mol, radian, e, dalton); the 1-2 / 1-3 / 1-4
+  ångström, kcal/mol, degree, e, dalton); the 1-2 / 1-3 / 1-4
   `special_bonds` weights; and the ordered `styles` list. A style may carry
   style-level parameters, as `lj/cut` does with its `cutoff` and `mixing`
   rule.
@@ -663,10 +663,10 @@ category. Resolved against the tables read back from disk:
 | --- | --- | --- | --- |
 | `atoms[0]` | `H1` | `atom.full` row 0 | charge 0.41, mass 1.008 |
 | `atoms[1]` | `O1` | `atom.full` row 1 | charge -0.41, mass 15.999 |
-| `bonds[0]` | `O1-H1` | `bond.harmonic` row 1 | k 1106.0, r0 0.967 |
-| `bonds[1]` | `O1-O1` | `bond.harmonic` row 0 | k 600.0, r0 1.475 |
-| `angles[0]` | `H1-O1-O1` | `angle.harmonic` row 0 | k 100.0, theta0 1.7488 |
-| `dihedrals[0]` | `H1-O1-O1-H1` | `dihedral.periodic` row 0 | k1 1.2, k2 0.8, periodicity1 1.0, periodicity2 2.0, phase1 0.0, phase2 3.141592654 |
+| `bonds[0]` | `O1-H1` | `bond.harmonic` row 1 | k 553.0, r0 0.967 |
+| `bonds[1]` | `O1-O1` | `bond.harmonic` row 0 | k 300.0, r0 1.475 |
+| `angles[0]` | `H1-O1-O1` | `angle.harmonic` row 0 | k 50.0, theta0 100.2 |
+| `dihedrals[0]` | `H1-O1-O1-H1` | `dihedral.periodic` row 0 | k1 1.2, k2 0.8, periodicity1 1.0, periodicity2 2.0, phase1 0.0, phase2 180.0 |
 <!-- END generated:linking -->
 
 Pair styles are resolved through the atom types instead: two `O1` atoms take
