@@ -103,7 +103,7 @@ from molrec.suite import ConformanceSuite, Suite
 
 #: The one place the package version is written; ``pyproject.toml`` reads it
 #: from here (``[tool.hatch.version]``).
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "REGISTRY",
