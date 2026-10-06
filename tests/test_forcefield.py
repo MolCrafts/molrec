@@ -295,6 +295,8 @@ def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:
     its ``grid`` a float64 numpy array equal bit for bit."""
     if not hasattr(molrs.ff, "CmapStyle"):
         pytest.skip("molrs lacks molrs.ff.CmapStyle (the cmap category)")
+    if molrs.io.mrec.schema.MOLREC_VERSION < MOLREC_VERSION:
+        pytest.skip(f"molrs does not read molrec_version {MOLREC_VERSION}")
     grids = np.stack([cmap_grid(24, 0.1), cmap_grid(24, -0.35)])
     model = forcefield([atoms(["C", "NH1", "CT1"], mass=[12.011, 14.007, 12.011]), cmap(grids)])
     store = ZarrForceFieldStore(tmp_path / "cmap.mrec")

@@ -38,7 +38,7 @@ import molrs
 import numpy as np
 
 import molrec
-from molrec.core.model import NUMPY_DTYPE, document
+from molrec.core.model import MOLREC_VERSION, NUMPY_DTYPE, document
 
 #: ``Block.dtype`` names the domain scalars by role; every other column dtype
 #: is already spelled as the contract spells it.
@@ -91,7 +91,31 @@ def _refuses_pair_conflicts() -> bool:
     return False
 
 
+#: Whether this molrs build writes and reads molrec_version 2 (molrs 0.16).
+#: Until it does it refuses every store the suite's codec stamps 2 and stamps
+#: 1 on every record it writes, so no positive record, trajectory or
+#: force-field case -- and no version-1 refusal -- can be judged on it.
+_SPEAKS_VERSION_2 = getattr(_MREC.schema, "MOLREC_VERSION", 1) >= MOLREC_VERSION
+
+
+def _version_2_cases(*modules: str) -> dict[str, tuple[str, ...]]:
+    return {
+        module: tuple(
+            case.id
+            for case in molrec.REGISTRY.suite_for(module)().cases()
+            if not case.expect_violation or case.id.startswith("reject-v1-")
+        )
+        for module in modules
+    }
+
+
 _PENDING: tuple[tuple[str, bool, dict[str, tuple[str, ...]]], ...] = (
+    (
+        "molrec_version 2 (molrs.io.mrec.schema.MOLREC_VERSION 2: the stamp, and version-1 "
+        "records converted on read)",
+        _SPEAKS_VERSION_2,
+        _version_2_cases("record", "trajectory", "forcefield"),
+    ),
     (
         "molrs.Block.set_target / Block.targets (row references, molrec F4)",
         _HAS_TARGETS,
