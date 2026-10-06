@@ -8,7 +8,7 @@ exists to prevent. For the same reason nothing here touches the store behind
 molrs's back: the store molrs is asked to read is exactly the one the codec
 wrote.
 
-The molrs surface used here is molrs 0.15's: the whole-record doors at
+The molrs surface used here is molrs 0.16's: the whole-record doors at
 ``molrs.io`` -- ``write_mrec`` / ``write_mrec_system`` (both taking
 ``forcefield=``) and ``write_mrec_forcefield`` to write a record,
 ``mrec_sections`` / ``read_mrec`` / ``read_mrec_system`` / ``read_mrec_meta``
@@ -22,7 +22,7 @@ spec-following) for the streaming writing door and
 ``molrs.io.read_mrec_trajectory`` for the eager reading door.
 
 molrs refuses malformed input with ``ValueError`` (every ``MolRsError``), and
-an array it cannot store as a column with ``molrs.BlockDtypeError``; those are
+an array it cannot store as a column with ``molrs.store.BlockDtypeError``; those are
 the adapters' declared refusals. Anything else molrs or the adapter raises is
 a defect and the suite reports it as an error.
 """
@@ -45,7 +45,7 @@ from molrec.core.model import MOLREC_VERSION, NUMPY_DTYPE, document
 _MOLRS_DTYPE = {"float": "f64", "int": "i32", "uint": "u64"}
 
 #: What molrs refuses malformed input with.
-_REFUSALS: tuple[type[Exception], ...] = (ValueError, molrs.BlockDtypeError)
+_REFUSALS: tuple[type[Exception], ...] = (ValueError, molrs.store.BlockDtypeError)
 
 # ---------------------------------------------------------------------------
 # What molrs cannot run yet -- the one place it is declared.
@@ -60,7 +60,7 @@ _REFUSALS: tuple[type[Exception], ...] = (ValueError, molrs.BlockDtypeError)
 _MREC = molrs.io.mrec
 
 #: Whether this molrs build carries a block's row references (molrec F4).
-_HAS_TARGETS = hasattr(molrs.Block, "set_target") and hasattr(molrs.Block, "targets")
+_HAS_TARGETS = hasattr(molrs.store.Block, "set_target") and hasattr(molrs.store.Block, "targets")
 
 
 def _refuses_pair_conflicts() -> bool:
@@ -69,7 +69,7 @@ def _refuses_pair_conflicts() -> bool:
     rule 3). molrs 0.15.1 refuses it only when it compiles the kernel."""
     if not hasattr(_MREC, "ForceFieldSection"):
         return False
-    rows = molrs.Block()
+    rows = molrs.store.Block()
     rows.resize(2)
     for column, values in {
         "name": ["A-B", "B-A"],
@@ -117,7 +117,7 @@ _PENDING: tuple[tuple[str, bool, dict[str, tuple[str, ...]]], ...] = (
         _version_2_cases("record", "trajectory", "forcefield"),
     ),
     (
-        "molrs.Block.set_target / Block.targets (row references, molrec F4)",
+        "molrs.store.Block.set_target / Block.targets (row references, molrec F4)",
         _HAS_TARGETS,
         {
             "record": (
@@ -143,8 +143,8 @@ _PENDING: tuple[tuple[str, bool, dict[str, tuple[str, ...]]], ...] = (
         {"forcefield": ("reject-ff-pair-conflict",)},
     ),
     (
-        "molrs.ff.CmapStyle (the cmap category and its f64[T, N, N] grid)",
-        hasattr(molrs.ff, "CmapStyle"),
+        "molrs.ff.forcefield.CmapStyle (the cmap category and its f64[T, N, N] grid)",
+        hasattr(molrs.ff.forcefield, "CmapStyle"),
         {"forcefield": ("ff-cmap-grid",)},
     ),
     (
@@ -178,14 +178,14 @@ def _unsupported(module: str) -> dict[str, str]:
     }
 
 
-def _dtype_of(native: molrs.Block, column: str) -> str:
+def _dtype_of(native: molrs.store.Block, column: str) -> str:
     """The contract dtype of a stored column, as molrs reports it -- never guessed."""
     dtype = native.dtype(column)
     return _MOLRS_DTYPE.get(dtype, dtype)
 
 
-def _to_box(box: molrec.CellModel, cell_defined: bool) -> molrs.Box:
-    return molrs.Box(
+def _to_box(box: molrec.CellModel, cell_defined: bool) -> molrs.spatial.Box:
+    return molrs.spatial.Box(
         box.vectors,
         box.origin,
         None if box.boundary is None else np.array(box.boundary),
@@ -193,7 +193,7 @@ def _to_box(box: molrec.CellModel, cell_defined: bool) -> molrs.Box:
     )
 
 
-def _from_box(box: molrs.Box) -> dict[str, Any]:
+def _from_box(box: molrs.spatial.Box) -> dict[str, Any]:
     return {
         "vectors": np.asarray(box.h),
         "origin": np.asarray(box.origin),
@@ -202,9 +202,9 @@ def _from_box(box: molrs.Box) -> dict[str, Any]:
     }
 
 
-def _to_block(block: molrec.BlockModel) -> molrs.Block:
+def _to_block(block: molrec.BlockModel) -> molrs.store.Block:
     """One block as a molrs block: columns, masks, precision, shape, targets."""
-    native = molrs.Block()
+    native = molrs.store.Block()
     native.resize(block.count)
     for column, payload in block.columns.items():
         # The values as the producer handed them: rounding to a declared
@@ -221,7 +221,7 @@ def _to_block(block: molrec.BlockModel) -> molrs.Block:
     return native
 
 
-def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -> molrs.Frame:
+def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -> molrs.store.Frame:
     """The model as a molrs frame.
 
     Every meta key is written as a ``MetaValue`` of its tag -- the frame's
@@ -230,18 +230,20 @@ def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -
     bools is not obviously ``bool3``, a ``1`` not obviously ``i32``). A key
     with no tag at all (a model built around the validators) is written plain.
     """
-    frame = molrs.Frame()
+    frame = molrs.store.Frame()
     for name, block in model.blocks.items():
         frame[name] = _to_block(block)
     if model.box is not None:
         frame.box = _to_box(model.box, bool(model.box.cell_defined))
     tags = {**(getattr(model, "meta_types", None) or {}), **(tags or {})}
     for key, value in model.meta.items():
-        frame.meta[key] = molrs.MetaValue(tags[key], value) if key in tags else value
+        frame.meta[key] = molrs.store.MetaValue(tags[key], value) if key in tags else value
     return frame
 
 
-def _from_frame(frame: molrs.Frame | None, *, in_trajectory: bool = False) -> dict[str, Any] | None:
+def _from_frame(
+    frame: molrs.store.Frame | None, *, in_trajectory: bool = False
+) -> dict[str, Any] | None:
     """The frame as molrec's duck.
 
     A column's declared precision is reported for a frame-shaped section; a
@@ -266,7 +268,7 @@ def _from_frame(frame: molrs.Frame | None, *, in_trajectory: bool = False) -> di
     }
 
 
-def _from_block(native: molrs.Block, *, in_trajectory: bool = False) -> dict[str, Any]:
+def _from_block(native: molrs.store.Block, *, in_trajectory: bool = False) -> dict[str, Any]:
     """One molrs block as molrec's duck: what molrs returned, column by column."""
     columns = {}
     for column in native.keys():  # noqa: SIM118 (molrs Block has no __iter__)
@@ -353,7 +355,7 @@ def _with_nullable(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSchem
     shapes = {name: block.structural_shape for name, block in (model.blocks or {}).items()}
     for name, columns in _nullable_columns(model).items():
         rows = int(np.prod(shapes.get(name) or (1,)))
-        native = molrs.Block()
+        native = molrs.store.Block()
         native.resize(rows)
         for column, declared in columns.items():
             dtype = _tag(declared.dtype)
@@ -365,7 +367,7 @@ def _with_nullable(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSchem
             )
             native.insert(column, values)
             native.set_validity(column, np.zeros(rows, dtype=bool))
-        frame = molrs.Frame()
+        frame = molrs.store.Frame()
         frame[name] = native
         frames.append(frame)
     if not frames:
@@ -467,7 +469,7 @@ class MolrsRecordAdapter(molrec.RecordAdapter):
         }
 
 
-def _resolved_cells(model: molrec.TrajectoryModel) -> list[molrs.Box | None]:
+def _resolved_cells(model: molrec.TrajectoryModel) -> list[molrs.spatial.Box | None]:
     """The cell each frame resolves to.
 
     molrec states the cell once per change and indexes it by ordinal; molrs
@@ -477,8 +479,8 @@ def _resolved_cells(model: molrec.TrajectoryModel) -> list[molrs.Box | None]:
     """
     updates = {} if model.box is None else {u.step_index: u.box for u in model.box.updates}
     defined = model.box is None or bool(model.box.cell_defined)
-    cells: list[molrs.Box | None] = []
-    current: molrs.Box | None = None
+    cells: list[molrs.spatial.Box | None] = []
+    current: molrs.spatial.Box | None = None
     for ordinal in range(len(model.frames)):
         if ordinal in updates:
             current = _to_box(updates[ordinal], defined)
@@ -486,7 +488,7 @@ def _resolved_cells(model: molrec.TrajectoryModel) -> list[molrs.Box | None]:
     return cells
 
 
-def _cell_section(frames: list[molrs.Frame]) -> dict[str, Any] | None:
+def _cell_section(frames: list[molrs.store.Frame]) -> dict[str, Any] | None:
     """The frames' cells folded back into updates at the ordinals they changed.
 
     The inverse of :func:`_resolved_cells`, and lossy in exactly the way the
@@ -524,7 +526,7 @@ def _same_cell(left: dict[str, Any], right: dict[str, Any]) -> bool:
     )
 
 
-def _meta_series(frames: list[molrs.Frame]) -> dict[str, dict[str, Any]]:
+def _meta_series(frames: list[molrs.store.Frame]) -> dict[str, dict[str, Any]]:
     """The per-step meta declaration molrs hands back: the tag on each value.
 
     molrs carries the tag beside the value (``frame.meta.dtype(key)``), so the
@@ -548,7 +550,7 @@ class MolrsForceFieldAdapter(molrec.ForceFieldAdapter):
     ``read_mrec_forcefield``, which carry the section whole -- every document
     key, every table, units as stated -- so a section molrs could not compile
     (``nm`` units, smirks keys, an unknown category) is still judged on what
-    molrs stores. Turning it into a ``molrs.ff.ForceField`` is
+    molrs stores. Turning it into a ``molrs.ff.forcefield.ForceField`` is
     ``ForceField.from_section``, which this format-level suite does not ask
     for.
     """

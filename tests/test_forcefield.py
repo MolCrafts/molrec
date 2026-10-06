@@ -356,10 +356,10 @@ class TestOneFour:
 
 
 def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:
-    """A cmap table molrec's codec writes is a ``molrs.ff.CmapType`` per row,
+    """A cmap table molrec's codec writes is a ``molrs.ff.forcefield.CmapType`` per row,
     its ``grid`` a float64 numpy array equal bit for bit."""
-    if not hasattr(molrs.ff, "CmapStyle"):
-        pytest.skip("molrs lacks molrs.ff.CmapStyle (the cmap category)")
+    if not hasattr(molrs.ff.forcefield, "CmapStyle"):
+        pytest.skip("molrs lacks molrs.ff.forcefield.CmapStyle (the cmap category)")
     if molrs.io.mrec.schema.MOLREC_VERSION < MOLREC_VERSION:
         pytest.skip(f"molrs does not read molrec_version {MOLREC_VERSION}")
     grids = np.stack([cmap_grid(24, 0.1), cmap_grid(24, -0.35)])
@@ -367,13 +367,13 @@ def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:
     store = ZarrForceFieldStore(tmp_path / "cmap.mrec")
     ZarrForceFieldCodec().write(model, store)
 
-    ff = molrs.ff.ForceField.from_section(molrs.io.read_mrec_forcefield(store.path))
+    ff = molrs.ff.forcefield.ForceField.from_section(molrs.io.read_mrec_forcefield(store.path))
     style_ = ff.get_style("cmap", "charmm")
-    assert isinstance(style_, molrs.ff.CmapStyle)
+    assert isinstance(style_, molrs.ff.forcefield.CmapStyle)
     types = sorted(style_.types, key=lambda t: t.name)
     assert [t.name for t in types] == ["cmap0", "cmap1"]
     for row, cmap_type in enumerate(types):
-        assert isinstance(cmap_type, molrs.ff.CmapType)
+        assert isinstance(cmap_type, molrs.ff.forcefield.CmapType)
         ends = [t.name for t in cmap_type.endpoints]
         expected = model.tables["cmap.charmm"].columns
         assert ends == [

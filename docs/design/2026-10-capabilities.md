@@ -899,7 +899,7 @@ must expect `10`). The GROMACS path (`k = k_ξ/2`) is already right.
 
 **Python:** `molrs.io.write_mrec(path, frame, system=None, meta=None,
 forcefield=None)` and `write_mrec_system(path, system, meta=None,
-forcefield=None)` take a `molrs.ForceField`; new
+forcefield=None)` take a `molrs.ff.forcefield.ForceField`; new
 `molrs.io.write_mrec_forcefield(path, ff, meta=None)` and
 `read_mrec_forcefield(path) -> ForceField | None`; `mrec_sections` lists
 `forcefield`. Stubs in `_lib.pyi`. `tests/molrs_adapter.py` (molrec) gains a
