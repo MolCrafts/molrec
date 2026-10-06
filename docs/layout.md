@@ -671,7 +671,10 @@ category. Resolved against the tables read back from disk:
 
 Pair styles are resolved through the atom types instead: two `O1` atoms take
 the `O1-O1` row of `pair.lj%2Fcut`, and a pair with no row of its own is
-mixed from the two self rows by the style's `mixing` rule.
+mixed from the two self rows by the style's `mixing` rule. A *cross row*
+(`itom` `O1`, `jtom` `H1`, under any unique `name`) would give `O1`–`H1`
+pairs its own parameters in place of the mixed ones; the table holds at most
+one set of parameters per unordered pair.
 
 The rules: [Force field](spec/forcefield.md) — [the document](spec/forcefield.md#the-document),
 [style tables](spec/forcefield.md#style-tables),

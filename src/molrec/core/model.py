@@ -1880,6 +1880,10 @@ CATEGORY_ARITY: dict[str, int] = {
     "drude": 2,
 }
 
+#: The categories whose rows are resolved through the unordered pair of atom
+#: types they name (``docs/spec/forcefield.md``, linking a system, rule 3).
+PAIR_CATEGORIES: frozenset[str] = frozenset({"pair", "pair14"})
+
 #: Annotation columns of a style table: ``string``, nullable.
 ANNOTATION_COLUMNS: frozenset[str] = frozenset(
     {"class", "element", "smarts", "smirks", "overrides", "desc", "doi"}
@@ -2162,6 +2166,44 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
         raise ValueError(
             f"{where}: a class-keyed style links through atom classes; no class column"
         )
+    if style.category in PAIR_CATEGORIES and present == ["itom", "jtom"]:
+        _check_pair_restatements(where, table, names)
+
+
+def _cells(column: ColumnModel, count: int) -> list[Any]:
+    """A 1-D column's values row by row, ``None`` where the row is null."""
+    values = [None] * count if column.values is None else column.values.tolist()
+    if column.validity is None:
+        return values
+    validity = column.validity.tolist()
+    return [value if valid else None for value, valid in zip(values, validity, strict=True)]
+
+
+def _check_pair_restatements(where: str, table: BlockModel, names: list[str]) -> None:
+    """A pair table prices each unordered ``{itom, jtom}`` once: rows restating
+    a pair, in either order, carry equal parameters (null equal only to null);
+    ``name`` and the annotation columns are no parameters."""
+    count = table.count
+    itom, jtom = (_cells(table.columns[end], count) for end in ("itom", "jtom"))
+    params = {
+        column_name: _cells(column, count)
+        for column_name, column in table.columns.items()
+        if column_name != "name"
+        and column_name not in ENDPOINT_COLUMNS
+        and column_name not in ANNOTATION_COLUMNS
+    }
+    first_row: dict[tuple[str, str], int] = {}
+    for row, ends in enumerate(zip(itom, jtom, strict=True)):
+        pair = (min(ends), max(ends))
+        first = first_row.setdefault(pair, row)
+        if first == row:
+            continue
+        differ = sorted(name for name, cells in params.items() if cells[first] != cells[row])
+        if differ:
+            raise ValueError(
+                f"{where}: rows {names[first]!r} and {names[row]!r} both price the pair "
+                f"{{{pair[0]!r}, {pair[1]!r}}} and differ in {differ}"
+            )
 
 
 class ForceFieldModel(DocumentModel):
