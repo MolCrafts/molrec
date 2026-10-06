@@ -3,6 +3,7 @@ the layout the reference codec writes (``docs/spec/forcefield.md``)."""
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 import zarr
 from pydantic import ValidationError
@@ -12,6 +13,7 @@ from molrec.core.ffsuite import atoms, forcefield, round_trip_forcefield, style,
 from molrec.core.model import (
     CollectionMetaModel,
     CollectionModel,
+    ColumnModel,
     ForceFieldUnitsModel,
     MetaModel,
     RecordModel,
@@ -104,3 +106,57 @@ def test_the_tables_are_block_groups_at_their_names(tmp_path) -> None:
     assert dict(group.attrs)["name"] == "test"
     assert [name for name, _ in group.groups()] == ["pair.lj%2Fcut%2Fcoul%2Flong"]
     assert ZarrForceFieldCodec().read(store) == model
+
+
+def _nullable(values: list[float], validity: list[bool]) -> ColumnModel:
+    return ColumnModel(
+        dtype="f64", shape=(len(values),), values=np.array(values), validity=np.array(validity)
+    )
+
+
+class TestPairRows:
+    """Rule 3 of linking: a pair table prices each unordered pair once."""
+
+    @staticmethod
+    def _pair(category: str = "pair", **columns) -> None:
+        names = [f"r{i}" for i in range(len(columns["itom"]))]
+        forcefield([(style(category, "lj/cut"), table(names, **columns))])
+
+    def test_a_cross_row_and_its_equal_restatements_are_one_row(self) -> None:
+        self._pair(
+            itom=["A", "B", "A", "B", "A"],
+            jtom=["A", "B", "B", "A", "B"],
+            epsilon=[0.1, 0.4, 0.9, 0.9, 0.9],
+            sigma=[3.0, 3.6, 2.0, 2.0, 2.0],
+        )
+
+    @pytest.mark.parametrize("category", ["pair", "pair14"])
+    @pytest.mark.parametrize(("itom", "jtom"), [(["A", "A"], ["B", "B"]), (["A", "B"], ["B", "A"])])
+    def test_a_restatement_with_other_parameters_is_refused(
+        self, category: str, itom: list[str], jtom: list[str]
+    ) -> None:
+        with pytest.raises(ValidationError, match=r"'r0' and 'r1' both price .* \['epsilon'\]"):
+            self._pair(category, itom=itom, jtom=jtom, epsilon=[0.9, 0.8], sigma=[2.0, 2.0])
+
+    def test_a_null_differs_from_a_value(self) -> None:
+        with pytest.raises(ValidationError, match=r"differ in \['shift'\]"):
+            self._pair(
+                itom=["A", "B"],
+                jtom=["B", "A"],
+                epsilon=[0.9, 0.9],
+                shift=_nullable([1.0, 0.0], [True, False]),
+            )
+        self._pair(itom=["A", "B"], jtom=["B", "A"], shift=_nullable([1.0, 2.0], [False, False]))
+
+    def test_name_and_annotations_are_no_parameters(self) -> None:
+        self._pair(itom=["A", "B"], jtom=["B", "A"], epsilon=[0.9, 0.9], desc=["NBFIX", "copy"])
+
+    def test_other_categories_may_restate_endpoints(self) -> None:
+        forcefield(
+            [
+                (
+                    style("bond", "harmonic"),
+                    table(["b1", "b2"], itom=["A", "B"], jtom=["B", "A"], k=[1.0, 2.0]),
+                )
+            ]
+        )

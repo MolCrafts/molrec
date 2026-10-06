@@ -262,6 +262,27 @@ class ForceFieldSuite(Suite):
         )
 
         yield Case(
+            id="ff-pair-cross-rows",
+            exercises="a cross row (itom != jtom) under a name that is no endpoint spelling, and "
+            "a reversed restatement of it with equal parameters, survive beside the self rows",
+            model=forcefield(
+                [
+                    atoms(["A", "B"], mass=[12.0, 16.0]),
+                    (
+                        style("pair", "lj/cut", params={"mixing": "arithmetic"}),
+                        table(
+                            ["A", "B", "nbfix-1", "nbfix-1-restated"],
+                            itom=["A", "B", "B", "A"],
+                            jtom=["A", "B", "A", "B"],
+                            epsilon=[0.1, 0.4, 0.9, 0.9],
+                            sigma=[3.0, 3.6, 2.0, 2.0],
+                        ),
+                    ),
+                ]
+            ),
+        )
+
+        yield Case(
             id="ff-hybrid-styles",
             exercises="two bond styles of one category both define CT-HC",
             model=forcefield(
@@ -428,6 +449,7 @@ class ForceFieldSuite(Suite):
                 ),
             }
 
+        lj = style("pair", "lj/cut")
         refusals: list[tuple[str, str, ForceFieldModel]] = [
             (
                 "reject-ff-no-units",
@@ -501,6 +523,25 @@ class ForceFieldSuite(Suite):
                 _unvalidated(
                     base,
                     styles=[base.styles[0], bond.model_copy(update={"endpoint_key": "class"})],
+                ),
+            ),
+            (
+                "reject-ff-pair-conflict",
+                "a pair table prices each unordered {itom, jtom} once: B-A restating A-B with "
+                "another epsilon is refused",
+                _unvalidated(
+                    base,
+                    styles=[*base.styles, lj],
+                    tables={
+                        **base.tables,
+                        lj.block: table(
+                            ["A", "B", "A-B", "B-A"],
+                            itom=["A", "B", "A", "B"],
+                            jtom=["A", "B", "B", "A"],
+                            epsilon=[0.1, 0.4, 0.9, 0.8],
+                            sigma=[3.0, 3.6, 2.0, 2.0],
+                        ),
+                    },
                 ),
             ),
         ]
