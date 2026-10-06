@@ -1887,9 +1887,15 @@ CATEGORY_ARITY: dict[str, int] = {
     "cmap": 5,
 }
 
-#: The one parameter column with trailing axes: a ``cmap`` row's correction
-#: table, ``f64[T, N, N]`` (``docs/spec/forcefield.md``, rows and columns).
+#: A ``cmap`` row's correction map, ``f64[T, N, N]`` with ``N >= 2``: the
+#: array parameter whose shape the chapter pins further (``docs/spec/
+#: forcefield.md``, rows and columns). Every other array parameter is any
+#: ``f64[T, S...]``.
 CMAP_GRID = "grid"
+
+#: The values ``pair.lj/charmm``'s style parameter ``one_four`` may take: at
+#: which parameters a ``special_bonds`` 1-4 pair is priced.
+ONE_FOUR_VALUES: tuple[str, ...] = ("regular", "epsilon14")
 
 #: Annotation columns of a style table: ``string``, nullable.
 ANNOTATION_COLUMNS: frozenset[str] = frozenset(
@@ -2095,6 +2101,15 @@ class StyleModel(DocumentModel):
         mixing = self.params.get("mixing")
         if mixing is not None and mixing not in MIXING_RULES:
             raise ValueError(f"params.mixing is one of {MIXING_RULES}, found {mixing!r}")
+        one_four = self.params.get("one_four")
+        if (
+            (self.category, self.style) == ("pair", "lj/charmm")
+            and one_four is not None
+            and one_four not in ONE_FOUR_VALUES
+        ):
+            raise ValueError(
+                f"pair.lj/charmm params.one_four is one of {ONE_FOUR_VALUES}, found {one_four!r}"
+            )
         return self
 
     @model_serializer(mode="wrap")
@@ -2128,8 +2143,10 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
     name = table.columns.get("name")
     if name is None:
         raise ValueError(f"{where} has no name column")
-    if name.dtype != "string" or name.validity is not None:
-        raise ValueError(f"{where}: name is a string never null, found {name.dtype}")
+    if name.dtype != "string" or name.validity is not None or name.shape[1:]:
+        raise ValueError(
+            f"{where}: name is a string[T] never null, found {name.dtype}{list(name.shape[1:])}"
+        )
     names = [] if name.values is None else [str(value) for value in name.values.tolist()]
     if len(set(names)) != len(names):
         raise ValueError(f"{where}: type names are unique, found {sorted(names)}")
@@ -2151,8 +2168,8 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
         raise ValueError(f"{where}: endpoint columns {present} are no prefix of itom..mtom")
     for endpoint in present:
         column = table.columns[endpoint]
-        if column.dtype != "string" or column.validity is not None:
-            raise ValueError(f"{where}: endpoint {endpoint} is a string never null")
+        if column.dtype != "string" or column.validity is not None or column.shape[1:]:
+            raise ValueError(f"{where}: endpoint {endpoint} is a string[T] never null")
 
     for column_name, column in table.columns.items():
         if column_name == "name" or column_name in ENDPOINT_COLUMNS:
@@ -2167,6 +2184,9 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
             allowed = (canonical,)
         else:
             allowed = ("f64", "string")
+            if column.dtype == "f64" and column.shape[1:]:
+                _check_array_param(where, column_name, column)
+                continue
         if column.dtype not in allowed or column.shape[1:] or column.precision is not None:
             raise ValueError(
                 f"{where}: parameter {column_name!r} is {' or '.join(allowed)}[T], exact, found "
@@ -2182,8 +2202,35 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
         _check_pair_restatements(where, table, names)
 
 
+def _check_array_param(where: str, name: str, column: ColumnModel) -> None:
+    """An array parameter: ``f64[T, S...]``, every trailing axis at least 1
+    long, no precision, every value of a non-null row finite. One shape for
+    every row -- a column has one shape."""
+    trailing = column.shape[1:]
+    if column.dtype != "f64" or not all(axis >= 1 for axis in trailing):
+        raise ValueError(
+            f"{where}: array parameter {name!r} is f64[T, S...] with every S >= 1, found "
+            f"{column.dtype}{list(trailing)}"
+        )
+    if column.precision is not None:
+        raise ValueError(f"{where}: array parameter {name!r} is exact, found a declared precision")
+    _check_finite_rows(where, f"array parameter {name!r}", column)
+
+
+def _check_finite_rows(where: str, what: str, column: ColumnModel) -> None:
+    """Every value of a non-null row of an array column is finite."""
+    if column.values is None:
+        return
+    values = np.asarray(column.values)
+    rows = np.isfinite(values).reshape(values.shape[0], -1).all(axis=1)
+    if column.validity is not None:
+        rows |= ~np.asarray(column.validity)
+    if not rows.all():
+        raise ValueError(f"{where}: {what} of row {int(np.argmin(rows))} holds a non-finite value")
+
+
 def _check_cmap_grid(where: str, column: ColumnModel) -> None:
-    """The trailing-axis exception: a ``cmap`` table's grid is ``f64[T, N, N]``,
+    """A ``cmap`` table's grid: an array parameter of shape ``f64[T, N, N]``,
     ``N >= 2``, with no precision, every value of a non-null row finite."""
     trailing = column.shape[1:]
     square = len(trailing) == 2 and trailing[0] == trailing[1] and trailing[0] >= 2
@@ -2193,15 +2240,7 @@ def _check_cmap_grid(where: str, column: ColumnModel) -> None:
             f"{column.dtype}{list(trailing)}"
             + (" with a declared precision" if column.precision is not None else "")
         )
-    if column.values is None:
-        return
-    rows = np.isfinite(np.asarray(column.values)).all(axis=(1, 2))
-    if column.validity is not None:
-        rows |= ~np.asarray(column.validity)
-    if not rows.all():
-        raise ValueError(
-            f"{where}: the cmap grid of row {int(np.argmin(rows))} holds a non-finite value"
-        )
+    _check_finite_rows(where, "the cmap grid", column)
 
 
 def _cells(column: ColumnModel, count: int) -> list[Any]:

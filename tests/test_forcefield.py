@@ -252,16 +252,11 @@ class TestCmapGrid:
             _with_grid(_grid_column(values))
         _with_grid(_grid_column(values, validity=np.array([True, False])))
 
-    def test_no_other_column_has_trailing_axes(self) -> None:
-        grid = _grid_column(np.zeros((2, 2, 2)))
-        for category in ("bond", "cross_term"):
-            rows = table(["a", "b"], itom=["C", "N"], jtom=["N", "C"], grid=grid)
-            with pytest.raises(ValidationError, match="parameter 'grid'"):
-                forcefield([(style(category, "example"), rows)])
+    def test_another_cmap_column_is_any_array_parameter(self) -> None:
         cmap_style, rows = cmap(np.zeros((2, 2, 2)))
-        rows = rows.model_copy(update={"columns": {**rows.columns, "other": grid}})
-        with pytest.raises(ValidationError, match="parameter 'other'"):
-            forcefield([(cmap_style, rows)])
+        other = _grid_column(np.zeros((2, 3)))
+        rows = rows.model_copy(update={"columns": {**rows.columns, "other": other}})
+        forcefield([(cmap_style, rows)])
 
     def test_a_cmap_row_names_five_endpoints(self) -> None:
         cmap_style, rows = cmap(np.zeros((1, 2, 2)))
@@ -288,6 +283,76 @@ class TestCmapGrid:
         back = ZarrForceFieldCodec().read(store)
         assert back == model
         assert back.tables["cmap.charmm"].columns["grid"].values.tobytes() == grids.tobytes()
+
+
+class TestArrayParams:
+    """Any parameter may be an ``f64[T, S...]`` column of one shape."""
+
+    @staticmethod
+    def _bond(column: ColumnModel, category: str = "bond") -> ForceFieldModel:
+        rows = table(["a", "b"], itom=["C", "N"], jtom=["N", "C"], knots=column)
+        return forcefield([(style(category, "spline"), rows)])
+
+    @pytest.mark.parametrize("shape", [(2, 1), (2, 5), (2, 2, 3), (2, 3, 1, 2)])
+    def test_any_trailing_shape_in_any_category(self, shape: tuple[int, ...]) -> None:
+        for category in ("bond", "dihedral", "cross_term"):
+            ends = {
+                c: ["C", "N"]
+                for c in ("itom", "jtom", "ktom", "ltom")[: 4 if category == "dihedral" else 2]
+            }
+            rows = table(["a", "b"], **ends, knots=_grid_column(np.ones(shape)))
+            forcefield([(style(category, "spline"), rows)])
+
+    def test_an_axis_of_length_zero_is_refused(self) -> None:
+        with pytest.raises(ValidationError, match="every S >= 1"):
+            self._bond(_grid_column(np.zeros((2, 0))))
+
+    def test_a_string_array_is_refused(self) -> None:
+        with pytest.raises(ValidationError, match="parameter 'knots'"):
+            self._bond(_grid_column(np.array([["a", "b"], ["c", "d"]])))
+
+    def test_an_array_declares_no_precision(self) -> None:
+        with pytest.raises(ValidationError, match="found a declared precision"):
+            self._bond(_grid_column(np.zeros((2, 2)), precision=0.5))
+
+    def test_a_non_null_row_is_finite_and_a_null_one_is_not_read(self) -> None:
+        values = np.zeros((2, 2, 2))
+        values[0, 1, 1] = np.nan
+        with pytest.raises(ValidationError, match="row 0 holds a non-finite value"):
+            self._bond(_grid_column(values))
+        self._bond(_grid_column(values, validity=np.array([False, True])))
+
+    def test_annotations_and_endpoints_have_no_trailing_axes(self) -> None:
+        for name in ("desc", "itom"):
+            rows = table(["a", "b"], itom=["C", "N"], jtom=["N", "C"])
+            column = _grid_column(np.array([["x", "y"], ["z", "w"]]))
+            rows = rows.model_copy(update={"columns": {**rows.columns, name: column}})
+            with pytest.raises(ValidationError):
+                forcefield([(style("bond", "spline"), rows)])
+
+    def test_the_array_round_trips_through_zarr_bit_for_bit(self, tmp_path) -> None:
+        values = np.arange(12, dtype="float64").reshape(2, 2, 3) / 7.0
+        model = self._bond(_grid_column(values))
+        store = ZarrForceFieldStore(tmp_path / "arrays.mrec")
+        ZarrForceFieldCodec().write(model, store)
+        back = ZarrForceFieldCodec().read(store)
+        assert back == model
+        assert back.tables["bond.spline"].columns["knots"].values.tobytes() == values.tobytes()
+
+
+class TestOneFour:
+    """``pair.lj/charmm``'s ``one_four`` is ``regular`` or ``epsilon14``."""
+
+    @pytest.mark.parametrize("value", ["regular", "epsilon14"])
+    def test_the_two_values(self, value: str) -> None:
+        StyleModel(category="pair", style="lj/charmm", params={"one_four": value})
+
+    def test_another_value_is_refused(self) -> None:
+        with pytest.raises(ValidationError, match="one_four is one of"):
+            StyleModel(category="pair", style="lj/charmm", params={"one_four": "both"})
+
+    def test_other_styles_may_use_the_name_freely(self) -> None:
+        StyleModel(category="pair", style="custom", params={"one_four": "both"})
 
 
 def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:

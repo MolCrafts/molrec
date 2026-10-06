@@ -31,8 +31,7 @@ forcefield
       \-- name: string[T]
       \-- (itom | jtom | ktom | ltom | mtom: string[T])
       \-- (<annotation>: string[T])
-      \-- (<param>: f64[T] | string[T])
-      \-- (grid: f64[T, N, N])          a cmap table only
+      \-- (<param>: f64[T] | f64[T, S…] | string[T])
       \-- (_validity)
 ```
 
@@ -125,19 +124,20 @@ Required (it may be empty). An ordered list; each entry is one style:
 | `category` | yes | what the style's rows parameterize ([Categories](#categories)); matches `^[a-z][a-z0-9_]*$` |
 | `style` | yes | the functional form's name within its category (`harmonic`, `lj/cut`); non-empty UTF-8 |
 | `params` | no | style-level parameters: a map of name to a finite number or a string (`cutoff`, `mixing`) |
-| `expression` | no | the energy expression ([Expressions](#expressions)) |
+| `expression` | no | the energy expression of one term ([Expressions](#expressions)) |
 | `endpoint_key` | no | `"type"` (default), `"class"` or `"smirks"`: what a row's endpoints name ([Endpoints](#endpoints)) |
 
 A `(category, style)` pair appears at most once. Order is preserved; it
 carries no physical meaning. Every entry has exactly one table, at the block
 name below, even when the table has no rows.
 
-Two style-level parameter names are reserved on pair styles. `params.special`
+Three style-level parameter names are reserved on pair styles. `params.special`
 (`"lj"` or `"coul"`) gives an unregistered pair style its special class.
 `params.mixing` on a van-der-Waals pair style is its combining rule:
 `arithmetic` (Lorentz–Berthelot: σ = ½(σᵢ+σⱼ), ε = √(εᵢεⱼ)), `geometric`
 (σ = √(σᵢσⱼ), ε = √(εᵢεⱼ)) or `sixthpower` (σ⁶ = ½(σᵢ⁶+σⱼ⁶),
 ε = 2√(εᵢεⱼ)σᵢ³σⱼ³/(σᵢ⁶+σⱼ⁶)). Absent means the style declares none.
+`params.cutoff` (*L*) truncates the style: it prices r < cutoff only.
 
 ## Style tables
 
@@ -197,16 +197,27 @@ that is not a canonical key (a periodicity) is an `f64`. A parameter a row
 does not have is null in that row ([nullable columns](frame.md#nullable-columns)),
 never a sentinel such as `0` or `NaN`. A column declares no
 [precision](frame.md#declared-precision): parameters are stored exactly.
-Every column of a table is one value per row (`[T]`, no trailing axes), with
-one exception, `grid` on a `cmap` table (below); a style-level parameter is
-always a scalar.
+
+**Array parameters.** An `f64` parameter column may carry trailing axes,
+`f64[T, S…]`: one array of shape `S…` per row (a tabulated potential's
+values, a correction map, a spline's knots). Every trailing axis is at least
+1 long, and every row has the same shape, since a column has one shape; a
+style whose rows need arrays of different lengths uses one table per length
+or pads with a parameter that says how many entries count. Every value of a
+row that is not null is finite. `name`, the endpoints, the annotation
+columns, a [canonical key](conventions.md#canonical-dtypes) and a `string`
+parameter are one value per row (`[T]`), and a style-level parameter is
+always a scalar. A reader **MUST** refuse a column with trailing axes that is
+not `f64`, an axis of length 0, a declared precision, and a non-finite value
+in a non-null row. A registered style may pin an array parameter's shape
+further, as `cmap` does with `grid`.
 
 An atom table additionally recognises `mass` (`f64`, `units.mass`), `charge`
 (`f64`, `units.charge`) and `atomic_number` (`u64`).
 
 `grid`
 
-On a `cmap` table only: the row's correction map, `f64[T, N, N]` — one
+On a `cmap` table: the row's correction map, `f64[T, N, N]` — one
 `N × N` grid of energies (`units.energy`) per row, `N ≥ 2`, one `N` for every
 row of the table, laid out as LAMMPS `fix cmap` reads it
 ([CMAP](#cmap)): **φ-major**, the first trailing axis φ (the dihedral
@@ -214,11 +225,9 @@ row of the table, laid out as LAMMPS `fix cmap` reads it
 `jtom`–`ktom`–`ltom`–`mtom`), so `grid[a][b]` (flat index `a·N + b`) is the
 correction at φ = −180° + a·360°/N, ψ = −180° + b·360°/N. It declares no
 precision, and every value of a row that is not null is finite. A reader
-**MUST** refuse a `cmap` grid of
-another dtype or shape (one trailing axis, a non-square `N × M`, `N < 2`), a
-non-finite value in a non-null row, and a column with trailing axes anywhere
-else: another column of a `cmap` table, a `grid` of another category, any
-column of an unknown category.
+**MUST** refuse a `cmap` grid of another dtype or shape (one trailing axis, a
+non-square `N × M`, `N < 2`) and a non-finite value in a non-null row. A
+column named `grid` in another category is an ordinary array parameter.
 
 ### Endpoints
 
@@ -259,7 +268,12 @@ needs none of this.
 The system blocks are [standardized identifiers](conventions.md). A category
 outside this table is legal and preserved; its arity is the number of
 endpoint columns its table carries, which **MUST** be a prefix of `itom`,
-`jtom`, `ktom`, `ltom`, `mtom`.
+`jtom`, `ktom`, `ltom`, `mtom`. Its system block is the category's name
+followed by `s` (`urey_bradley` → `urey_bradleys`), whose rows name their
+atoms `atomi` … in endpoint order and their type in `type`, as every relation
+block does. With two to five endpoints it can be priced by an
+[expression](#expressions) over the positions of its atoms; with fewer it
+cannot.
 
 There is no `pair14` category. Per-type 1-4 parameters are the
 `epsilon14` and `sigma14` of a `pair.lj/charmm` row, as in LAMMPS
@@ -301,8 +315,8 @@ parameters of a system row:
    the style's special class), except where the pair's `pairs` row
    overrides it (rule 4).
 4. A relation block may carry a parameter column named as its style names
-   it. Its value, where not null, is that row's parameter and overrides the
-   table; a style whose table has no rows takes every parameter from the
+   it, with the table column's dtype and trailing shape. Its value, where not
+   null, is that row's parameter and overrides the table; a style whose table has no rows takes every parameter from the
    relation (a *per-instance* style, as MMFF and UFF are). The `pairs`
    block carries the [pair overrides](#pair-overrides), which override the
    pair styles for one pair of atoms.
@@ -352,7 +366,17 @@ without a form for one.
 
 A style named here **MUST** mean exactly this energy and these parameters.
 A style not named here **SHOULD** carry an `expression`; a reader preserves it
-either way.
+either way. The registry is closed only in what its names mean, not in what a
+record may hold: any `(category, style)` that has the form of this chapter —
+an entry, a table of the right endpoints, parameter columns — is a legal
+style, and
+
+- an unregistered style that carries an `expression` is **priceable**: a
+  consumer that computes energies evaluates its expression
+  ([Expressions](#expressions)), with nothing registered beforehand;
+- an unregistered style without one is **preserved but not priceable**: it
+  reads, writes and links like any other, and a consumer asked for its energy
+  **MUST** refuse, naming the style, rather than skip it and price the rest.
 
 The registry is the force-field IR, which adopts LAMMPS's definitions as its
 standard. For every style LAMMPS has, the energy expression, its factors (no
@@ -395,8 +419,8 @@ parameter enters it converted from degrees.
 | `improper.periodic` | k·[1 + cos(n·φ − γ)] | `k` E, `periodicity` 1, `phase` deg | — |
 | `improper.trefoil` | ⅓·Σ over the three orderings of the outer atoms, central atom `jtom`, of the `dihedral.periodic` energy | as `dihedral.periodic` | — |
 | `pair.lj/cut` | C·ε·[(σ/r)ⁿ − (σ/r)ᵐ], C = n/(n−m)·(n/m)^{m/(n−m)}, r < cutoff; n = 12, m = 6 gives 4ε[(σ/r)¹² − (σ/r)⁶] | `epsilon` E, `sigma` L | `cutoff` L, `mixing`, `n` 1, `m` 1, `shift` 1 (non-zero: shifted to 0 at cutoff) |
-| `pair.lj/charmm` | 4ε[(σ/r)¹² − (σ/r)⁶]·S(r), r < cutoff; the force is its gradient. The 1-4 pair a `dihedral.charmm` prices takes `epsilon14`, `sigma14` | `epsilon` E, `sigma` L, `epsilon14` E, `sigma14` L | `inner` L, `cutoff` L (both required), `mixing` (absent: `arithmetic`) |
-| `pair.coul/charmm` | coulomb·qᵢqⱼ/(dielectric·r)·S(r), r < cutoff; the force is LAMMPS's switched force C·qᵢqⱼ·S(r)/r² (C = coulomb/dielectric), not the gradient of the energy | — (charges from `atoms.charge`) | `coulomb` E·L/Q², `dielectric` 1, `inner` L, `cutoff` L |
+| `pair.lj/charmm` | 4ε[(σ/r)¹² − (σ/r)⁶]·S(r), r < cutoff; the force is its gradient. The 1-4 pair a `dihedral.charmm` prices takes `epsilon14`, `sigma14`; so does every 1-4 pair under `one_four = "epsilon14"` | `epsilon` E, `sigma` L, `epsilon14` E, `sigma14` L | `inner` L, `cutoff` L (absent: the consumer states them, as for a source whose cutoffs are run settings), `mixing` (absent: `arithmetic`), `one_four` (`"regular"`, the default, or `"epsilon14"`) |
+| `pair.coul/charmm` | coulomb·qᵢqⱼ/(dielectric·r)·S(r), r < cutoff; the force is LAMMPS's switched force C·qᵢqⱼ·S(r)/r² (C = coulomb/dielectric), not the gradient of the energy | — (charges from `atoms.charge`) | `coulomb` E·L/Q², `dielectric` 1, `inner` L, `cutoff` L (absent: as `pair.lj/charmm`) |
 | `pair.lj/class2` | ε·[2(σ/r)⁹ − 3(σ/r)⁶] | `epsilon` E, `sigma` L | `cutoff` L, `mixing` |
 | `pair.buck` | a·e^{−r/rho} − c/r⁶ | `a` E, `rho` L, `c` E·L⁶ | `cutoff` L |
 | `pair.morse` | d0·[(1 − e^{−alpha(r − r0)})² − 1] | `d0` E, `alpha` 1/L, `r0` L | `cutoff` L |
@@ -429,7 +453,17 @@ row's `epsilon` or `sigma` there (LAMMPS's default), and `mixing` mixes
 `epsilon14` and `sigma14` as it mixes `epsilon` and `sigma`. The style prices
 every non-excluded pair with `epsilon` and `sigma`, weighted by
 `special_bonds`, as LAMMPS `lj/charmm/coul/*` does; `epsilon14` and
-`sigma14` are read only by `dihedral.charmm`.
+`sigma14` are read only by `dihedral.charmm` — unless the style's `one_four`
+says otherwise:
+
+| `one_four` | A `special_bonds` 1-4 pair — one no `w > 0` dihedral and no [pair override](#pair-overrides) covers — is priced at |
+|---|---|
+| absent or `"regular"` | `epsilon`, `sigma` (LAMMPS) |
+| `"epsilon14"` | `epsilon14`, `sigma14`: the cross row's for an explicit pair, else the two types' mixed by `mixing` (OpenMM's `<LennardJonesForce>`, GROMACS `[ pairtypes ]`, a chamber prmtop's 1-4 table) |
+
+A reader **MUST** refuse any other `one_four`. LAMMPS has no
+`"epsilon14"` form: a writer to it refuses the style parameter, unless every
+such 1-4 pair of the system is a pair override row stating its parameters.
 
 `dihedral.charmm`'s `w` is LAMMPS's weighting factor: the dihedral prices,
 besides its torsion, the 1-4 pair of its end atoms (those of `itom` and
@@ -507,21 +541,114 @@ plane is degenerate prices nothing, as in LAMMPS.
 
 ## Expressions
 
-`expression` is the style's energy as one formula in the syntax of OpenMM's
-custom forces (Lepton): `+ - * / ^`, parentheses, `exp log sqrt sin cos tan
-asin acos atan abs min max step delta select`, numeric literals. Its free
-variables are the geometric variable of the category (`r` for bond, pair,
-constraint; `theta` for angle; `phi` for dihedral; `chi` for improper), the
-style's per-type and style-level parameter names, and, for pair styles, `q1`
-and `q2`. Per-term sums are written out.
+`expression` is the energy of **one term** of the style — one row of its
+system block, or one pair of atoms for a `pair` style — as one formula in the
+syntax of OpenMM's custom forces (Lepton), restricted to the subset below so
+that every consumer evaluates it alike. A reader **MUST** preserve
+`expression` byte for byte and never refuses a record for it. A consumer
+**MAY** evaluate it; one that does refuses, naming the style, an expression
+outside this section (a syntax error, an unknown function or variable, a
+function given the wrong number of arguments, a point beyond the category's
+arity, a definition that is used before it is defined). An expression on a
+registered style **MUST** agree with the registry: the same energy, and the
+same force wherever the registry's force is the gradient of its energy.
 
-`theta`, `phi` and `chi` are radians, as Lepton's trigonometry is, while an
-angle-valued parameter is in `units.angle` (degrees): the expression
-converts it. `angle.harmonic` written out is
-`k*(theta - theta0*0.017453292519943295)^2`, never `k*(theta - theta0)^2`.
+### Grammar
 
-A reader **MUST** preserve `expression` byte for byte. It **MAY** evaluate
-it. An expression on a registered style **MUST** agree with the registry.
+```text
+expression := formula (";" definition)*
+definition := name "=" formula
+formula    := term (("+" | "-") term)*                  left-associative
+term       := factor (("*" | "/") factor)*              left-associative
+factor     := "-" factor | power
+power      := primary ("^" factor)?                     right-associative
+primary    := number | name | call | "(" formula ")"
+call       := name "(" formula ("," formula)* ")"
+number     := digits ["." [digits]] [exponent] | "." digits [exponent]
+exponent   := ("e" | "E") ["+" | "-"] digits
+name       := [A-Za-z_][A-Za-z0-9_]*
+```
+
+So `^` binds tighter than a unary minus, which binds tighter than `*` and
+`/`: `-a^2` is −(a²), `a^-2` is a⁻², `a^b^c` is a^(b^c). Whitespace between
+tokens is ignored; names are case-sensitive. There are no named constants
+(no `pi`): a constant is written as a number.
+
+| Function | Value |
+|---|---|
+| `exp(x)`, `log(x)`, `sqrt(x)` | eˣ, the natural logarithm, the non-negative root |
+| `sin(x)`, `cos(x)`, `tan(x)`, `asin(x)`, `acos(x)`, `atan(x)` | in radians |
+| `abs(x)` | \|x\| |
+| `min(x, y)`, `max(x, y)` | the smaller, the larger |
+| `step(x)` | 1 if x ≥ 0, else 0 |
+| `delta(x)` | 1 if x = 0, else 0 |
+| `select(x, y, z)` | y if x ≠ 0, else z |
+| `distance(pa, pb)` | the distance between two points (*L*) |
+| `angle(pa, pb, pc)` | the angle at `pb`, in radians, in [0, π] |
+| `dihedral(pa, pb, pc, pd)` | the signed dihedral of the four points in radians, in (−π, π]: the angle between the planes (pa, pb, pc) and (pb, pc, pd), positive when, seen along pb → pc, the bond pa–pb turns clockwise onto pc–pd (IUPAC) |
+
+The last three are the **compound functions** (OpenMM's
+`CustomCompoundBondForce` names and meanings). Their arguments are
+**points**, `p1` … `p5`: `pk` is the term's k-th atom, the one its system row
+names in its k-th atom column (`atomi` = `p1`, `atomj` = `p2`, …), and its
+table row in its k-th endpoint. A point is no number: it is only an argument
+of a compound function. Distances and angles are taken under the frame's
+periodic boundary (minimum image), as for every bonded term.
+
+A **definition** `name=formula` after the first `;` names an intermediate
+value. As in Lepton, a definition may use the names defined *after* it (to its
+right) and never one defined before it or itself, so the first formula — the
+energy — may use them all. A name defined twice, or a definition of a name
+that is already a variable below, is an error.
+
+### Variables
+
+| Category | Geometric variables | Points |
+|---|---|---|
+| `bond`, `drude` | `r`, the distance = `distance(p1, p2)` | `p1`, `p2` |
+| `angle` | `theta`, the angle at `jtom` = `angle(p1, p2, p3)` | `p1` … `p3` |
+| `dihedral` | `phi` = `dihedral(p1, p2, p3, p4)` | `p1` … `p4` |
+| `improper` | `phi` = `dihedral(p1, p2, p3, p4)`, the atoms in the order listed; `chi` = `abs(phi)` | `p1` … `p4` |
+| `cmap` | — | `p1` … `p5` |
+| `pair` | `r`; `q1`, `q2` the charges (`atoms.charge`) of the pair's two atoms | none |
+| outside the table, two to five endpoints | — | `p1` … `p`*A*, *A* the arity |
+| `atom`, `constraint`, `virtual_site`, and a category outside the table with fewer than two endpoints | none: these rows price no energy, and an `expression` on them is preserved and never evaluated | — |
+
+Every per-type parameter of the style (each column of its table that is not
+`name`, an endpoint or an annotation) and every numeric style-level
+parameter is a variable of its own name, valued **as stored**, in the
+section's `units`: no consumer converts it. `r` is in `units.length`, the
+energy in `units.energy`, and `theta`, `phi`, `chi` in **radians**, as
+Lepton's trigonometry is. An angle-valued parameter is in `units.angle`
+(degrees), so the expression converts it: `angle.harmonic` written out is
+`k*(theta-theta0*0.017453292519943295)^2`, never `k*(theta-theta0)^2`. A
+parameter whose row is null has no value, and a term that needs it cannot be
+priced. An array parameter is not a variable of an expression; a style with
+one is priced by a registered kernel.
+
+**Pair styles.** A pair style's term is a pair of atoms of types *a* and
+*b*, *a* the type of the first atom (`atomi` of a `pairs` row, the lower
+index otherwise). A parameter name `x` binds the **pair's** value: the cross
+row `{a, b}` where it has a non-null `x`, else, for `epsilon` and `sigma`
+(and `epsilon14`, `sigma14`), the style's `mixing` of the self rows
+`{a, a}` and `{b, b}`, else — a like pair — the self row. An unlike pair
+whose `x` no row gives and no `mixing` rule covers cannot be priced. `x1`
+and `x2` bind the self rows of *a* and *b* (OpenMM's per-particle spelling:
+`sqrt(epsilon1*epsilon2)`). A pair style therefore has no parameter named
+`q`, and none whose name is another's followed by `1` or `2`; and a pair
+expression is symmetric under exchanging `1` and `2`. The expression is the
+pair's energy before any weight: the consumer multiplies it by the pair's
+`special_bonds` weight or [pair override](#pair-overrides) scale, and
+prices it for r < `cutoff` when the style states one. The compound functions
+are not available to pair styles.
+
+**Points beyond the coordinate.** A registered category's geometric variable
+is a shorthand: the compound functions are available in every category that
+has points, so `angle.charmm` written out is
+`k*(theta-theta0*0.017453292519943295)^2+k_ub*(distance(p1,p3)-r_ub)^2`.
+A category outside the table has no geometric variable, only its points: a
+three-body Urey–Bradley category is
+`k_ub*(distance(p1,p3)-r_ub)^2`.
 
 ## Collections
 
@@ -542,45 +669,50 @@ stay in the source's own units unless the row says otherwise.
 |--------|----------|---------------------|--------|-----------|
 | LAMMPS | `K` | `K`, deg | deg | as written |
 | GROMACS | `k_b/2` | `k_θ/2`, deg | deg | as written |
-| OpenMM XML | `k/2` | `k/2`, rad → deg | rad → deg | (c1, c2, c3, c4) → (c2, c3, c1, c4) |
+| OpenMM XML | `k/2` | `k/2`, rad → deg | rad → deg | (c1, c2, c3, c4) → (c2, c3, c1, c4); as written under `ordering="charmm"` without a wildcard |
 | OpenFF | `k/2` | `k/2`, deg | deg | `improper.trefoil` |
-| AMBER prmtop | `RK` | `TK`, rad → deg | rad → deg | AMBER order |
+| AMBER prmtop | `RK` | `TK`, rad → deg | rad → deg (±π snapped) | AMBER order; chamber `CHARMM_IMPROPERS` centre first |
 
 ### OpenMM / foyer XML
 
 `units`: `length nm`, `energy kJ/mol`, `angle degree`, `charge e`,
 `mass dalton`. OpenMM's harmonic forces are ½k(x − x0)², so `k` is halved;
-its angles and phases are radians, converted to degrees.
+its angles and phases are radians, converted to degrees. A reader into
+`real` (molrs) also divides energies by 4.184 and multiplies lengths by 10.
+Rows key on `class<n>` or `type<n>` as written; an empty attribute is the
+wildcard `""`, and a row naming neither is refused.
 
 | Source | Section |
 |--------|---------|
-| `<ForceField name combining_rule>` | `name`; `combining_rule` → `params.mixing` of `pair.lj/cut` |
+| `<ForceField name combining_rule>` | `name`; `combining_rule` (foyer) → `params.mixing` of the van-der-Waals pair style; absent → `arithmetic` (OpenMM's Lorentz–Berthelot) |
 | `<Info><Source>` | `source.uri` |
 | `<AtomTypes><Type name class element mass def desc doi overrides>` | `atom.full`: `name`, `class`, `element`, `mass`, `smarts` (`def`), `desc`, `doi`, `overrides` |
 | `<HarmonicBondForce><Bond class1 class2 length k>` | `bond.harmonic`: `itom`, `jtom`, `r0` = length, `k` = k/2; `endpoint_key` `class` (or `type` for `type1`/`type2`) |
 | `<HarmonicAngleForce><Angle … angle k>` | `angle.harmonic`: `theta0` = angle in degrees, `k` = k/2 |
+| `<AmoebaUreyBradleyForce><UreyBradley class1 class2 class3 k d>` | `angle.charmm`, joined with the `<HarmonicAngleForce>` row of the same three labels in either direction, which gives `k` and `theta0` (none: `k` = 0): `k_ub` = k (OpenMM adds a `HarmonicBondForce` term of 2k, so k is already un-halved), `r_ub` = d; into `real`, `k_ub` = k/418.4, `r_ub` = 10·d. A row with a wildcard is refused |
 | `<PeriodicTorsionForce><Proper … periodicityN phaseN kN>` | `dihedral.periodic`: `periodicity<N>`, `phase<N>` in degrees, `k<N>` |
-| `<PeriodicTorsionForce><Improper class1 class2 class3 class4 …>`, `ordering` absent or `"amber"` | `improper.periodic` in AMBER's order: `itom`, `jtom`, `ktom`, `ltom` = class2, class3, class1, class4 (OpenMM prices the dihedral (c2, c3, c1, c4) of its centre `class1`); a writer writes the inverse |
-| the same, `ordering="charmm"` | `improper.periodic`, endpoints as written (OpenMM prices (c1, c2, c3, c4)) |
-| the same, `ordering="smirnoff"` | refused: OpenMM averages three permutations, which no registered style is |
-| `<RBTorsionForce><Proper … c0…c5>` | `dihedral.rb`: `c0`…`c5` |
-| `<AmoebaUreyBradleyForce><UreyBradley class1 class2 class3 k d>` | `angle.charmm`, the row of the same classes as the `<HarmonicAngleForce>` one, which gives `k` and `theta0`: `k_ub` = k (OpenMM adds a `HarmonicBondForce` term of 2k, so k is already un-halved), `r_ub` = d. A reader into `real` (molrs) writes `k_ub` = k/418.4, `r_ub` = 10·d |
-| `<CMAPTorsionForce><Map>` and its `<Torsion class1 … class5 map>` | `cmap.charmm` rows: OpenMM stores `energy[i + N·j]` at φ = i·360°/N, ψ = j·360°/N (origin 0, φ fastest); element `(i, j)` lands at `grid[(i + N/2) mod N][(j + N/2) mod N]` — each index shifted by N/2 and the axes swapped into φ-major. OpenMM interpolates with a natural periodic bicubic spline, so its energies off the grid points differ from LAMMPS's at the interpolation's accuracy |
+| `<PeriodicTorsionForce><Proper … c0 c1 c2 c3>` (CL&P / foyer) | `dihedral.opls`: `k<n>` = c<n−1> |
+| `<PeriodicTorsionForce><Improper class1 class2 class3 class4 …>`, `ordering` absent, `"default"` or `"amber"` | `improper.periodic` in AMBER's order: `itom`, `jtom`, `ktom`, `ltom` = class2, class3, class1, class4 (OpenMM prices the dihedral (c2, c3, c1, c4) of its centre `class1`); a writer writes the inverse |
+| the same, `ordering="charmm"` | without a wildcard, endpoints as written (OpenMM prices (c1, c2, c3, c4)); with one, (c2, c3, c1, c4) as above |
+| the same, `ordering="smirnoff"`, or an `<Improper>` of more than one term | refused: OpenMM averages three permutations, which no registered style is; `improper.periodic` holds one term |
+| `<RBTorsionForce><Proper … c0…c5>` | `dihedral.multi/harmonic`, `a<n+1>` = (−1)ⁿ·cₙ for n = 0…4, when c5 = 0; otherwise `dihedral.nharmonic`, `a1` … `a6` = (−1)ⁿ·cₙ (RB's ψ is φ − 180°, and cos ψ = −cos φ); the constant included. An `<Improper>` of it is refused (no improper style is a cosine polynomial) |
+| `<CustomTorsionForce energy="k*(theta-theta0)^2">` `<Improper>` | `improper.harmonic`: `k` = k, `chi0` = 0; refused unless theta0 = 0, where OpenMM's signed θ and the registry's χ = \|φ\| agree. Endpoints as OpenMM prices them (its default `ordering` here is `charmm`): as written without a wildcard, (c2, c3, c1, c4) with one |
+| `<CustomTorsionForce energy="k*(abs(theta)-theta0)^2">` `<Improper>` | `improper.harmonic`: `k` = k, `chi0` = theta0 in degrees; endpoints as the row above |
+| `<CMAPTorsionForce><Map>` and its `<Torsion class1 … class5 map>` | `cmap.charmm` rows: OpenMM stores `energy[i + N·j]` at φ = i·360°/N, ψ = j·360°/N (origin 0, φ fastest); element `(i, j)` lands at `grid[(i + N/2) mod N][(j + N/2) mod N]` — each index shifted by N/2 and the axes swapped into φ-major; an odd N is refused. OpenMM interpolates with a natural periodic bicubic spline, so its energies off the grid points differ from LAMMPS's at the interpolation's accuracy |
 | `<NonbondedForce coulomb14scale lj14scale>` | `special_bonds` `lj [0, 0, lj14scale]`, `coul [0, 0, coulomb14scale]` |
-| `<NonbondedForce><Atom type charge sigma epsilon>` | `pair.lj/cut` self row (`itom = jtom = type`) with `sigma`, `epsilon`; `charge` → `atom.full.charge`; a `pair.coul/long/pme` style with no rows |
+| `<NonbondedForce><Atom type charge sigma epsilon>` (no `<LennardJonesForce>`) | `pair.lj/cut` self row (`itom = jtom = type`) with `sigma`, `epsilon`, and `mixing` as `<ForceField>` says; `charge` → `atom.full.charge`; a `pair.coul/cut` style with no rows, `coulomb` = 138.93545764438198 (OpenMM's `ONE_4PI_EPS0`, kJ·nm/(mol·e²); 332.06371329919216 in `real`). Neither style has a `cutoff`: OpenMM's cutoff and long-range method are `createSystem` arguments, not file values, so the consumer states them (`coul/long/pme` is not read from the file) |
+| `<LennardJonesForce lj14scale><Atom type sigma epsilon [sigma14 epsilon14]>` | `pair.lj/charmm` self rows (`epsilon14`, `sigma14` where given), `mixing arithmetic`, and `pair.coul/charmm` (`coulomb` as above) in place of `lj/cut` and `coul/cut`: the `<NonbondedForce>` beside it gives the charges and **MUST** have `epsilon` 0 (two Lennard-Jones forces are refused); `special_bonds.lj` `[0, 0, lj14scale]`; `one_four` = `"epsilon14"` when a type's 1-4 parameters differ from its regular ones |
+| `<LennardJonesForce><NBFixPair type1 type2 sigma epsilon>` | a `pair.lj/charmm` cross row, `epsilon14` and `sigma14` null (OpenMM prices the pair's 1-4 with the NBFIX values too: LAMMPS's two-number cross row). An `<NBFixPair>` of one type with itself is refused |
 | a `NonbondedForce` exception (a built system) | a [pair override](#pair-overrides): `charge_product`, `sigma`, `epsilon`, `lj_scale` = `coul_scale` = 1 |
-| `<LennardJonesForce><NBFixPair type1 type2 sigma epsilon>` | no mapping yet (see below) |
-| `<Custom*Force energy>` with `<PerBondParameter>` / `<GlobalParameter>` | a style named by the force, `expression` = energy, per-type columns and `params` |
-| `<Residues>` | not carried |
+| every other `<Custom*Force>` | refused on read: a translator does not guess which style an arbitrary energy is, nor stores one as an unregistered style. Writing an unregistered style that carries an `expression` as the `Custom*Force` of its category, the expression rewritten into OpenMM's units, is the planned writer (molrs ff-ir-02) |
+| `<Script>`, `<InitializationScript>`, and every force OpenMM's `app.ForceField` does not build from this schema (AMOEBA multipoles, GBSA, Drude, …) | refused |
+| `<Residues>`, `<Patches>`, `<Info>` beyond `<Source>` | not carried |
 
-`<NonbondedForce>` holds one `<Atom>` row per type, so a `pair.lj/cut` cross
-row has no form there; OpenMM keeps pair overrides as `<NBFixPair>` rows of a
-`<LennardJonesForce>`, which this mapping does not cover yet. A writer refuses
-a cross row ([Linking a system](#linking-a-system), rule 3): written as an
-`<Atom>` it would replace `itom`'s own parameters. A reader that does not map
-`<NBFixPair>` refuses the file with an error naming it, or skips the
-`<LennardJonesForce>` with a diagnostic that says so; it never drops the
-overrides silently, which would leave each such pair at its mixed value.
+`<NonbondedForce>` holds one `<Atom>` row per type, so a cross row has no
+form there: a writer writes cross rows only as the `<NBFixPair>` rows of a
+`<LennardJonesForce>`, and refuses a `pair.lj/cut` cross row ([Linking a
+system](#linking-a-system), rule 3): written as an `<Atom>` it would replace
+`itom`'s own parameters.
 
 ### OpenFF (SMIRNOFF `.offxml`)
 
@@ -608,24 +740,29 @@ A system parameterized from it names rows by id: `bonds.type = "b1"`,
 
 `units`: `length nm`, `energy kJ/mol`, `angle degree`, `charge e`,
 `mass dalton`. GROMACS's harmonic terms are ½k(x − x0)², so their `k` is
-halved; its angles and phases are degrees and stay degrees.
+halved; its angles and phases are degrees and stay degrees. A reader into
+`real` (molrs) also divides energies by 4.184 and multiplies lengths by 10.
 
 | Source | Section |
 |--------|---------|
-| `[ defaults ] nbfunc comb-rule gen-pairs fudgeLJ fudgeQQ` | `special_bonds` `lj [0, 0, fudgeLJ]`, `coul [0, 0, fudgeQQ]`; comb-rule 2 → `mixing arithmetic`, 3 → `geometric` (comb-rule 1, C6/C12, is an unregistered pair style with `expression`) |
-| `[ atomtypes ] name bond_type at.num mass charge ptype V W` | `atom.full`: `name`, `class` (= bond_type), `atomic_number`, `mass`, `charge`, `ptype`; a self row of the van-der-Waals pair style (`pair.lj/cut`, or `pair.lj/charmm` when the file has `[ pairtypes ]`) with `sigma` = V, `epsilon` = W |
+| `[ defaults ] nbfunc comb-rule gen-pairs fudgeLJ fudgeQQ` | `special_bonds` `lj [0, 0, fudgeLJ]`, `coul [0, 0, fudgeQQ]` (gen-pairs `no`: `lj [0, 0, 1]`, and no pair is generated); comb-rule 2 → `mixing arithmetic`, 3 → `geometric` on the Lennard-Jones style. Comb-rule 1 (C6/C12) and nbfunc 2 (Buckingham) are refused |
+| `[ atomtypes ] name bond_type at.num mass charge ptype V W` | `atom.full`: `name`, `class` (= bond_type), `atomic_number`, `mass`, `charge`, `ptype`; a self row of the Lennard-Jones style (`pair.lj/cut`, or `pair.lj/charmm` when `[ pairtypes ]` change the 1-4 pairs, below) with `sigma` = V, `epsilon` = W |
+| `[ nonbond_params ] i j funct V W`, funct 1 | a cross row of that style: `itom`, `jtom` = the type names i, j; `sigma` = V, `epsilon` = W. `j i` restating `i j` with the same V, W is the same row; with different ones the file is refused. Other funct codes have no mapping |
+| `[ pairtypes ] i j funct V W`, funct 1 | `pair.lj/charmm` and `pair.coul/charmm`, `one_four = "epsilon14"`: on the self rows `sigma14` = σ and `epsilon14` = ε/fudgeLJ, and cross rows where the `mixing` of the self rows would not give the pair GROMACS's 1-4 parameters (to 10⁻¹²), so that `special_bonds` × LJ(ε₁₄, σ₁₄) is GROMACS's 1-4 energy for every type pair. A pairtype equal to the generated pair changes nothing (`pair.lj/cut` stays). fudgeLJ 0 with `[ pairtypes ]` is refused |
 | `[ bondtypes ]` funct 1 / 3 | `bond.harmonic` (`r0` = b0, `k` = k_b/2) / `bond.morse` (`r0`, `d0` = D, `alpha` = β) |
 | `[ angletypes ]` funct 1 | `angle.harmonic` (`theta0` = θ₀, `k` = k_θ/2) |
 | `[ angletypes ]` funct 5 `θ₀ k_θ r13 k_UB` | `angle.charmm` (`theta0` = θ₀, `k` = k_θ/2, `r_ub` = r13, `k_ub` = k_UB/2) |
-| `[ dihedraltypes ]` funct 1 / 9 | `dihedral.periodic` (`phase` = φₛ); funct 9 rows with equal endpoints become terms `k<m>`, `periodicity<m>`, `phase<m>` of one row |
-| `[ dihedraltypes ]` funct 2 | `improper.harmonic`, `k` = k_ξ/2, `chi0` = ξ₀ (agrees only at ξ₀ = 0) |
-| `[ dihedraltypes ]` funct 3 / 4 | `dihedral.rb` (`c0`…`c5`) / `improper.periodic`, endpoints as written (GROMACS prices φ(i, j, k, l)) |
-| `[ nonbond_params ] i j funct V W`, funct 1 | a cross row in the `pair` table that holds the `[ atomtypes ]` self rows: `itom`, `jtom` = the type names i, j; `sigma` = V, `epsilon` = W. `j i` restating `i j` with the same V, W is the same row; with different ones the file is refused. Other funct codes have no mapping |
-| `[ pairtypes ] i j funct V W`, funct 1 | the `pair.lj/charmm` cross row of i, j (the one `[ nonbond_params ]` gives, or a new one whose `epsilon`, `sigma` are null): `sigma14` = V, `epsilon14` = W |
-| `[ pairs ]` funct 1 with parameters (a molecule's) | a [pair override](#pair-overrides): `sigma`, `epsilon`, `lj_scale` = 1 |
-| `[ constrainttypes ]` funct 1 | `constraint.fixed` (`r0`) |
-| `[ cmaptypes ]` | `cmap.charmm` (CHARMM's grid; a reader is checked against a GROMACS energy before it is trusted) |
+| `[ dihedraltypes ]` funct 1 | `dihedral.periodic`, one term (`phase` = φₛ) |
+| `[ dihedraltypes ]` funct 9 | `dihedral.periodic`: the consecutive rows on equal endpoints are the terms `k<m>`, `periodicity<m>`, `phase<m>` of one row, in file order |
+| `[ dihedraltypes ]` funct 3 (Ryckaert–Bellemans) | `dihedral.multi/harmonic`, `a<n+1>` = (−1)ⁿ·Cₙ, the constant included; `dihedral.nharmonic` (`a1` … `a6`) when C₅ ≠ 0 |
+| `[ dihedraltypes ]` funct 5 (Fourier) | `dihedral.opls`, `k<n>` = Cₙ |
+| `[ dihedraltypes ]` funct 2 | `improper.harmonic`, centre first (endpoints as written): `k` = k_ξ/2, `chi0` = ξ₀ ∈ {0°, 180°} — GROMACS's signed form equals k(\|φ\| − chi0)² there and nowhere else, so another ξ₀ is refused |
+| `[ dihedraltypes ]` funct 4 | `improper.periodic`, endpoints as written (AMBER's order; GROMACS prices φ(i, j, k, l)) |
+| `[ cmaptypes ]` funct 1 | `cmap.charmm`, the grid as stored (φ-major from −180°, [CMAP](#cmap)) |
+| `[ pairs ]` funct 1 / 2 with parameters (a molecule's) | [pair overrides](#pair-overrides): funct 1 `sigma`, `epsilon`, `lj_scale` = 1, `coul_scale` = fudgeQQ; funct 2 also `charge_product` and its own fudgeQQ |
+| `[ constrainttypes ]` funct 1, `[ constraints ]`, `[ settles ]` | `constraint.fixed` (`r0`); the system's `constraints` |
 | endpoint `X` | `""` |
+| virtual sites, restraints, polarization, free-energy B states | refused, by name |
 | molecule sections | the `system` ([conventions](conventions.md)) |
 
 ### LAMMPS coefficients
@@ -671,17 +808,34 @@ style with no LAMMPS form.
 `units`: `length angstrom`, `energy kcal/mol`, `angle degree`, `charge e`,
 `mass dalton`. AMBER's force constants are already un-halved; its angles and
 phases are radians, converted to degrees. A type name is the atom's
-`AMBER_ATOM_TYPE`; its LJ class is its `ATOM_TYPE_INDEX`.
+`AMBER_ATOM_TYPE` (`<name>~<class>` where one name stands for two LJ classes
+or masses); its LJ class is its `ATOM_TYPE_INDEX`.
 
 | Source | Section |
 |--------|---------|
 | `BOND_FORCE_CONSTANT` RK, `BOND_EQUIL_VALUE` | `bond.harmonic`: `k` = RK, `r0` |
 | `ANGLE_FORCE_CONSTANT` TK, `ANGLE_EQUIL_VALUE` | `angle.harmonic`: `k` = TK, `theta0` in degrees |
-| `DIHEDRAL_FORCE_CONSTANT` PK, `DIHEDRAL_PERIODICITY`, `DIHEDRAL_PHASE` | `dihedral.periodic` (`improper.periodic`, in AMBER's order, for a negative fourth atom index): `k` = PK, `periodicity`, `phase` in degrees |
-| `SCEE_SCALE_FACTOR`, `SCNB_SCALE_FACTOR` (one value over the torsions; absent, 1.2 and 2.0) | `special_bonds` `coul [0, 0, 1/SCEE]`, `lj [0, 0, 1/SCNB]`; a torsion whose values differ gives its 1-4 pair `coul_scale`, `lj_scale` ([pair overrides](#pair-overrides)) |
+| `DIHEDRAL_FORCE_CONSTANT` PK, `DIHEDRAL_PERIODICITY`, `DIHEDRAL_PHASE` (a proper torsion) | `dihedral.periodic`: the rows of one quartet, and each negative-`PN` chain, are one type, terms `k<m>` = PK, `periodicity<m>`, `phase<m>` in degrees, sorted by periodicity |
+| the same, a negative fourth atom index (an improper) | `improper.periodic` in AMBER's order (centre third, as written). An improper of several terms (several rows, or a chain) is one type per term, named `<quartet>@<n>` (`<quartet>` the name a one-term improper of those types gets, *n* the periodicity), and one `impropers` row per term, since `improper.periodic` holds one term; two terms of one improper with one periodicity are refused |
+| a `DIHEDRAL_PHASE` within 4·10⁻³ rad of ±π | ±180° exactly, as sander's `rdparm` snaps it (tleap prints π as `3.14159400`) |
+| `SCEE_SCALE_FACTOR`, `SCNB_SCALE_FACTOR` (per torsion type; absent, 1.2 and 2.0) | `special_bonds` `coul [0, 0, 1/SCEE]`, `lj [0, 0, 1/SCNB]` of the divisors most 1-4 rows carry; every 1-4 pair weighted otherwise (another divisor, as GLYCAM's 1.0 beside ff14SB's 1.2 / 2.0; a pair two rows list; a 1-4 pair no row lists) is a `pairs` row of the system with its `coul_scale`, `lj_scale` ([pair overrides](#pair-overrides)), only the differing cells set |
 | `LENNARD_JONES_ACOEF` A, `LENNARD_JONES_BCOEF` B on the diagonal of `NONBONDED_PARM_INDEX` | `pair.lj/cut` self row of every type name on that LJ class: `sigma` = (A/B)^{1/6}, `epsilon` = B²/(4A); `params.mixing arithmetic` |
 | an off-diagonal A, B that is the Lorentz–Berthelot mix of its two classes' self terms | no row: `mixing` gives it |
 | an off-diagonal A, B that is not (NBFIX, ParmEd `changeLJPair`) | a cross row, with σ and ε of that entry, for every pair of type names on the two LJ classes, endpoints in byte order |
+| `CHARGE` | `atom.full.charge` = CHARGE ÷ 18.2223; `pair.coul/cut`, `coulomb` 332.0522173 (AMBER's constant, 18.2223²) |
+| polarizable (`IPOL > 0`), 12-6-4 (`LENNARD_JONES_CCOEF`), non-zero 10-12 (`HBOND_ACOEF`/`BCOEF`), perturbed, solvent-cap and `IFBOX = 3` files | refused, by name |
+
+A **chamber** prmtop (ParmEd's `chamber`, `%FLAG CTITLE`) holds a CHARMM
+force field; its additional sections map as:
+
+| Source | Section |
+|--------|---------|
+| `ANGLE_*` with `CHARMM_UREY_BRADLEY` (i, k, type), `CHARMM_UREY_BRADLEY_FORCE_CONSTANT` K_ub, `CHARMM_UREY_BRADLEY_EQUIL_VALUE` | every angle `angle.charmm`: `k` = TK, `theta0` in degrees, and `k_ub` = K_ub, `r_ub` of the Urey–Bradley term on its end atoms (0 and 0 without one); a term on no angle, or on several, is refused |
+| `CHARMM_IMPROPERS`, `CHARMM_IMPROPER_FORCE_CONSTANT` K_ψ, `CHARMM_IMPROPER_PHASE` ψ₀: K_ψ(ψ − ψ₀)² | `improper.harmonic`, centre first, as written: `k` = K_ψ, `chi0` = ψ₀ in degrees; ψ₀ other than 0° or 180° is refused (the registry prices \|φ\|) |
+| `CHARMM_CMAP_*` (and the `CMAP_*` of an ff19SB file) | `cmap.charmm`, one type per map, named by its five atom types (qualified `@<residue>` of the Cα where one name stands for two maps); the system's `cmaps` |
+| `LENNARD_JONES_ACOEF`/`BCOEF` | `pair.lj/charmm` self and cross rows (in place of `pair.lj/cut`), as above |
+| `LENNARD_JONES_14_ACOEF`/`BCOEF` | `pair.lj/charmm` `epsilon14`, `sigma14` of the same rows (cross rows where the entry is not Lorentz–Berthelot), and `one_four` = `"epsilon14"` when the 1-4 table differs from the regular one |
+| `CHARGE` | `atom.full.charge` = CHARGE ÷ √332.0716; `pair.coul/charmm`, `coulomb` 332.0716 (CHARMM's constant) |
 
 ## Reading a version-1 record
 
@@ -795,14 +949,18 @@ The force-field suite (`module = "forcefield"`) pins down:
 - `ff-per-instance-style`: a style with no rows beside relation columns that
   carry its parameters;
 - `ff-unknown-style-with-expression` and `ff-unknown-category` (a
-  `cross_term.example` table): preserved verbatim;
+  `cross_term.example` table, and a three-endpoint `urey_bradley.harmonic`
+  whose expression is `k_ub*(distance(p1,p3)-r_ub)^2`): preserved verbatim;
+- `ff-array-params`: a `dihedral.table/linear` table's `f64[T, 12]` `table`
+  (one row null) and a bond style's `f64[T, 2, 3]` parameter come back bit
+  for bit;
 - `ff-cmap-grid`: a `cmap` table's five endpoints and its `f64[T, N, N]`
   `grid` come back bit for bit;
 - `ff-angle-charmm`: an `angle.charmm` table (`k`, `theta0`, `k_ub`, `r_ub`)
   beside a `dihedral.charmm` one with `w`;
 - `ff-pair-lj-charmm`: a `pair.lj/charmm` table whose self rows carry or
-  leave null `epsilon14` / `sigma14`, and a cross row that carries only
-  them (a GROMACS `[ pairtypes ]` row);
+  leave null `epsilon14` / `sigma14`, a cross row that carries only
+  them (a GROMACS `[ pairtypes ]` row), and `one_four = "epsilon14"`;
 - `ff-units-preserved`: `nm` / `kJ/mol` numbers come back unconverted;
 - `v1-forcefield-converted`: a version-1 section (molrs 0.15's units
   statement, `angle radian`) with every style the rules convert — halved
@@ -826,8 +984,10 @@ The force-field suite (`module = "forcefield"`) pins down:
   `reject-ff-class-key-without-class`, `reject-ff-pair-conflict` (`B`–`A`
   restating `A`–`B` with another `epsilon`), `reject-ff-cmap-grid-shape` (a
   non-square `f64[T, 3, 4]` grid), `reject-ff-cmap-grid-nonfinite` (a `NaN`
-  in a non-null row), `reject-ff-grid-outside-cmap` (a `grid` with trailing
-  axes on a bond table); and, of version 1, `reject-v1-pair14`,
+  in a non-null row), `reject-ff-array-param-nonfinite` (a `NaN` in a
+  non-null row of a bond table's `f64[T, 2, 2]` parameter),
+  `reject-ff-array-param-string` (a `string[T, 2]` column),
+  `reject-ff-lj-charmm-one-four` (`one_four = "both"`); and, of version 1, `reject-v1-pair14`,
   `reject-v1-multiterm-improper-periodic`,
   `reject-v1-expression-on-converted-style`,
   `reject-v1-unknown-angular-style` and `reject-v1-preset-angle-degree` (a

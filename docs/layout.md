@@ -611,7 +611,8 @@ peroxide.mrec/
 - **A table has one row per type.** `name` labels the row; `itom` … `mtom`
   name the atom types at its endpoints, as many as the category has (none
   for `atom`, two for `bond`, four for `dihedral`, five for `cmap`). Every other column is a
-  parameter, `f64` or `string`.
+  parameter, `f64` or `string`; an `f64` parameter may be an array, `f64[T, S…]` (a `cmap`
+  table's `grid`, a tabulated potential's values).
 - **The empty string is a wildcard.** The second torsion row,
   `X-O1-O1-X`, has `""` at both ends: it matches any type there.
 - **Parameters may be strings.** `atom.full/ptype` is one.
