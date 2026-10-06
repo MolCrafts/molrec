@@ -93,11 +93,12 @@ numbers are in the reduced scale of the producer's choosing.
 `units` **MUST** carry `preset` or at least one quantity. When both a preset
 and a quantity are present they **MUST** agree (pint-equivalent strings); a
 reader refuses a document where they do not. So `"angle": "radian"` beside a
-preset is refused: a section that states it holds radian angles (a writer of
-the earlier radian convention stated it so), and reading them as the preset's
-degrees would be wrong. A style whose parameters need a
-quantity that `units` does not resolve is not refused on read; a validator
-**SHOULD** report it.
+preset is refused in a version-2 record: a section that states it holds
+radian angles, and reading them as the preset's degrees would be wrong. (A
+version-1 record states exactly that, and is converted on read instead:
+[Reading a version-1 record](#reading-a-version-1-record).) A style whose
+parameters need a quantity that `units` does not resolve is not refused on
+read; a validator **SHOULD** report it.
 
 `source`
 
@@ -329,9 +330,10 @@ column, leaves the style's value:
 
 An explicit parameter is final: it is used as given, never mixed or looked
 up again. The weight still applies to it, and the weight is
-`lj_scale` / `coul_scale` where the row states one and the `special_bonds`
-weight of the pair's class otherwise; a stated scale replaces that weight,
-it does not multiply it. So an OpenMM exception `(chargeProd, sigma,
+`lj_scale` / `coul_scale` where the row states one; otherwise the sum of the
+`dihedral.charmm` `w` of the dihedrals whose end atoms the pair is, when that
+is positive; otherwise the `special_bonds` weight of the pair's class. A
+stated scale replaces that weight, it does not multiply it. So an OpenMM exception `(chargeProd, sigma,
 epsilon)` is `charge_product`, `sigma`, `epsilon` with both scales `1`; a
 GROMACS `[ pairs ]` funct-1 row with its own parameters is `sigma`,
 `epsilon`, `lj_scale` `1`; an AMBER torsion whose `SCEE` / `SCNB` differ from
@@ -352,10 +354,11 @@ A style named here **MUST** mean exactly this energy and these parameters.
 A style not named here **SHOULD** carry an `expression`; a reader preserves it
 either way.
 
-The registry's conventions are LAMMPS's. For every style LAMMPS has, the
-energy expression, its factors (no hidden ½), the parameters, their meanings
-and their units are those of the LAMMPS style of the same name or the one the
-row names, so a LAMMPS coefficient line is stored as written. Every other
+The registry is the force-field IR, which adopts LAMMPS's definitions as its
+standard. For every style LAMMPS has, the energy expression, its factors (no
+hidden ½), the parameters, their meanings and their units are those of the
+LAMMPS style of the same name or the one the row names, so a LAMMPS
+coefficient line is stored as written. Every other
 source converts at its translator ([Format mappings](#format-mappings)),
 never here. The names are LAMMPS's symbols lower-cased, except where LAMMPS
 spells two things alike: a phase is `phase` (LAMMPS `d` of `dihedral charmm`,
@@ -385,13 +388,15 @@ parameter enters it converted from degrees.
 | `dihedral.charmm` | k·[1 + cos(n·φ − γ)], and the 1-4 pair of its end atoms weighted by `w` (below) | `k` E, `periodicity` 1, `phase` deg, `w` 1 | — |
 | `dihedral.harmonic` | k·[1 + sign·cos(n·φ)] | `k` E, `sign` 1 (±1), `periodicity` 1 | — |
 | `dihedral.multi/harmonic` | Σₙ₌₁⁵ aₙ·cosⁿ⁻¹ φ | `a1`…`a5` E | — |
+| `dihedral.nharmonic` | Σᵢ₌₁ᴺ aᵢ·cosⁱ⁻¹ φ | `a1`…`aN` E: contiguous from `a1`, N ≥ 1 (a gap is refused) | — |
 | `dihedral.class2` | Σₙ₌₁³ kₙ·[1 − cos(n·φ − phiₙ)] | `k1`, `phi1`, `k2`, `phi2`, `k3`, `phi3` (E, deg) | — |
 | `improper.harmonic` | k·(χ − chi0)² | `k` E/rad², `chi0` deg | — |
 | `improper.cvff` | k·[1 + sign·cos(n·φ)] | `k` E, `sign` 1 (±1), `periodicity` 1 | — |
 | `improper.periodic` | k·[1 + cos(n·φ − γ)] | `k` E, `periodicity` 1, `phase` deg | — |
 | `improper.trefoil` | ⅓·Σ over the three orderings of the outer atoms, central atom `jtom`, of the `dihedral.periodic` energy | as `dihedral.periodic` | — |
 | `pair.lj/cut` | C·ε·[(σ/r)ⁿ − (σ/r)ᵐ], C = n/(n−m)·(n/m)^{m/(n−m)}, r < cutoff; n = 12, m = 6 gives 4ε[(σ/r)¹² − (σ/r)⁶] | `epsilon` E, `sigma` L | `cutoff` L, `mixing`, `n` 1, `m` 1, `shift` 1 (non-zero: shifted to 0 at cutoff) |
-| `pair.lj/charmm` | 4ε[(σ/r)¹² − (σ/r)⁶], r < cutoff; the 1-4 pair a `dihedral.charmm` prices takes `epsilon14`, `sigma14` | `epsilon` E, `sigma` L, `epsilon14` E, `sigma14` L | `cutoff` L, `mixing` (absent: `arithmetic`) |
+| `pair.lj/charmm` | 4ε[(σ/r)¹² − (σ/r)⁶]·S(r), r < cutoff; the force is its gradient. The 1-4 pair a `dihedral.charmm` prices takes `epsilon14`, `sigma14` | `epsilon` E, `sigma` L, `epsilon14` E, `sigma14` L | `inner` L, `cutoff` L (both required), `mixing` (absent: `arithmetic`) |
+| `pair.coul/charmm` | coulomb·qᵢqⱼ/(dielectric·r)·S(r), r < cutoff; the force is LAMMPS's switched force C·qᵢqⱼ·S(r)/r² (C = coulomb/dielectric), not the gradient of the energy | — (charges from `atoms.charge`) | `coulomb` E·L/Q², `dielectric` 1, `inner` L, `cutoff` L |
 | `pair.lj/class2` | ε·[2(σ/r)⁹ − 3(σ/r)⁶] | `epsilon` E, `sigma` L | `cutoff` L, `mixing` |
 | `pair.buck` | a·e^{−r/rho} − c/r⁶ | `a` E, `rho` L, `c` E·L⁶ | `cutoff` L |
 | `pair.morse` | d0·[(1 − e^{−alpha(r − r0)})² − 1] | `d0` E, `alpha` 1/L, `r0` L | `cutoff` L |
@@ -405,9 +410,18 @@ parameter enters it converted from degrees.
 | `drude.harmonic` | k·\|r_core − r_drude\|² (LAMMPS's harmonic core–Drude bond: k is half the Drude spring constant); polarizability alpha; Thole screening thole | `k` E/L², `alpha` L³, `thole` 1 | — |
 | `cmap.charmm` | the map `grid` at (φ, ψ), interpolated as LAMMPS `fix cmap` does ([CMAP](#cmap)) | `grid` E (N × N) | — |
 
+S(r) is CHARMM's switch, 1 below `inner`, 0 at `cutoff`, and between them
+
+S(r) = (r_c² − r²)²·(r_c² + 2r² − 3r_in²) / (r_c² − r_in²)³,
+
+r_in = `inner`, r_c = `cutoff` — LAMMPS `pair_style lj/charmm/coul/charmm
+inner outer [inner2 outer2]`, whose two halves are `pair.lj/charmm` and
+`pair.coul/charmm` (`inner2 outer2` when the Coulomb half's cutoffs differ).
+
 Special classes: `pair.lj/cut`, `pair.lj/charmm`, `pair.lj/class2`,
 `pair.buck`, `pair.morse` take `special_bonds.lj`; `pair.coul/cut`,
-`pair.coul/long/pme` and `pair.thole` take `special_bonds.coul`. An
+`pair.coul/charmm`, `pair.coul/long/pme` and `pair.thole` take
+`special_bonds.coul`. An
 unregistered pair style takes `lj` unless its `params.special` is `"coul"`.
 
 A `pair.lj/charmm` self row whose `epsilon14` or `sigma14` is null has the
@@ -423,10 +437,19 @@ besides its torsion, the 1-4 pair of its end atoms (those of `itom` and
 `pair.lj/charmm` 1-4 parameters of their types and C the Coulomb constant of
 `units`. It is used with `special_bonds` 1-4 weights of `0`, so the pair
 styles do not price that pair again, and it needs a `pair.lj/charmm` style
-(as LAMMPS needs `pair_style lj/charmm/coul/*`). CHARMM sets w = 1, ½ for a
-torsion in a six-membered ring and 0 in a four- or five-membered one, so each
-1-4 pair is counted once; `w = 0` prices the torsion alone (AMBER's use of
-the style).
+and an electrostatic style (as LAMMPS needs `pair_style lj/charmm/coul/*`);
+a consumer that prices `w > 0` without them, or beside other 1-4 weights,
+refuses the force field, as LAMMPS does, and `w` is in [0, 1]. The 1-4 term
+has no cutoff and no switch. A pair at the ends of several dihedrals takes
+the sum of their `w`. CHARMM sets w = 1, ½ for a torsion in a six-membered
+ring and 0 in a four- or five-membered one, so each 1-4 pair is counted once;
+`w = 0` prices the torsion alone (AMBER's use of the style).
+
+**Precedence**, per pair and per quantity: a [pair override](#pair-overrides)
+beats `w`, and `w` beats `special_bonds`. For a pair at the ends of `w > 0`
+dihedrals, ε₁₄, σ₁₄, qᵢqⱼ and the weight Σw apply unless the pair's `pairs`
+row states its own `epsilon`, `sigma`, `charge_product`, `lj_scale` or
+`coul_scale`; a stated scale **replaces** Σw, it does not multiply it.
 
 **Improper atom order.** An `improper` row prices the dihedral of its atoms
 in the order listed, and which listed atom is the centre is the style's:
@@ -439,6 +462,18 @@ in the order listed, and which listed atom is the centre is the style's:
 
 A system's `impropers` row lists its atoms in the order of its type's
 endpoints.
+
+**Torsion forms.** Every `dihedral` style above and the dihedral-angle
+`improper` styles (`periodic`, `cvff`) are finite Fourier series in φ, so
+one form converts to another exactly when the target can hold the series —
+its *image condition* (no sine term for `opls`, `multi/harmonic`,
+`nharmonic` and the signed-cosine forms; orders ≤ 3, ≤ 4 or ≤ 5 where the
+form has that many terms; one order for the single-term styles) — and a
+translator refuses a conversion outside it, naming the order that prevents
+it. The constant of the series moves no force and is not part of the
+condition. `improper.harmonic` is no Fourier series and converts to none.
+molrs's guide lists every form's coefficients and conditions:
+[Torsion forms and their exact conversions](https://docs.molcrafts.org/molrs/guides/forcefield-ir/#torsion-forms-and-their-exact-conversions).
 
 In `virtual_site` rows the constructed site is `atomi` of its
 `virtual_sites` row and x_j, x_k, x_l are the positions of `atomj`, `atomk`,
@@ -456,6 +491,19 @@ an N × N map of energies (CHARMM: N = 24, a 15° step), **φ-major**: element
 whose `# phi` blocks is one φ row of N ψ values. Between the grid points the
 energy is LAMMPS's bicubic interpolation, with the derivatives LAMMPS
 precomputes from periodic cubic splines of the map.
+
+**Map ids and LAMMPS files.** A LAMMPS `fix cmap` file holds its maps one
+after the other; a reader names them `"1"` … `"K"` in file order, so map *t*
+is crossterm type *t*, and a data file's `CMAP` section row
+`index type a1 … a5` is a `cmaps` row whose `type_id` is *t* and whose `type`
+names row `"t"`. A writer writes the maps the system's `cmaps` rows use, in
+the order of their type ids, each in the layout above (CHARMM's own file
+comes back line for line). LAMMPS reads only 24 × 24 maps (15°) and at most
+six of them (`CMAPDIM`, `CMAPMAX`); that is an engine limit, not a format
+limit: a `cmap` table holds any N ≥ 2 and any number of rows, and a writer to
+LAMMPS refuses a table it cannot hold — another N, a seventh map — naming the
+limit, rather than resampling or dropping a map. A crossterm whose dihedral
+plane is degenerate prices nothing, as in LAMMPS.
 
 ## Expressions
 
@@ -486,7 +534,7 @@ into it. A record of a collection carries no `forcefield` of its own. The
 
 Informative. How the common sources map onto this section. "→" names the
 table and column a source item lands in. Every translator writes the
-registry's conventions, which are LAMMPS's: an un-halved harmonic `k`, angle
+IR's definitions, which follow LAMMPS: an un-halved harmonic `k`, angle
 values in degrees, force constants per radian. Lengths, energies and charges
 stay in the source's own units unless the row says otherwise.
 
@@ -599,11 +647,12 @@ name of its slot. No coefficient converts.
 | `dihedral_style charmm` `K n d w` | `dihedral.charmm`: `k`, `periodicity`, `phase` = d, `w` |
 | `dihedral_style harmonic` `K d n` | `dihedral.harmonic`: `k`, `sign` = d, `periodicity` |
 | `dihedral_style multi/harmonic` `A1…A5` | `dihedral.multi/harmonic`: `a1`…`a5` |
+| `dihedral_style nharmonic` `N A1…AN` | `dihedral.nharmonic`: `a1`…`aN` |
 | `dihedral_style class2` `K1 φ1 K2 φ2 K3 φ3` | `dihedral.class2` (its `mbt` / `ebt` / `at` / `aat` / `bb13` terms have no mapping) |
 | `improper_style harmonic` `K χ0` | `improper.harmonic`: `k` = K, `chi0` |
 | `improper_style cvff` `K d n` | `improper.cvff`: `k`, `sign` = d, `periodicity`; a writer writes an `improper.periodic` row of one term with γ ∈ {0°, 180°} as `cvff` (`K = k`, `d = cos γ`, `n`), atoms in the row's (AMBER) order |
 | `pair_style lj/cut/coul/long rc` / `pair_coeff i j ε σ` | `pair.lj/cut` (`params.cutoff` = rc; row `itom` i, `jtom` j: a self row for i = j, a cross row otherwise) and `pair.coul/long/pme`. A later `pair_coeff` for the same pair, in either order, replaces the earlier one, as in LAMMPS, so the table holds one row per pair. A cross `pair_coeff` with a wildcard (`pair_coeff c3 * …`) has no mapping and is refused, not expanded |
-| `pair_style lj/charmm/coul/charmm` or `lj/charmm/coul/long` / `pair_coeff i j ε σ ε14 σ14` | `pair.lj/charmm` (`epsilon`, `sigma`, `epsilon14`, `sigma14`; `mixing arithmetic` unless `pair_modify mix` says otherwise) and the electrostatic style |
+| `pair_style lj/charmm/coul/charmm inner outer [inner2 outer2]` / `pair_coeff i j ε σ [ε14 σ14]` | `pair.lj/charmm` (`epsilon`, `sigma`, `epsilon14`, `sigma14` — the 1-4 pair `ε`, `σ` when the line gives two numbers; `params.inner` = inner, `params.cutoff` = outer, `mixing arithmetic` unless `pair_modify mix` says otherwise) and `pair.coul/charmm` (`inner2`, `outer2`, or `inner`, `outer` when absent). A data file's `Pair Coeffs # lj/charmm/coul/charmm` states no cutoffs and has no mapping on its own; `lj/charmm/coul/long` has none yet |
 | `pair_style morse` `D0 alpha r0` | `pair.morse`: `d0`, `alpha`, `r0` |
 | data file `Pair Coeffs` `t ε σ` / `PairIJ Coeffs` `i j ε σ` | as `pair_coeff t t ε σ` / `pair_coeff i j ε σ`: `PairIJ Coeffs` rows with i ≠ j are cross rows |
 | `pair_modify mix <rule>` | `params.mixing` |
@@ -634,6 +683,95 @@ phases are radians, converted to degrees. A type name is the atom's
 | an off-diagonal A, B that is the Lorentz–Berthelot mix of its two classes' self terms | no row: `mixing` gives it |
 | an off-diagonal A, B that is not (NBFIX, ParmEd `changeLJPair`) | a cross row, with σ and ε of that entry, for every pair of type names on the two LJ classes, endpoints in byte order |
 
+## Reading a version-1 record
+
+`molrec_version` 2 is the version in which the registry became the
+force-field IR as it stands above. Version 1 gave some of the same names
+other meanings: its harmonic terms were ½k(x − x0)², its angle values and
+the angle part of its force constants were in `units.angle`, which was the
+**radian** in every preset, and some styles had other names. A reader of
+version 2 **MUST NOT** read a version-1 record as version 2: it **MUST**
+either convert it exactly, by the rules below, or refuse it. A store without
+`molrec_version` predates version 1 and is read by the same rules
+([Metadata](overview.md#metadata)). The rules apply to the `forcefield`
+section and to every frame of the record (`system`, `frame`, each
+trajectory frame) and, for a [collection](collection.md) of version 1, to its
+force field and every record. `meta` is handed back as stored.
+
+### The angle unit
+
+Version 1's angle unit *U* is `units.angle` when stated, else the radian
+(every version-1 preset's angle, `lj` included, which states nothing), else —
+neither a preset nor an `angle` — none. A version-1 document stating an
+`angle` other than the radian beside a preset was invalid in version 1 and is
+refused. Converted, `units.angle` is `degree` (absent when *U* is none). In
+what follows, an **angle value** v in *U* becomes v·180/π when *U* is the
+radian (the multiplication by the double nearest 180/π; a reader **MAY**
+refuse any *U* other than the radian and the degree) and stays v when *U* is
+the degree or none; a **constant per Uⁿ** becomes per radianⁿ — unchanged for
+the radian or none, multiplied by 180/π *n* times for the degree.
+
+### The section
+
+| Version-1 style | Converted |
+|-----------------|-----------|
+| `bond.harmonic`, `drude.harmonic` | `k` × ½ |
+| `angle.harmonic` | `k` × ½, a constant per U²; `theta0` an angle value |
+| `angle.class2` | `theta0` an angle value; `k2`, `k3`, `k4` constants per U², U³, U⁴ |
+| `dihedral.periodic`, `improper.trefoil` | `phase`, `phase<m>` angle values |
+| `dihedral.charmm`, `improper.periodic` | `phase` an angle value |
+| `dihedral.class2` | `phi1`, `phi2`, `phi3` angle values |
+| `improper.harmonic` | `chi0` an angle value; `k` a constant per U² |
+| `bond.morse` | `D` renamed `d0` |
+
+Version 1 also left styles outside its registry to their producers. Those
+the reference implementation (molrs ≤ 0.15) wrote convert too:
+
+| Version-1 style | Converted |
+|-----------------|-----------|
+| `dihedral.fourier` | the style is `dihedral.periodic` (its table moves to `dihedral.periodic`; a record holding both is refused) and converts as it |
+| `pair.morse` | `D0` renamed `d0` |
+| `pair.thole` | `a_thole` renamed `damp` |
+| `angle.mmff_angle`, `angle.uff_angle` | `theta0` an angle value |
+| `improper.mmff_oop`, `improper.uff_inversion` | the centre was listed second: `itom` and `jtom` swap |
+
+A rename onto a column the table already has is refused. Every other style
+keeps its numbers — those of version 1's registry, which meant the same
+(`dihedral.charmm`'s `w` was the same 1-4 weight; version 1 did not say a
+dihedral prices it), and those of the non-angular categories (`atom`,
+`pair`, `cmap`, …), whose numbers hold no angle. Refused, because version 2
+has no exact form for them:
+
+- a `pair14` style: version 1 priced the 1-4 pairs from it, unweighted, and
+  version 2 has no force-field form for that;
+- an `improper.periodic` table with per-term columns (`k<m>`,
+  `periodicity<m>`, `phase<m>`): version 2's is one term;
+- an `expression` on a style the rules above convert: it is written in
+  version 1's meaning of the parameters;
+- a style of an angular category (`angle`, `dihedral`, `improper`) that is
+  neither in a registry nor above and carries a parameter or an expression:
+  its angle values and per-angle constants cannot be told from its other
+  numbers.
+
+### Frames
+
+A relation row's parameter columns ([Linking a system](#linking-a-system),
+rule 4) are parameters of its style, and convert as the style's parameter of
+the same name: the row's style is its `style` cell, else every table of its
+category whose `name` column holds its `type` (rule 2). Two resolved styles
+that would convert a non-null cell differently, and a cell the rules rename,
+are refused. A `style` cell naming a renamed style names the new one. Columns
+named as angle values (`theta0`, `chi0`, `phase`, `phase<m>`, `phi1` …
+`phi3`) are angle values in every style that has them, and convert so
+whether or not the row resolves — with *U* the radian when the record has no
+force field. An `impropers` row of an out-of-plane style above swaps
+`atomi` and `atomj`; one that resolves to no style is an out-of-plane row
+when it carries `koop` (MMFF) or `K` (UFF), the per-instance parameters of
+those styles. A null cell is not converted.
+
+A writer writes version 2 only; a version-1 trajectory is read, never
+appended to.
+
 ## Conformance
 
 The force-field suite (`module = "forcefield"`) pins down:
@@ -641,7 +779,7 @@ The force-field suite (`module = "forcefield"`) pins down:
 - `ff-minimal`: a name, `units` and one atom style round-trip;
 - `ff-round-trip`: atom, bond, angle, multi-term dihedral, improper, two pair
   styles with `mixing`, `special_bonds` and `source` round-trip exactly, its
-  numbers in the registry's conventions (LAMMPS's `K`, degrees);
+  numbers as the IR defines them (LAMMPS's `K`, degrees);
 - `ff-wildcard-endpoints`: `""` endpoints survive;
 - `ff-absent-params`: a parameter some rows lack is null there, not filled;
 - `ff-string-params`: `class`, `element`, `smarts` and a non-canonical string
@@ -666,6 +804,15 @@ The force-field suite (`module = "forcefield"`) pins down:
   leave null `epsilon14` / `sigma14`, and a cross row that carries only
   them (a GROMACS `[ pairtypes ]` row);
 - `ff-units-preserved`: `nm` / `kJ/mol` numbers come back unconverted;
+- `v1-forcefield-converted`: a version-1 section (molrs 0.15's units
+  statement, `angle radian`) with every style the rules convert — halved
+  `k`, angle values in degrees, `D` and `D0` renamed `d0`, `a_thole` renamed
+  `damp`, an `mmff_oop` row centre first — and three that keep their numbers
+  (`dihedral.charmm` `w`, `improper.cvff`, `pair.lj/cut`) reads back as
+  version 2;
+- `v1-forcefield-lj-fourier-converted`: `preset lj` alone (its version-1
+  angle the radian) and a `dihedral.fourier` table read back as `degree` and
+  `dihedral.periodic`;
 - `ff-lj-preset`: `preset lj` with no quantity strings;
 - `ff-smirks-keyed`: a `smirks`-keyed table with no endpoint columns;
 - `ff-without-special-bonds`: absence survives as absence;
@@ -680,12 +827,21 @@ The force-field suite (`module = "forcefield"`) pins down:
   restating `A`–`B` with another `epsilon`), `reject-ff-cmap-grid-shape` (a
   non-square `f64[T, 3, 4]` grid), `reject-ff-cmap-grid-nonfinite` (a `NaN`
   in a non-null row), `reject-ff-grid-outside-cmap` (a `grid` with trailing
-  axes on a bond table).
+  axes on a bond table); and, of version 1, `reject-v1-pair14`,
+  `reject-v1-multiterm-improper-periodic`,
+  `reject-v1-expression-on-converted-style`,
+  `reject-v1-unknown-angular-style` and `reject-v1-preset-angle-degree` (a
+  degree beside a preset is no version-1 section, and is not read as a
+  version-2 one).
 
 The record suite adds `record-with-forcefield` (a `system` whose `atoms.type`
 and `bonds.type` link into it), `forcefield-only-record` and
 `record-pair-overrides` (a `system` whose `pairs` rows carry every
 [pair override](#pair-overrides), null in some rows, beside a
-`pair.lj/charmm` force field); the collection
+`pair.lj/charmm` force field), `v1-frame-mmff-theta0-converted` (a
+version-1 MMFF system: `theta0` to degrees, out-of-plane rows centre first, a
+per-instance harmonic `k` halved, its force field with it),
+`v1-frame-without-forcefield-converted` (the same system alone, converted by
+its own columns) and `absent-version-read-as-version-1`; the collection
 suite adds `collection-forcefield` and `collection-cmap` (a `cmap` grid under
 the LMDB key `ff`, linked from `cmaps` rows).

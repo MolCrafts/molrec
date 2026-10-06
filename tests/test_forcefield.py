@@ -19,6 +19,7 @@ from molrec.core.ffsuite import (
     table,
 )
 from molrec.core.model import (
+    MOLREC_VERSION,
     CollectionMetaModel,
     CollectionModel,
     ColumnModel,
@@ -121,7 +122,7 @@ def test_the_tables_are_block_groups_at_their_names(tmp_path) -> None:
     store = ZarrForceFieldStore(tmp_path / "ff.mrec")
     ZarrForceFieldCodec().write(model, store)
     root = zarr.open_group(store=store.path, mode="r")
-    assert root["meta"].attrs["molrec_version"] == 1
+    assert root["meta"].attrs["molrec_version"] == MOLREC_VERSION
     group = root["forcefield"]
     assert dict(group.attrs)["name"] == "test"
     assert [name for name, _ in group.groups()] == ["pair.lj%2Fcut%2Fcoul%2Flong"]

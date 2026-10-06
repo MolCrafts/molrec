@@ -16,11 +16,11 @@ from pydantic import BaseModel
 
 from molrec.case import Case
 from molrec.compare import diff, lookup
+from molrec.core.ffsuite import DEG, V1_REAL, round_trip_forcefield, v1_section
 from molrec.core.ffsuite import cmap as ff_cmap
 from molrec.core.ffsuite import cmap_grid as ff_cmap_grid
 from molrec.core.ffsuite import forcefield as ff_forcefield
 from molrec.core.ffsuite import no_rows as ff_no_rows
-from molrec.core.ffsuite import round_trip_forcefield
 from molrec.core.ffsuite import style as ff_style
 from molrec.core.ffsuite import table as ff_table
 from molrec.core.model import (
@@ -38,6 +38,7 @@ from molrec.core.model import (
     CollectionModel,
     ColumnModel,
     ForceFieldModel,
+    ForceFieldUnitsModel,
     FrameModel,
     MetaModel,
     MetaSeriesModel,
@@ -2030,6 +2031,143 @@ def _set_record_meta(key: str, value: Any) -> Any:
     return tamper
 
 
+def _mmff_v1_system(*, converted: bool) -> FrameModel:
+    """An MMFF-typed system as molrs 0.15 wrote it (``converted=False``:
+    ``theta0`` in radians, the out-of-plane centre ``1`` second) or as
+    version 2 reads it, beside a ``bond harmonic`` row with a per-instance
+    ``k`` (½k form in version 1)."""
+    theta0 = [1.9 * DEG, 2.0 * DEG] if converted else [1.9, 2.0]
+    centre = ([1, 1], [0, 4]) if converted else ([0, 4], [1, 1])
+    return FrameModel(
+        blocks={
+            "atoms": BlockModel(
+                count=6, columns={"type": _column("string", ["1", "3", "7", "10", "5", "5"])}
+            ),
+            "bonds": BlockModel(
+                count=1,
+                columns={
+                    "atomi": _column("u64", [0]),
+                    "atomj": _column("u64", [1]),
+                    "type": _column("string", ["b"]),
+                    "k": _column("f64", [300.0 if converted else 600.0]),
+                },
+            ),
+            "angles": BlockModel(
+                count=2,
+                columns={
+                    "atomi": _column("u64", [0, 1]),
+                    "atomj": _column("u64", [1, 2]),
+                    "atomk": _column("u64", [2, 3]),
+                    "type": _column("string", ["0_1_3_7", "0_3_7_10"]),
+                    "theta0": _column("f64", theta0),
+                    "ka": _column("f64", [0.7, 0.8]),
+                },
+            ),
+            "impropers": BlockModel(
+                count=2,
+                columns={
+                    "atomi": _column("u64", centre[0]),
+                    "atomj": _column("u64", centre[1]),
+                    "atomk": _column("u64", [4, 5]),
+                    "atoml": _column("u64", [5, 0]),
+                    "type": _column("string", ["oop", "oop"]),
+                    "koop": _column("f64", [0.05, 0.05]),
+                },
+            ),
+        }
+    )
+
+
+def _mmff_v1_forcefield(*, converted: bool) -> ForceFieldModel:
+    """The force field :func:`_mmff_v1_system` links into, in either version."""
+    atom = (
+        ff_style("atom", "full"),
+        ff_table(["1", "3", "7", "10", "5"], mass=[12.011, 12.011, 15.999, 14.007, 1.008]),
+    )
+    bond = (
+        ff_style("bond", "harmonic"),
+        ff_table(["b"], itom=["1"], jtom=["3"], k=[300.0 if converted else 600.0], r0=[1.5]),
+    )
+    angle = (
+        ff_style("angle", "mmff_angle"),
+        ff_table(
+            ["0_1_3_7", "0_3_7_10"],
+            itom=["1", "3"],
+            jtom=["3", "7"],
+            ktom=["7", "10"],
+            ka=[0.7, 0.8],
+            theta0=[1.9 * DEG, 2.0 * DEG] if converted else [1.9, 2.0],
+        ),
+    )
+    oop = (
+        ff_style("improper", "mmff_oop"),
+        ff_table(
+            ["oop"],
+            itom=["3" if converted else "1"],
+            jtom=["1" if converted else "3"],
+            ktom=["5"],
+            ltom=["5"],
+            koop=[0.05],
+        ),
+    )
+    styles = [atom, bond, angle, oop]
+    if converted:
+        return ff_forcefield(
+            styles, name="MMFF94", units=ForceFieldUnitsModel(**{**V1_REAL, "angle": "degree"})
+        )
+    return v1_section(V1_REAL, styles, name="MMFF94")
+
+
+def _version_1_records() -> Iterable[Case]:
+    """A version-1 record's frames are converted with its force field, and
+    without one by their own columns (``docs/spec/forcefield.md``, "Reading a
+    version-1 record"); ``meta`` comes back as stored."""
+    v1_meta = MetaModel(molrec_version=1)
+    yield Case(
+        id="v1-frame-mmff-theta0-converted",
+        exercises="a version-1 system converts by its rows' styles: mmff_angle theta0 to "
+        "degrees, mmff_oop rows centre first, a per-instance bond harmonic k halved; the "
+        "force field converts with it and meta says 1",
+        model=RecordModel.model_construct(
+            meta=v1_meta,
+            system=_mmff_v1_system(converted=False),
+            forcefield=_mmff_v1_forcefield(converted=False),
+        ),
+        expected=RecordModel(
+            meta=v1_meta,
+            system=_mmff_v1_system(converted=True),
+            forcefield=_mmff_v1_forcefield(converted=True),
+        ),
+        directions=("read",),
+        tamper=_set_record_meta("molrec_version", 1),
+    )
+    bare = _mmff_v1_system(converted=False)
+    bare_converted = _mmff_v1_system(converted=True)
+    # Without a force field a row's style is unknown: the bond's k keeps its
+    # number; theta0 is an angle value and koop marks an out-of-plane row.
+    bare_converted = bare_converted.model_copy(
+        update={"blocks": {**bare_converted.blocks, "bonds": bare.blocks["bonds"]}}
+    )
+    yield Case(
+        id="v1-frame-without-forcefield-converted",
+        exercises="a version-1 system without its force field converts by its own columns: "
+        "theta0 is an angle value (radians to degrees), a koop row is an out-of-plane row",
+        model=RecordModel(meta=v1_meta, system=bare),
+        expected=RecordModel(meta=v1_meta, system=bare_converted),
+        directions=("read",),
+        tamper=_set_record_meta("molrec_version", 1),
+    )
+    yield Case(
+        id="absent-version-read-as-version-1",
+        exercises="a store without molrec_version predates version 1 and is read by its rules; "
+        "nothing is invented in meta",
+        model=RecordModel(meta=v1_meta, system=bare),
+        expected=RecordModel(meta=MetaModel(), system=bare_converted),
+        directions=("read",),
+        tamper=_set_record_meta("molrec_version", _DELETE),
+    )
+
+
 @REGISTRY.suite
 class RecordSuite(Suite):
     """The record root -- the shape a real producer actually writes.
@@ -2096,7 +2234,8 @@ class RecordSuite(Suite):
 
         yield Case(
             id="version-present",
-            exercises="a store carrying molrec_version 1 validates and hands it back",
+            exercises=f"a store carrying molrec_version {MOLREC_VERSION} validates and hands it "
+            "back",
             model=RecordModel(meta=meta, frame=atoms),
         )
 
@@ -2109,6 +2248,8 @@ class RecordSuite(Suite):
             directions=("read",),
             tamper=_set_record_meta("molrec_version", _DELETE),
         )
+
+        yield from _version_1_records()
 
         for case_id, value, why in (
             ("reject-version-zero", 0, "an integer >= 1"),

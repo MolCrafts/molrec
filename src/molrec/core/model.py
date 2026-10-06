@@ -1607,8 +1607,10 @@ Timestamp = Annotated[
 ]
 
 #: The contract version this package speaks. Every writer stamps it on
-#: ``meta``; a reader validates a present key and refuses a newer one.
-MOLREC_VERSION = 1
+#: ``meta``; a reader validates a present key and refuses a newer one. A
+#: version-1 store (or one without the key) is converted on read
+#: (:mod:`molrec.core.v1`).
+MOLREC_VERSION = 2
 
 #: ``meta["molrec_version"]``: absent, or an integer in ``1..=MOLREC_VERSION``.
 #: Strict -- ``"1"``, ``1.0`` and ``true`` are not versions -- and never
@@ -1619,7 +1621,8 @@ _VERSION_SCHEMA = {
     "type": "integer",
     "minimum": 1,
     "maximum": MOLREC_VERSION,
-    "description": "Absent on a store written before version 1; never null.",
+    "description": "The contract version the store was written in: 1 (converted on read) or "
+    "2. Absent on a store written before version 1, which is read as version 1; never null.",
 }
 
 
@@ -1636,12 +1639,14 @@ def revalidated[M: BaseModel](model: M) -> M:
 
 
 def stamp_version(document: dict[str, Any]) -> dict[str, Any]:
-    """``document`` with ``molrec_version`` stamped in when the producer gave none.
+    """``document`` with the current ``molrec_version`` stamped in.
 
-    Every writer -- molrec's own codecs included -- emits the version it
-    writes; a producer that set the key keeps its value.
+    Every writer -- molrec's own codecs included -- writes the current
+    version and says so, over any value the producer's document carries: the
+    key is reserved, and what is written is version-``MOLREC_VERSION`` content
+    whatever the document claims.
     """
-    return {"molrec_version": MOLREC_VERSION, **document}
+    return {**document, "molrec_version": MOLREC_VERSION}
 
 
 class MetaModel(DocumentModel):
@@ -1651,11 +1656,12 @@ class MetaModel(DocumentModel):
     invariant: a reader must keep keys it does not recognize.
 
     ``molrec_version`` is stamped by every writer (:func:`stamp_version`). A
-    reader validates it only when present: absent is a store written before
-    version 1, read best-effort; present must be an integer in
-    ``1..=MOLREC_VERSION`` -- ``null``, ``0``, a string, a float or a newer
-    version is refused. Identity of a record is the ``*.mrec`` path suffix
-    plus a Zarr root, not this key.
+    reader validates it when present: an integer in ``1..=MOLREC_VERSION`` --
+    ``null``, ``0``, a string, a float or a newer version is refused. Absent
+    is a store written before version 1, read best-effort by version 1's
+    rules. A reader hands it back as stored, also when it converted the
+    store's sections from version 1. Identity of a record is the ``*.mrec``
+    path suffix plus a Zarr root, not this key.
 
     ``record_id`` and ``content_hash`` are optional provenance, like
     ``creator``, ``author``, ``created_at`` and ``source``.

@@ -56,17 +56,21 @@ class TestMetaModel:
         assert MetaModel().molrec_version is None
         assert MetaModel.model_validate({}).molrec_version is None
 
-    def test_accepts_version_one(self) -> None:
-        assert MetaModel(molrec_version=1).molrec_version == 1
+    @pytest.mark.parametrize("version", range(1, MOLREC_VERSION + 1))
+    def test_accepts_every_supported_version(self, version: int) -> None:
+        assert MetaModel(molrec_version=version).molrec_version == version
 
-    @pytest.mark.parametrize("bad", [0, 2, None, "1", 1.0, True])
+    @pytest.mark.parametrize("bad", [0, MOLREC_VERSION + 1, None, "1", 1.0, True])
     def test_a_present_version_is_validated(self, bad: object) -> None:
         with pytest.raises(ValidationError, match="molrec_version"):
             MetaModel.model_validate({"molrec_version": bad})
 
-    def test_writers_stamp_the_version_and_keep_a_producer_one(self) -> None:
+    def test_writers_stamp_the_current_version_over_a_producer_one(self) -> None:
         assert stamp_version({}) == {"molrec_version": MOLREC_VERSION}
-        assert stamp_version({"molrec_version": 1, "x": 2}) == {"molrec_version": 1, "x": 2}
+        assert stamp_version({"molrec_version": 1, "x": 2}) == {
+            "molrec_version": MOLREC_VERSION,
+            "x": 2,
+        }
 
     def test_the_published_schema_forbids_null(self) -> None:
         schema = MetaModel.model_json_schema()["properties"]["molrec_version"]

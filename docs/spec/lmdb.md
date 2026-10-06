@@ -39,7 +39,7 @@ everywhere else.
   "layout": "mrec-lmdb",
   "layout_version": 1,
   "collection": {
-    "molrec_version": 1,
+    "molrec_version": 2,
     "units": { "length": "angstrom", "energy": "kcal/mol" }
   },
   "sequence_schema": { "blocks": { ... }, "meta": { ... } },
@@ -54,10 +54,14 @@ A file without it is not a collection, and a reader refuses it.
 Two versions ride on it, and they version different things:
 
 * `collection.molrec_version` is the **contract** version, under the same
-  rule as a record's `meta`: every writer stamps it, a reader validates it
-  when present (an integer in `1 ..= newest supported`, never `null`). It
-  covers the collection document, the `sequence_schema` and every record in
-  the file; a record's own `meta` document carries no version of its own.
+  rule as a record's `meta`: every writer stamps the current one, a reader
+  validates it when present (an integer in `1 ..= newest supported`, never
+  `null`) and reads the collection by its version's rules — a version-1
+  collection's force field and every record's frames are converted as
+  [Reading a version-1 record](forcefield.md#reading-a-version-1-record)
+  says. It covers the collection document, the `sequence_schema` and every
+  record in the file; a record's own `meta` document carries no version of
+  its own.
 * `layout_version` is the version of **this binding's byte layout** — the
   key scheme and the [frame bytes](#frame-bytes) encoding. It is required (the
   binding has written it since its first version), an integer in

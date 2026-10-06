@@ -131,15 +131,16 @@ JSON: a document cannot carry NaN or infinity.
 
 | Section | Group path | Required keys when group exists |
 |---------|------------|----------------------------------|
-| `meta` | `meta/` | `molrec_version`, stamped by every writer (absent only on a pre-1 store; see [Metadata](overview.md#metadata)) |
+| `meta` | `meta/` | `molrec_version`, the current version stamped by every writer (absent only on a pre-1 store, read by version 1's rules; see [Metadata](overview.md#metadata)) |
 | `status` | `status/` | `state` |
 | `method` | `method/` | `type`, `description`, `engine.name` |
 
 Identity of a scientific record is the path suffix `*.mrec/` plus the Zarr
 root itself. Writers **MUST** create the root group `zarr.json` and the
-`meta/` group first — the caller's document with `molrec_version` stamped
-in — and only then the sections. A reader treats a missing `meta/` as an
-empty document (a pre-1 store: no version check).
+`meta/` group first — the caller's document with the current
+`molrec_version` stamped in — and only then the sections. A reader treats a
+missing `meta/` as an empty document (a pre-1 store, read by version 1's
+rules).
 
 ## Frame-shaped group
 
@@ -255,11 +256,15 @@ back.
 4. Array sections use Zarr array groups. Trajectory uses the
    [ragged CSR layout](ragged.md).
 5. Preserve unknown sections and keys.
-6. Writers create `meta/` and stamp `meta["molrec_version"]`. A reader
-   validates the key only when present: absent means a pre-1 store and no
-   version check; present means a JSON integer `>= 1`, no greater than the
-   newest the reader supports, never `null`. Scientific paths use
-   `*.mrec/` / `*.mrec.zip`.
+6. Writers create `meta/` and stamp `meta["molrec_version"]` with the version
+   they write (`2`), over any producer value. A reader validates the key when
+   present: a JSON integer `>= 1`, no greater than the newest the reader
+   supports, never `null`. It reads an older version's store by that
+   version's rules — converting exactly or refusing, never reading it as
+   its own ([Reading a version-1 record](forcefield.md#reading-a-version-1-record));
+   absent means a pre-1 store, read by version 1's rules. `meta` is handed
+   back as stored. A version-1 trajectory is not appended to. Scientific
+   paths use `*.mrec/` / `*.mrec.zip`.
 7. Data precede metadata. A writer lands chunk bytes before it replaces an
    array's `zarr.json` (atomically), and the trajectory group's `nstep`
    attribute — the commit marker — last of all; a reader is bound by it

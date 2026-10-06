@@ -25,6 +25,7 @@ from molrec.core.bindings.lmdb import (
     key,
 )
 from molrec.core.model import (
+    MOLREC_VERSION,
     BlockModel,
     CollectionMetaModel,
     CollectionModel,
@@ -38,7 +39,8 @@ from molrec.core.model import (
 
 
 def _column(dtype: str, values: list) -> ColumnModel:
-    array = np.asarray(values, dtype={"f64": "float64", "u64": "uint64", "i8": "int8"}[dtype])
+    numpy = {"f64": "float64", "u64": "uint64", "i8": "int8", "string": str}[dtype]
+    array = np.asarray(values, dtype=numpy)
     return ColumnModel(dtype=dtype, shape=array.shape, values=array)
 
 
@@ -94,7 +96,7 @@ class TestLmdbCollectionCodec:
             meta = json.loads(bytes(txn.get(META_KEY)))
         env.close()
         assert meta["layout_version"] == 1
-        assert meta["collection"]["molrec_version"] == 1
+        assert meta["collection"]["molrec_version"] == MOLREC_VERSION
 
     @pytest.mark.parametrize("version", [None, 0, 2, "1", 1.0])
     def test_an_unsupported_layout_version_is_refused(self, tmp_path, version):
@@ -155,3 +157,54 @@ def test_n_atoms_is_the_system_count_even_when_zero(tmp_path):
     env.close()
     assert index.columns["n_atoms"].values.tolist() == [0, 2]
     assert index.columns["has_trajectory"].values.tolist() == [False, True]
+
+
+def test_a_version_1_collection_is_converted_on_read(tmp_path):
+    """A collection's version covers its force field and every record: a
+    version-1 collection reads back in version 2's numbers."""
+    import json
+
+    from molrec.core.bindings.lmdb import FF_KEY, SYSTEM_PREFIX
+    from molrec.core.ffsuite import DEG, v1_forcefield
+
+    v1, v2 = v1_forcefield()
+    angles = BlockModel(
+        count=1,
+        columns={
+            "atomi": _column("u64", [0]),
+            "atomj": _column("u64", [1]),
+            "atomk": _column("u64", [2]),
+            "type": _column("string", ["t"]),
+            "theta0": _column("f64", [1.9]),
+        },
+    )
+    system = FrameModel(
+        blocks={
+            "atoms": BlockModel(count=3, columns={"type": _column("string", ["A", "B", "C"])}),
+            "angles": angles,
+        }
+    )
+    store = LmdbCollectionStore(tmp_path / "c.mrec.lmdb")
+    LmdbCollectionCodec().write(
+        CollectionModel(
+            meta=CollectionMetaModel(units={"length": "angstrom"}),
+            forcefield=v2,
+            records=[RecordModel(meta=MetaModel(), system=system)],
+        ),
+        store,
+    )
+    # What a version-1 writer left: its force field, its version.
+    env = store.open(write=True)
+    with env.begin(write=True) as txn:
+        meta = json.loads(bytes(txn.get(META_KEY)))
+        meta["collection"]["molrec_version"] = 1
+        txn.put(META_KEY, json.dumps(meta).encode())
+        txn.put(FF_KEY, encode_frame(v1.tables, v1.document()))
+        assert txn.get(key(SYSTEM_PREFIX, 0)) is not None
+    env.close()
+
+    read = LmdbCollectionCodec().read(store)
+    assert read.meta.molrec_version == 1
+    assert read.forcefield == v2
+    theta0 = read.records[0].system.blocks["angles"].columns["theta0"].values
+    assert theta0.tolist() == [1.9 * DEG]

@@ -460,7 +460,7 @@ step.
 ```text
 growth.mrec
  \-- meta
- |    +-- molrec_version: 1
+ |    +-- molrec_version: 2
  \-- trajectory
       +-- sequence_schema
       +-- nstep: 19
@@ -480,7 +480,7 @@ growth.mrec
            +-- vectors: [[20, 0, 0], [0, 20, 0], [0, 0, 20]]
 ```
 
-`meta/` carries `molrec_version: 1`: writers always create it and stamp the
+`meta/` carries `molrec_version: 2`: writers always create it and stamp the
 version. There is no `step` array (the numbering is a progression) and no
 `box/` array (the cell is fixed from ordinal 0, so it is three attributes —
 here only `vectors`, because `origin` and `boundary` hold their defaults).

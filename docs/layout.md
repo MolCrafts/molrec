@@ -125,7 +125,7 @@ its two bonds, a small density grid and a cubic box.
 ```text
 water.mrec/
  \-- meta/
- |    +-- molrec_version: 1
+ |    +-- molrec_version: 2
  \-- frame/
       +-- smiles: "O"
       +-- total_charge: 0
@@ -173,7 +173,7 @@ water.mrec/
 
 Reading it top to bottom:
 
-- **`meta/` comes first and carries `molrec_version: 1`.** Every writer
+- **`meta/` comes first and carries `molrec_version: 2`.** Every writer
   creates it and stamps the version, even when the producer gave no
   identity at all.
 - **The attributes of `frame/` are the frame's meta document.** `smiles`,
@@ -234,7 +234,7 @@ potential energy and temperature of each frame.
 ```text
 vibration.mrec/
  \-- meta/
- |    +-- molrec_version: 1
+ |    +-- molrec_version: 2
  \-- system/
  |    +-- smiles: "OO"
  |    +-- total_charge: 0
@@ -354,7 +354,7 @@ the previous frame.
 ```text
 reaction.mrec/
  \-- meta/
- |    +-- molrec_version: 1
+ |    +-- molrec_version: 2
  \-- trajectory/
       +-- sequence_schema: {
       |      "blocks": {
@@ -723,7 +723,7 @@ a `metrics/` group holding both forms of the same three events.
 ```text
 fit.mrec/
  \-- meta/
- |    +-- molrec_version: 1
+ |    +-- molrec_version: 2
  |    +-- creator: {"name": "molrec-fixtures", "version": "0.0.0"}
  |    +-- created_at: "2026-08-04T00:00:00+00:00"
  \-- method/
@@ -845,8 +845,8 @@ meta            key bytes 6d 65 74 61
       "layout": "mrec-lmdb",
       "layout_version": 1,
       "collection": {
-        "molrec_version": 1,
-        "units": {"length": "angstrom", "energy": "kcal/mol"}
+        "units": {"length": "angstrom", "energy": "kcal/mol"},
+        "molrec_version": 2
       },
       "sequence_schema": {
         "blocks": {

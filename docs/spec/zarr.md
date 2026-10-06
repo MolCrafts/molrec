@@ -53,7 +53,8 @@ The scientific path brand is `*.mrec/` (packed: `*.mrec.zip`). Discovery of
 a record is that suffix plus a Zarr root at the top of the directory. The
 path *is* the brand; `meta["molrec_version"]` (stamped by every writer,
 validated by a reader when present) says which version of the contract
-wrote it.
+wrote it, and so by which version's rules a reader reads it
+([Metadata](overview.md#metadata)).
 
 Host metrics use the filename-gated `*.mlp.*` surface (live WAL
 `*.mlp.jsonl`). They are a separate concern from the record.

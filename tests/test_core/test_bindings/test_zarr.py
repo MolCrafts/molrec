@@ -28,6 +28,7 @@ from molrec.core.bindings.zarr import (
     ZarrTrajectoryStore,
 )
 from molrec.core.model import (
+    MOLREC_VERSION,
     BlockModel,
     BoxModel,
     BoxUpdateModel,
@@ -282,7 +283,7 @@ def test_a_bare_trajectory_store_has_a_root_and_a_stamped_meta_document(tmp_path
     root = store.root(mode="r")
     assert (store.path / "zarr.json").exists()
     assert "meta" in root
-    assert dict(root["meta"].attrs) == {"molrec_version": 1}
+    assert dict(root["meta"].attrs) == {"molrec_version": MOLREC_VERSION}
 
 
 def test_a_non_monotonic_offset_is_refused(tmp_path: Path) -> None:
@@ -323,7 +324,7 @@ def test_the_record_codec_stamps_the_version_and_reads_a_missing_meta_as_empty(
         store,
     )
     root = store.root(mode="r")
-    assert dict(root["meta"].attrs) == {"molrec_version": 1}
+    assert dict(root["meta"].attrs) == {"molrec_version": MOLREC_VERSION}
     assert root["status"].attrs["stage"] == "train"
     back = codec.read(store)
     assert back.status is not None and back.status.state == "running"
@@ -400,7 +401,7 @@ def test_the_record_codec_carries_unknown_content_through(tmp_path: Path) -> Non
     )
     record = RecordModel.model_validate(
         {
-            "meta": {"molrec_version": 1, "x_reviewed": None},
+            "meta": {"molrec_version": MOLREC_VERSION, "x_reviewed": None},
             "status": {"state": "running", "x_note": None},
             "frame": FrameModel(blocks={"atoms": block}),
             "x_vendor": vendor,
@@ -410,7 +411,7 @@ def test_the_record_codec_carries_unknown_content_through(tmp_path: Path) -> Non
     ZarrRecordCodec().write(record, store)
     root = store.root(mode="r")
     assert dict(root["frame/atoms"].attrs) == {"count": 1, "x_vendor_flag": True}
-    assert dict(root["meta"].attrs) == {"molrec_version": 1, "x_reviewed": None}
+    assert dict(root["meta"].attrs) == {"molrec_version": MOLREC_VERSION, "x_reviewed": None}
     back = ZarrRecordCodec().read(store)
     assert back == record
     assert back.model_extra == {"x_vendor": vendor}

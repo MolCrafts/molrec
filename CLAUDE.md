@@ -107,9 +107,13 @@ a red PR.
 
 ## Spec hygiene
 
-- Version key `meta["molrec_version"]` (integer, currently 1): **writers always
-  stamp it** (molrec's own codecs included); readers validate it only when
-  present (absent = pre-1 store, read best-effort; `null` or newer = refuse).
+- Version key `meta["molrec_version"]` (integer, currently 2): **writers always
+  stamp the current one** (molrec's own codecs included, over any producer
+  value); readers validate it when present (`null` or newer = refuse) and read
+  a version-1 store through `src/molrec/core/v1.py` (exact conversion or
+  refusal, `docs/spec/forcefield.md` "Reading a version-1 record"); absent =
+  pre-1 store, read best-effort by version 1's rules. `meta` comes back as
+  stored.
   Identity = `*.mrec` suffix + Zarr root; writers always create `meta/`.
 - Scientific paths are `*.mrec/` / `*.mrec.zip`. Host metrics stay on the
   filename-gated `*.mlp.*` surface (live WAL `*.mlp.jsonl`; leftover

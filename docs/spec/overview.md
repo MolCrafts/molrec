@@ -134,20 +134,35 @@ meta
 `molrec_version`
 
 The integer version of this contract the package was written against. It
-covers the whole package — layout, containers, dtypes, and the trajectory
-sequence declaration. The current version is `1`.
+covers the whole package — layout, containers, dtypes, the trajectory
+sequence declaration, and what the numbers of the force-field IR mean. The
+current version is `2`.
 
-- **Writers always emit it.** A writer stamps `molrec_version: 1` on every
-  record it writes (a producer that supplied its own valid value keeps it).
-- **Readers validate it only when present.** An absent key marks a store
-  written before version 1; a reader opens it best-effort and performs no
-  version check. A present key must be a JSON integer in
-  `1 ..= <newest the reader supports>`. `null`, `0`, a string, a float, a
+- **Writers always emit it.** A writer stamps the version it writes,
+  `molrec_version: 2`, on every record, over any value the producer's
+  document carries: what it writes is version-2 content whatever the
+  document claims.
+- **Readers validate it when present.** A present key must be a JSON integer
+  in `1 ..= <newest the reader supports>`; `null`, `0`, a string, a float, a
   boolean, or a newer version is refused — present means validated.
+- **A reader never reads an older version as its own.** It reads a
+  version-*n* store by version *n*'s rules: what a later version changed, it
+  converts exactly, or it refuses the store. A version-2 reader reads a
+  version-1 store as [Reading a version-1 record](forcefield.md#reading-a-version-1-record)
+  says. An absent key marks a store written before version 1; a reader opens
+  it best-effort, by version 1's rules.
+- **`meta` comes back as stored.** A reader that converted a store's sections
+  hands its `meta` back unchanged — the version it was written in, or no key —
+  and a writer of the record stamps the current version again.
 
 Identity of a record is the path brand `*.mrec/` / `*.mrec.zip` plus a Zarr
 root, not this key. A bump indicates a change to a normative rule. Additive
 content that older readers can carry through unrecognised needs no bump.
+
+| Version | Changed from the previous one |
+|---------|-------------------------------|
+| `1` | — |
+| `2` | The [force-field registry](forcefield.md#style-registry) is the force-field IR, which adopts LAMMPS's definitions. Stored numbers whose meaning changed: `units.angle` is the `degree` in every preset (it was the radian), so `theta0`, `chi0`, `phase`, `phase<m>` and `phi1` … `phi3` are degrees and a force constant is per radianⁿ whatever `units.angle` says; `bond.harmonic`, `angle.harmonic` and `drude.harmonic` are k(x − x0)² (they were ½k(x − x0)²: `k` halves); `bond.morse` names its well depth `d0` (it was `D`); the `pair14` category is retired (per-type 1-4 parameters are `pair.lj/charmm`'s, per-pair ones [pair overrides](forcefield.md#pair-overrides)); `dihedral.charmm` `w` prices its end atoms' 1-4 pair. The same holds for a relation block's parameter columns. Version 1 producers' own styles: `dihedral.fourier` is `dihedral.periodic`, `pair.morse` `D0` is `d0`, `pair.thole` `a_thole` is `damp`, MMFF / UFF out-of-plane rows list the centre first. Added beside them (no conversion needed): `pair.lj/charmm`, `pair.coul/charmm`, `angle.charmm`, `cmap.charmm`, `dihedral.nharmonic`, pair overrides. |
 
 `record_id`, `content_hash`
 

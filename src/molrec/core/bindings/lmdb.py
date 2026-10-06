@@ -37,6 +37,7 @@ from molrec.binding import Binding, Codec
 from molrec.core.model import (
     DTYPES,
     META_TYPES_ATTR,
+    MOLREC_VERSION,
     NUMPY_DTYPE,
     RESERVED_INDEX_COLUMNS,
     STORED,
@@ -65,6 +66,7 @@ from molrec.core.model import (
     stamp_version,
 )
 from molrec.core.store import CollectionStore, TrajectoryStore
+from molrec.core.v1 import V1Upgrade, read_version
 from molrec.registry import REGISTRY
 
 MAGIC = b"MRF1"
@@ -485,17 +487,28 @@ class LmdbCollectionCodec(Codec):
                 # it has one at all.
                 flags = index.columns.get("has_trajectory")
                 carries = [False] * n_records if flags is None else flags.values.tolist()
+                raw = txn.get(FF_KEY)
+                stored = None if raw is None else decode_frame(raw)
+                # The collection's version covers every record: a version-1
+                # collection's force field and frames are converted.
+                CollectionMetaModel.model_validate(meta["collection"])
+                upgrade = None
+                if read_version(meta["collection"]) != MOLREC_VERSION:
+                    upgrade = (
+                        V1Upgrade() if stored is None else V1Upgrade(stored.meta, stored.blocks)
+                    )
                 records = [
-                    self._record(txn, r, int(first[r]), int(counts[r]), bool(carries[r]), schema)
+                    self._record(
+                        txn, r, int(first[r]), int(counts[r]), bool(carries[r]), schema, upgrade
+                    )
                     for r in range(n_records)
                 ]
-                raw = txn.get(FF_KEY)
                 forcefield = None
-                if raw is not None:
-                    decoded = decode_frame(raw)
-                    forcefield = ForceFieldModel.model_validate(
-                        {**decoded.meta, "tables": decoded.blocks}
-                    )
+                if stored is not None:
+                    document, tables = stored.meta, stored.blocks
+                    if upgrade is not None:
+                        document, tables = upgrade.forcefield(document, tables)
+                    forcefield = ForceFieldModel.model_validate({**document, "tables": tables})
         finally:
             env.close()
         own = {
@@ -522,6 +535,7 @@ class LmdbCollectionCodec(Codec):
         count: int,
         carries_trajectory: bool,
         schema: SequenceSchemaModel,
+        upgrade: V1Upgrade | None = None,
     ) -> RecordModel:
         system = None
         raw = txn.get(key(SYSTEM_PREFIX, r))
@@ -571,6 +585,9 @@ class LmdbCollectionCodec(Codec):
             )
         raw = txn.get(key(RECORD_META_PREFIX, r))
         meta = MetaModel.model_validate(json.loads(bytes(raw)) if raw is not None else {})
+        if upgrade is not None:
+            system = None if system is None else upgrade.frame(system)
+            trajectory = None if trajectory is None else upgrade.trajectory(trajectory)
         return RecordModel(meta=meta, system=system, trajectory=trajectory)
 
 

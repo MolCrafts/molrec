@@ -8,6 +8,7 @@ malformed section down and the reader must refuse it.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from typing import Any, ClassVar
 
@@ -119,7 +120,7 @@ def _unvalidated(model: ForceFieldModel, **changes: Any) -> ForceFieldModel:
 
 def round_trip_forcefield() -> ForceFieldModel:
     """The ``ff-round-trip`` field: every common category, two pair styles,
-    in the registry's conventions (LAMMPS's un-halved ``K``, degrees)."""
+    as the force-field IR defines them (LAMMPS's un-halved ``K``, degrees)."""
     types = ["CT", "HC", "OH"]
     return forcefield(
         [
@@ -199,6 +200,42 @@ class ForceFieldSuite(Suite):
     def cases(self) -> Iterable[Case]:
         yield from self._positive_cases()
         yield from self._refusals()
+        yield from self._version_1()
+
+    def _version_1(self) -> Iterable[Case]:
+        """A version-1 section is converted on read, exactly, or refused
+        (``docs/spec/forcefield.md``, "Reading a version-1 record"). The
+        codec lays the version-1 numbers down and a tamper marks the store
+        ``molrec_version`` 1; the reader must hand back the version-2 section."""
+        v1, v2 = v1_forcefield()
+        yield Case(
+            id="v1-forcefield-converted",
+            exercises="every number whose meaning version 2 changed is converted: units.angle, "
+            "½k harmonic k halved, angle values to degrees, bond morse D and pair morse D0 to "
+            "d0, pair thole a_thole to damp, mmff_oop centre first; w, cvff, lj/cut unchanged",
+            model=v1,
+            expected=v2,
+            directions=("read",),
+            tamper=as_version(1),
+        )
+        v1, v2 = v1_lj_fourier()
+        yield Case(
+            id="v1-forcefield-lj-fourier-converted",
+            exercises="the lj preset stated no angle unit in version 1 and its angle was the "
+            "radian; dihedral fourier is dihedral periodic",
+            model=v1,
+            expected=v2,
+            directions=("read",),
+            tamper=as_version(1),
+        )
+        for case_id, why, model in v1_refusals():
+            yield Case(
+                id=case_id,
+                exercises=why,
+                expect_violation="v1_unconvertible",
+                model=model,
+                tamper=as_version(1),
+            )
 
     def _positive_cases(self) -> Iterable[Case]:
         yield Case(
@@ -580,8 +617,9 @@ class ForceFieldSuite(Suite):
             ),
             (
                 "reject-ff-radian-angle-unit",
-                "every preset's angle is the degree: angle radian beside preset real is refused "
-                "(a section in the radian convention says so, and is not read as degrees)",
+                "every preset's angle is the degree: in a version-2 record, angle radian beside "
+                "preset real is refused (a section holding radians says so, and is not read as "
+                "degrees)",
                 _unvalidated(
                     base,
                     units=ForceFieldUnitsModel.model_construct(
@@ -701,8 +739,302 @@ class ForceFieldSuite(Suite):
             yield Case(id=case_id, exercises=why, expect_violation="bad_forcefield", model=model)
 
 
+#: 180/π as one double: what an angle value in radians is multiplied by.
+DEG = 180.0 / math.pi
+
+#: The units molrs 0.15 stated beside its presets (version 1: the radian).
+V1_REAL = {
+    "preset": "real",
+    "length": "angstrom",
+    "energy": "kcal/mol",
+    "angle": "radian",
+    "charge": "e",
+    "mass": "dalton",
+}
+
+
+def as_version(version: int) -> Any:
+    """A tamper that marks the store's ``meta`` as ``molrec_version`` ``version``."""
+
+    def tamper(store: Any) -> None:
+        import zarr
+
+        group = zarr.open_group(store=store.path, mode="r+")["meta"]
+        attrs = {**dict(group.attrs), "molrec_version": version}
+        group.attrs.clear()
+        group.attrs.update(attrs)
+
+    return tamper
+
+
+def v1_section(
+    units: dict[str, str], styles: list[tuple[StyleModel, BlockModel]], **document: Any
+) -> ForceFieldModel:
+    """A version-1 section, built around the version-2 validators (its units
+    state the radian beside a preset, which version 2 refuses)."""
+    return ForceFieldModel.model_construct(
+        name=document.get("name", "v1"),
+        units=ForceFieldUnitsModel.model_construct(**units),
+        styles=[style for style, _ in styles],
+        tables={style.block: rows for style, rows in styles},
+        **{k: v for k, v in document.items() if k != "name"},
+    )
+
+
+def v1_forcefield() -> tuple[ForceFieldModel, ForceFieldModel]:
+    """``(version 1, version 2)`` of one section with every converted style."""
+    pairs = {"itom": ["A"], "jtom": ["B"]}
+    triples = {**pairs, "ktom": ["C"]}
+    quads = {**triples, "ltom": ["D"]}
+    selfs = {"itom": ["A"], "jtom": ["A"]}
+    atom = atoms(["A", "B", "C", "D"], mass=[12.011, 1.008, 14.007, 15.999])
+
+    def both(
+        category: str, name: str, ends: dict[str, list[str]], v1: dict[str, Any], v2: dict[str, Any]
+    ) -> tuple[tuple[StyleModel, BlockModel], tuple[StyleModel, BlockModel]]:
+        st = style(category, name)
+        return (st, table(["t"], **ends, **v1)), (st, table(["t"], **ends, **v2))
+
+    rows = [
+        both("bond", "harmonic", pairs, {"k": [600.0], "r0": [1.5]}, {"k": [300.0], "r0": [1.5]}),
+        both(
+            "bond",
+            "morse",
+            pairs,
+            {"D": [90.0], "alpha": [2.0], "r0": [1.2]},
+            {"d0": [90.0], "alpha": [2.0], "r0": [1.2]},
+        ),
+        both("drude", "harmonic", pairs, {"k": [500.0]}, {"k": [250.0]}),
+        both(
+            "angle",
+            "harmonic",
+            triples,
+            {"k": [100.0], "theta0": [1.9]},
+            {"k": [50.0], "theta0": [1.9 * DEG]},
+        ),
+        both(
+            "angle",
+            "class2",
+            triples,
+            {"theta0": [2.0], "k2": [50.0], "k3": [-12.0], "k4": [4.0]},
+            {"theta0": [2.0 * DEG], "k2": [50.0], "k3": [-12.0], "k4": [4.0]},
+        ),
+        both(
+            "dihedral",
+            "periodic",
+            quads,
+            {
+                "k1": [0.5],
+                "periodicity1": [1.0],
+                "phase1": [math.pi],
+                "k2": [0.2],
+                "periodicity2": [2.0],
+                "phase2": [0.3],
+            },
+            {
+                "k1": [0.5],
+                "periodicity1": [1.0],
+                "phase1": [math.pi * DEG],
+                "k2": [0.2],
+                "periodicity2": [2.0],
+                "phase2": [0.3 * DEG],
+            },
+        ),
+        both(
+            "dihedral",
+            "charmm",
+            quads,
+            {"k": [0.4], "periodicity": [3.0], "phase": [0.2], "w": [0.5]},
+            {"k": [0.4], "periodicity": [3.0], "phase": [0.2 * DEG], "w": [0.5]},
+        ),
+        both(
+            "dihedral",
+            "class2",
+            quads,
+            {"k1": [0.02], "phi1": [0.1], "k3": [0.005], "phi3": [-0.4]},
+            {"k1": [0.02], "phi1": [0.1 * DEG], "k3": [0.005], "phi3": [-0.4 * DEG]},
+        ),
+        both(
+            "improper",
+            "harmonic",
+            quads,
+            {"k": [12.0], "chi0": [0.11]},
+            {"k": [12.0], "chi0": [0.11 * DEG]},
+        ),
+        both(
+            "improper",
+            "periodic",
+            quads,
+            {"k": [1.1], "periodicity": [2.0], "phase": [math.pi]},
+            {"k": [1.1], "periodicity": [2.0], "phase": [math.pi * DEG]},
+        ),
+        both(
+            "improper",
+            "cvff",
+            quads,
+            {"k": [1.0], "sign": [-1.0], "periodicity": [2.0]},
+            {"k": [1.0], "sign": [-1.0], "periodicity": [2.0]},
+        ),
+        both(
+            "improper",
+            "mmff_oop",
+            quads,
+            {"koop": [0.05]},
+            {"koop": [0.05]},
+        ),
+        both(
+            "pair",
+            "lj/cut",
+            selfs,
+            {"epsilon": [0.1], "sigma": [3.0]},
+            {"epsilon": [0.1], "sigma": [3.0]},
+        ),
+        both(
+            "pair",
+            "morse",
+            selfs,
+            {"D0": [0.1], "alpha": [1.5], "r0": [3.5]},
+            {"d0": [0.1], "alpha": [1.5], "r0": [3.5]},
+        ),
+        both(
+            "pair",
+            "thole",
+            selfs,
+            {"charge": [-0.5], "alpha": [1.0], "a_thole": [2.6]},
+            {"charge": [-0.5], "alpha": [1.0], "damp": [2.6]},
+        ),
+    ]
+    # The out-of-plane row listed its centre (B) second; version 2 lists it first.
+    oop_style, oop = rows[11][1]
+    rows[11] = (
+        rows[11][0],
+        (oop_style, table(["t"], itom=["B"], jtom=["A"], ktom=["C"], ltom=["D"], koop=[0.05])),
+    )
+    special = SpecialBondsModel(lj=[0.0, 0.0, 0.5], coul=[0.0, 0.0, 0.8333])
+    v1 = v1_section(V1_REAL, [atom, *(r[0] for r in rows)], special_bonds=special)
+    v2 = forcefield(
+        [atom, *(r[1] for r in rows)],
+        name="v1",
+        units=ForceFieldUnitsModel(**{**V1_REAL, "angle": "degree"}),
+        special_bonds=special,
+    )
+    return v1, v2
+
+
+def v1_lj_fourier() -> tuple[ForceFieldModel, ForceFieldModel]:
+    """``(version 1, version 2)``: ``preset lj`` alone, a ``dihedral fourier``."""
+    quads = {"itom": ["A"], "jtom": ["A"], "ktom": ["A"], "ltom": ["A"]}
+    atom = atoms(["A"], mass=[1.0])
+    angle = style("angle", "harmonic")
+    v1 = v1_section(
+        {"preset": "lj"},
+        [
+            atom,
+            (angle, table(["t"], itom=["A"], jtom=["A"], ktom=["A"], k=[40.0], theta0=[2.0])),
+            (
+                style("dihedral", "fourier"),
+                table(["t"], **quads, k1=[0.5], periodicity1=[1.0], phase1=[0.7]),
+            ),
+        ],
+    )
+    v2 = forcefield(
+        [
+            atom,
+            (
+                angle,
+                table(["t"], itom=["A"], jtom=["A"], ktom=["A"], k=[20.0], theta0=[2.0 * DEG]),
+            ),
+            (
+                style("dihedral", "periodic"),
+                table(["t"], **quads, k1=[0.5], periodicity1=[1.0], phase1=[0.7 * DEG]),
+            ),
+        ],
+        name="v1",
+        units=ForceFieldUnitsModel(preset="lj", angle="degree"),
+    )
+    return v1, v2
+
+
+def v1_refusals() -> list[tuple[str, str, ForceFieldModel]]:
+    """Version-1 sections with no exact version-2 form."""
+    atom = atoms(["A"], mass=[1.0])
+    selfs = {"itom": ["A"], "jtom": ["A"]}
+    quads = {**selfs, "ktom": ["A"], "ltom": ["A"]}
+    triples = {**selfs, "ktom": ["A"]}
+    return [
+        (
+            "reject-v1-pair14",
+            "a version-1 pair14 table priced 1-4 pairs unweighted; version 2 has no "
+            "force-field form for it",
+            v1_section(
+                V1_REAL,
+                [
+                    atom,
+                    (style("pair14", "lj/cut"), table(["A"], **selfs, epsilon=[0.1], sigma=[3.0])),
+                ],
+            ),
+        ),
+        (
+            "reject-v1-multiterm-improper-periodic",
+            "version 2's improper periodic is one term: a version-1 k1/phase1 row is refused",
+            v1_section(
+                V1_REAL,
+                [
+                    atom,
+                    (style("improper", "periodic"), table(["t"], **quads, k1=[1.0], phase1=[0.0])),
+                ],
+            ),
+        ),
+        (
+            "reject-v1-expression-on-converted-style",
+            "an expression written in version 1's meaning of a converted style's parameters",
+            v1_section(
+                V1_REAL,
+                [
+                    atom,
+                    (
+                        style("bond", "harmonic", expression="0.5*k*(r-r0)^2"),
+                        table(["t"], **selfs, k=[600.0], r0=[1.5]),
+                    ),
+                ],
+            ),
+        ),
+        (
+            "reject-v1-unknown-angular-style",
+            "an unknown angle style's angle values and per-angle constants cannot be told "
+            "apart from its other numbers",
+            v1_section(
+                V1_REAL,
+                [
+                    atom,
+                    (
+                        style("angle", "cosine/squared"),
+                        table(["t"], **triples, k=[1.0], theta0=[2.0]),
+                    ),
+                ],
+            ),
+        ),
+        (
+            "reject-v1-preset-angle-degree",
+            "a version-1 preset's angle is the radian: a degree beside it is no version-1 "
+            "section, and is not read as a version-2 one",
+            v1_section(
+                {"preset": "real", "angle": "degree"},
+                [
+                    atom,
+                    (style("angle", "harmonic"), table(["t"], **triples, k=[1.0], theta0=[109.5])),
+                ],
+            ),
+        ),
+    ]
+
+
 __all__ = [
+    "DEG",
+    "V1_REAL",
     "ForceFieldSuite",
+    "as_version",
+    "v1_section",
     "cmap",
     "cmap_grid",
     "forcefield",

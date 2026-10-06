@@ -14,9 +14,10 @@ The unit of interchange is the *record*. A `frame` section *is* a frame; a
 `trajectory` section *is* an ordered series of frames. Time-dependent data is
 a record section.
 
-Every writer stamps `meta["molrec_version"]` (currently `1`); a reader
-validates it only when present, and an absent key marks a store written
-before version 1 (see [Metadata](overview.md#metadata)). A record is
+Every writer stamps `meta["molrec_version"]` (currently `2`); a reader
+validates it when present and reads a version-1 store by version 1's rules,
+converting it exactly or refusing it, never as version 2; an absent key marks
+a store written before version 1 (see [Metadata](overview.md#metadata)). A record is
 identified by its `*.mrec` path suffix and its Zarr root.
 
 ## Storage format

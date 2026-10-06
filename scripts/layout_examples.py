@@ -201,8 +201,8 @@ def h2o2_system(full: bool = True) -> FrameModel:
 def h2o2_forcefield() -> ForceFieldModel:
     """A small force field for H2O2: one table per style, a wildcard torsion
     row, a string parameter (``ptype``) and absent second-term parameters.
-    The numbers are in the registry's conventions: LAMMPS's un-halved ``K``,
-    angles and phases in degrees."""
+    The numbers are as the force-field IR defines them (LAMMPS's standard):
+    an un-halved ``K``, angles and phases in degrees."""
 
     def names(*values: str) -> ColumnModel:
         return column("string", list(values))

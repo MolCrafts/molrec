@@ -14,6 +14,7 @@ import numpy as np
 import zarr
 
 import molrec
+from molrec.core.model import MOLREC_VERSION
 from molrec.observables.bindings.zarr import ZarrObservablesCodec, ZarrObservableStore
 
 
@@ -121,7 +122,7 @@ def test_the_layout_is_meta_beside_data(tmp_path) -> None:
         "unit": "eV",
     }
     assert root["observables/energy"].shape == ()
-    assert dict(root["meta"].attrs) == {"molrec_version": 1}
+    assert dict(root["meta"].attrs) == {"molrec_version": MOLREC_VERSION}
 
 
 def test_an_observables_section_rides_in_a_record(tmp_path) -> None:
@@ -129,7 +130,7 @@ def test_an_observables_section_rides_in_a_record(tmp_path) -> None:
 
     store = ZarrRecordStore(tmp_path / "r.mrec")
     record = molrec.RecordModel(
-        meta=molrec.MetaModel(molrec_version=1),
+        meta=molrec.MetaModel(molrec_version=MOLREC_VERSION),
         frame=molrec.FrameModel(),
         observables=molrec.ObservablesModel(
             observables={

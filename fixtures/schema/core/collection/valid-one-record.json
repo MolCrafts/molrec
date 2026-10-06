@@ -5,7 +5,7 @@
     "structural_shape": null
   },
   "meta": {
-    "molrec_version": 1,
+    "molrec_version": 2,
     "units": {
       "length": "angstrom"
     }
