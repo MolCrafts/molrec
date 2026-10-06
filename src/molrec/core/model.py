@@ -1875,7 +1875,6 @@ CATEGORY_ARITY: dict[str, int] = {
     "dihedral": 4,
     "improper": 4,
     "pair": 2,
-    "pair14": 2,
     "constraint": 2,
     "virtual_site": 0,
     "drude": 2,
@@ -1885,10 +1884,6 @@ CATEGORY_ARITY: dict[str, int] = {
 #: The one parameter column with trailing axes: a ``cmap`` row's correction
 #: table, ``f64[T, N, N]`` (``docs/spec/forcefield.md``, rows and columns).
 CMAP_GRID = "grid"
-
-#: The categories whose rows are resolved through the unordered pair of atom
-#: types they name (``docs/spec/forcefield.md``, linking a system, rule 3).
-PAIR_CATEGORIES: frozenset[str] = frozenset({"pair", "pair14"})
 
 #: Annotation columns of a style table: ``string``, nullable.
 ANNOTATION_COLUMNS: frozenset[str] = frozenset(
@@ -1902,22 +1897,23 @@ _UNRESERVED = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz01
 MIXING_RULES: tuple[str, ...] = ("arithmetic", "geometric", "sixthpower")
 
 #: The unit presets and the unit of each quantity in them; ``None`` is a
-#: quantity the preset gives no unit (reduced ``lj``). The angle is a radian
-#: in every preset.
+#: quantity the preset gives no unit (reduced ``lj``). The angle is a degree
+#: in every preset, as in LAMMPS: it is the unit of angle *values* (theta0,
+#: phases); a force constant is per radian whatever it says.
 UNIT_QUANTITIES: tuple[str, ...] = ("length", "energy", "angle", "charge", "mass", "time")
 UNIT_PRESETS: dict[str, dict[str, str | None]] = {
     "real": dict(
-        zip(UNIT_QUANTITIES, ("angstrom", "kcal/mol", "radian", "e", "dalton", "fs"), strict=True)
+        zip(UNIT_QUANTITIES, ("angstrom", "kcal/mol", "degree", "e", "dalton", "fs"), strict=True)
     ),
     "metal": dict(
-        zip(UNIT_QUANTITIES, ("angstrom", "eV", "radian", "e", "dalton", "ps"), strict=True)
+        zip(UNIT_QUANTITIES, ("angstrom", "eV", "degree", "e", "dalton", "ps"), strict=True)
     ),
-    "si": dict(zip(UNIT_QUANTITIES, ("m", "J", "radian", "C", "kg", "s"), strict=True)),
+    "si": dict(zip(UNIT_QUANTITIES, ("m", "J", "degree", "C", "kg", "s"), strict=True)),
     "cgs": dict(
-        zip(UNIT_QUANTITIES, ("cm", "erg", "radian", "statcoulomb", "g", "s"), strict=True)
+        zip(UNIT_QUANTITIES, ("cm", "erg", "degree", "statcoulomb", "g", "s"), strict=True)
     ),
     "electron": dict(
-        zip(UNIT_QUANTITIES, ("bohr", "hartree", "radian", "e", "dalton", "fs"), strict=True)
+        zip(UNIT_QUANTITIES, ("bohr", "hartree", "degree", "e", "dalton", "fs"), strict=True)
     ),
     "micro": dict(
         zip(
@@ -1925,7 +1921,7 @@ UNIT_PRESETS: dict[str, dict[str, str | None]] = {
             (
                 "micrometer",
                 "picogram * micrometer**2 / microsecond**2",
-                "radian",
+                "degree",
                 "picocoulomb",
                 "picogram",
                 "microsecond",
@@ -1936,11 +1932,11 @@ UNIT_PRESETS: dict[str, dict[str, str | None]] = {
     "nano": dict(
         zip(
             UNIT_QUANTITIES,
-            ("nm", "attogram * nm**2 / ns**2", "radian", "e", "attogram", "ns"),
+            ("nm", "attogram * nm**2 / ns**2", "degree", "e", "attogram", "ns"),
             strict=True,
         )
     ),
-    "lj": {**dict.fromkeys(UNIT_QUANTITIES), "angle": "radian"},
+    "lj": {**dict.fromkeys(UNIT_QUANTITIES), "angle": "degree"},
 }
 
 
@@ -2175,7 +2171,8 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
         raise ValueError(
             f"{where}: a class-keyed style links through atom classes; no class column"
         )
-    if style.category in PAIR_CATEGORIES and present == ["itom", "jtom"]:
+    # Linking rule 3: a pair table prices each unordered pair of types once.
+    if style.category == "pair" and present == ["itom", "jtom"]:
         _check_pair_restatements(where, table, names)
 
 

@@ -1,0 +1,173 @@
+{
+  "blocks": {
+    "atoms": {
+      "columns": {
+        "charge": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            6
+          ],
+          "validity": null,
+          "values": [
+            -0.04,
+            -0.66,
+            0.09,
+            0.09,
+            0.09,
+            0.43
+          ]
+        },
+        "type": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            6
+          ],
+          "validity": null,
+          "values": [
+            "CT3",
+            "OH1",
+            "HA3",
+            "HA3",
+            "HA3",
+            "HA3"
+          ]
+        }
+      },
+      "count": 6,
+      "structural_shape": null,
+      "targets": null
+    },
+    "pairs": {
+      "columns": {
+        "atomi": {
+          "dtype": "u64",
+          "precision": null,
+          "shape": [
+            3
+          ],
+          "validity": null,
+          "values": [
+            2,
+            3,
+            4
+          ]
+        },
+        "atomj": {
+          "dtype": "u64",
+          "precision": null,
+          "shape": [
+            3
+          ],
+          "validity": null,
+          "values": [
+            5,
+            5,
+            5
+          ]
+        },
+        "charge_product": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            3
+          ],
+          "validity": [
+            true,
+            false,
+            false
+          ],
+          "values": [
+            0.0387,
+            0.0,
+            0.0
+          ]
+        },
+        "coul_scale": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            3
+          ],
+          "validity": [
+            true,
+            false,
+            true
+          ],
+          "values": [
+            1.0,
+            0.0,
+            0.8333333333333334
+          ]
+        },
+        "epsilon": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            3
+          ],
+          "validity": [
+            true,
+            true,
+            false
+          ],
+          "values": [
+            0.05,
+            0.03,
+            0.0
+          ]
+        },
+        "is_14": {
+          "dtype": "bool",
+          "precision": null,
+          "shape": [
+            3
+          ],
+          "validity": null,
+          "values": [
+            true,
+            true,
+            true
+          ]
+        },
+        "lj_scale": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            3
+          ],
+          "validity": null,
+          "values": [
+            1.0,
+            1.0,
+            0.5
+          ]
+        },
+        "sigma": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            3
+          ],
+          "validity": [
+            true,
+            true,
+            false
+          ],
+          "values": [
+            2.9,
+            2.5,
+            0.0
+          ]
+        }
+      },
+      "count": 3,
+      "structural_shape": null,
+      "targets": null
+    }
+  },
+  "box": null,
+  "meta": {},
+  "meta_types": {}
+}
