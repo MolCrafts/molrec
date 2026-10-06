@@ -62,6 +62,8 @@ jobs:
       - run: uv run --locked --python 3.12 --extra dev pytest -q
         env:
           MOLREC_REQUIRE_MOLRS: "1"
+          # The molrs wheel uv builds is --locked against molrs's Cargo.lock.
+          MATURIN_PEP517_ARGS: --locked
 
   # The site Cloudflare Pages deploys, built the way it builds it: a fresh
   # `pip install ".[docs]"`, then zensical. --strict fails on any warning.
