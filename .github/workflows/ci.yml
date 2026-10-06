@@ -30,10 +30,13 @@ jobs:
         with:
           path: molrec
       # pyproject.toml builds the reference implementation from ../molrs.
+      # Roy-Kid/molrs ir/wp-c-lammps-conventions (MolCrafts/molrs#103, LAMMPS
+      # conventions): a fork commit. Move back to MolCrafts/molrs dev once #103
+      # merges.
       - uses: actions/checkout@v4
         with:
-          repository: MolCrafts/molrs
-          ref: ebdde283d1865e5e9723774324aaf5ea6dacdd78
+          repository: Roy-Kid/molrs
+          ref: 1439845c52e3ae710e5c3f3e239261122522b520
           path: molrs
       - run: rustup toolchain install
         working-directory: molrs
