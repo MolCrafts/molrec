@@ -1,0 +1,133 @@
+{
+  "blocks": {
+    "atoms": {
+      "columns": {
+        "type": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            6
+          ],
+          "validity": null,
+          "values": [
+            "C",
+            "NH1",
+            "CT1",
+            "C",
+            "NH1",
+            "CT1"
+          ]
+        }
+      },
+      "count": 6,
+      "structural_shape": null,
+      "targets": null
+    },
+    "cmaps": {
+      "columns": {
+        "atomi": {
+          "dtype": "u64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            0,
+            1
+          ]
+        },
+        "atomj": {
+          "dtype": "u64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            1,
+            2
+          ]
+        },
+        "atomk": {
+          "dtype": "u64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            2,
+            3
+          ]
+        },
+        "atoml": {
+          "dtype": "u64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            3,
+            4
+          ]
+        },
+        "atomm": {
+          "dtype": "u64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            4,
+            5
+          ]
+        },
+        "style": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            "charmm",
+            "charmm"
+          ]
+        },
+        "type": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            "cmap0",
+            "cmap1"
+          ]
+        },
+        "type_id": {
+          "dtype": "u64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            1,
+            2
+          ]
+        }
+      },
+      "count": 2,
+      "structural_shape": null,
+      "targets": null
+    }
+  },
+  "box": null,
+  "meta": {},
+  "meta_types": {}
+}

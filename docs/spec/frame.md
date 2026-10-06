@@ -167,7 +167,7 @@ and compresses no better than raw data.
 
 A column whose values are 0-based row indices into another block is a **row
 reference**. By convention the relation endpoint columns `atomi`, `atomj`,
-`atomk`, `atoml` reference the rows of the `atoms` block of the same
+`atomk`, `atoml`, `atomm` reference the rows of the `atoms` block of the same
 container. Every other reference — and any endpoint that references something
 else — is declared by the block's attribute `targets`, a map from column name
 to target:

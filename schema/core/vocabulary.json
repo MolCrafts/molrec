@@ -6,6 +6,7 @@
   "atomj": "u64",
   "atomk": "u64",
   "atoml": "u64",
+  "atomm": "u64",
   "axis_x": "f64",
   "axis_y": "f64",
   "axis_z": "f64",

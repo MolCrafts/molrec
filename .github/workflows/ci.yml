@@ -33,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: MolCrafts/molrs
-          ref: a0940a34b2dd6d746424aecfa67bb2cec5f5feb9
+          ref: ebdde283d1865e5e9723774324aaf5ea6dacdd78
           path: molrs
       - run: rustup toolchain install
         working-directory: molrs

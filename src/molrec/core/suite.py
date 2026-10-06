@@ -16,11 +16,14 @@ from pydantic import BaseModel
 
 from molrec.case import Case
 from molrec.compare import diff, lookup
+from molrec.core.ffsuite import cmap as ff_cmap
+from molrec.core.ffsuite import cmap_grid as ff_cmap_grid
 from molrec.core.ffsuite import forcefield as ff_forcefield
 from molrec.core.ffsuite import round_trip_forcefield
 from molrec.core.ffsuite import style as ff_style
 from molrec.core.ffsuite import table as ff_table
 from molrec.core.model import (
+    ENDPOINTS,
     META_TAGS,
     META_TYPES_ATTR,
     MOLREC_VERSION,
@@ -1021,7 +1024,7 @@ def _canonical_topology() -> FrameModel:
     def relation(arity: int, rows: list[list[int]], **extra: ColumnModel) -> BlockModel:
         columns = {
             endpoint: _column("u64", [row[i] for row in rows])
-            for i, endpoint in enumerate(("atomi", "atomj", "atomk", "atoml")[:arity])
+            for i, endpoint in enumerate(ENDPOINTS[:arity])
         }
         return BlockModel(count=len(rows), columns={**columns, **extra})
 
@@ -1073,6 +1076,20 @@ def _canonical_topology() -> FrameModel:
     )
 
 
+def _cmaps() -> BlockModel:
+    """Two CMAP cross terms over six atoms: (0, 1, 2, 3, 4) and (1, 2, 3, 4, 5),
+    linked by ``type`` into :func:`molrec.core.ffsuite.cmap`'s rows."""
+    return BlockModel(
+        count=2,
+        columns={
+            **{endpoint: _column("u64", [i, i + 1]) for i, endpoint in enumerate(ENDPOINTS)},
+            "type": _column("string", ["cmap0", "cmap1"]),
+            "type_id": _column("u64", [1, 2]),
+            "style": _column("string", ["charmm", "charmm"]),
+        },
+    )
+
+
 def _members(beads: list[int], target: str = "atoms") -> BlockModel:
     """A ``members`` block over a three-atom frame, built around the validators."""
     return BlockModel.model_construct(
@@ -1099,6 +1116,13 @@ def _frame_topology_cases() -> Iterable[Case]:
         exercises="every conventional atoms column and relation block at its canonical dtype, "
         "a virtual site built from two atoms (atoml null) included",
         model=_canonical_topology(),
+    )
+
+    yield Case(
+        id="canonical-cmaps",
+        exercises="a cmaps block: a five-endpoint relation, atomi..atomm (u64) into atoms, "
+        "with type, type_id and style",
+        model=FrameModel(blocks={"atoms": _atoms(0.0, 1.0, 2.0, 3.0, 4.0, 5.0), "cmaps": _cmaps()}),
     )
 
     yield Case(
@@ -2631,6 +2655,33 @@ class CollectionSuite(Suite):
                 records=[
                     RecordModel(meta=MetaModel(), system=_typed_topology()),
                     RecordModel(meta=MetaModel(record_id="b"), system=_typed_topology()),
+                ],
+            ),
+        )
+
+        cmap_system = FrameModel(
+            blocks={
+                "atoms": BlockModel(
+                    count=6, columns={"type": _column("string", ["C", "NH1", "CT1"] * 2)}
+                ),
+                "cmaps": _cmaps(),
+            }
+        )
+        yield Case(
+            id="collection-cmap",
+            exercises="a cmap table's f64[T, N, N] grid survives the force-field frame bytes "
+            "under the LMDB key ff, beside records whose cmaps rows link into it",
+            model=CollectionModel(
+                meta=meta,
+                forcefield=ff_forcefield(
+                    [
+                        (ff_style("atom", "full"), ff_table(["C", "NH1", "CT1"])),
+                        ff_cmap(np.stack([ff_cmap_grid(4, 0.1), ff_cmap_grid(4, 2.5)])),
+                    ]
+                ),
+                records=[
+                    RecordModel(meta=MetaModel(), system=cmap_system),
+                    RecordModel(meta=MetaModel(record_id="b"), system=cmap_system),
                 ],
             ),
         )

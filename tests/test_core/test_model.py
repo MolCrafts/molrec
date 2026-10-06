@@ -330,7 +330,9 @@ class TestValidity:
 
 
 class TestCanonicalDtypes:
-    @pytest.mark.parametrize(("name", "dtype"), [("atomi", "u32"), ("id", "i64"), ("x", "i64")])
+    @pytest.mark.parametrize(
+        ("name", "dtype"), [("atomi", "u32"), ("atomm", "i64"), ("id", "i64"), ("x", "i64")]
+    )
     def test_a_canonical_key_has_one_dtype(self, name: str, dtype: str) -> None:
         from molrec.core.model import NUMPY_DTYPE
 
