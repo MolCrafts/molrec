@@ -1,11 +1,19 @@
-# Managed by prek: `prek install`
-# CI parity: the same commands as .github/workflows/ci.yml, minus what needs a
-# build machine. The pre-push test runs the pure suite (`-m "not molrs"`)
-# with the `test` extra only, so it never builds molrs -- the molrs-marked
-# conformance runs belong on a build machine (see CLAUDE.md).
+# Managed by prek / pre-commit: `prek install` (installs both hook types).
+# CI parity: every job in .github/workflows/ci.yml has a hook here, running
+# the same command against the same molrs commit (.github/partners.env).
+#
+#   pre-commit  file hygiene + ruff, on the staged files. Cheap: runs in place.
+#   pre-push    the cheap hooks again on --all-files (CI runs them that way),
+#               the partner pins, the lock, the bare import, the docs build,
+#               and the full suite -- molrs-marked conformance included --
+#               against a molrs wheel built from the pinned commit.
+#
+# Heavy entries go through scripts/hook-run.sh, which hands them to
+# $MOLCRAFTS_HOOK_RUNNER (a compute node on the MolCrafts cluster) when set and
+# runs them in place otherwise. See "Hooks" in CLAUDE.md. Never --no-verify.
 
 default_install_hook_types: [pre-commit, pre-push]
-default_stages: [pre-commit, pre-push]
+default_stages: [pre-commit]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -30,11 +38,61 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
-        stages: [pre-commit, pre-push]
 
+      # ci.yml `checks` runs the hooks above on every file; a commit only
+      # sees the staged ones (an untouched file with no final newline slips by).
+      - id: all-files
+        name: "pre-commit hooks on --all-files (ci.yml checks)"
+        entry: uvx pre-commit run --all-files --hook-stage pre-commit --show-diff-on-failure
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: partners
+        name: "partner pins exist; path sources resolve in CI"
+        entry: python3 scripts/partners.py check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      # uv.lock records the molcrafts-molrs version the PINNED molrs carries,
+      # not the sibling ../molrs: checked in CI's layout.
+      - id: uv-lock
+        name: "uv.lock is current against the pinned molrs (ci.yml checks)"
+        entry: python3 scripts/partners.py run -- uv lock --check
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|uv\.lock|\.github/partners\.env)$
+        stages: [pre-push]
+
+      - id: bare-import
+        name: "molrec imports with no extras (ci.yml checks)"
+        entry: >-
+          python3 scripts/partners.py run --
+          uv run --isolated --locked --python 3.12 python -c "import molrec"
+        language: system
+        pass_filenames: false
+        files: ^(src/|pyproject\.toml|uv\.lock)
+        stages: [pre-push]
+
+      # Cloudflare Pages builds the site: `pip install ".[docs]"` + zensical.
+      - id: docs
+        name: "docs build (ci.yml docs, Cloudflare Pages)"
+        entry: uv run --isolated --no-project --python 3.12 --with '.[docs]' zensical build --clean --strict
+        language: system
+        pass_filenames: false
+        files: ^(docs/|zensical\.toml|pyproject\.toml|src/)
+        stages: [pre-push]
+
+      # ci.yml `test`: the whole suite, molrs-marked conformance included, with
+      # molrs built from .github/partners.env's commit. Compiles molrs.
       - id: ci-test
-        name: "pure tests (no molrs build)"
-        entry: bash -c 'uv run --locked --extra test pytest -q -m "not molrs"'
+        name: "full suite against the pinned molrs (ci.yml test)"
+        entry: >-
+          scripts/hook-run.sh python3 scripts/partners.py run --
+          env MOLREC_REQUIRE_MOLRS=1 MATURIN_PEP517_ARGS=--locked uv run --locked --python 3.12 --extra dev pytest -q
         language: system
         pass_filenames: false
         always_run: true
