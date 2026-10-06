@@ -165,7 +165,10 @@ never parsed into endpoints.
 
 The endpoints, `string`, never null: the first *arity* of them, in this
 order, and no others ([Categories](#categories)). A pair row always carries
-both `itom` and `jtom`; a self pair has `itom == jtom`.
+both `itom` and `jtom`; a self pair has `itom == jtom`, and a row with
+`itom ≠ jtom` is a *cross row* (CHARMM NBFIX, AMBER off-diagonal ACOEF/BCOEF,
+GROMACS `[ nonbond_params ]`). [Linking a system](#linking-a-system), rule 3,
+says what a cross row does and which pairs a table may restate.
 
 Annotation columns, `string`, nullable:
 
@@ -251,7 +254,19 @@ parameters of a system row:
    holding that name applies, and their energies add.
 3. `pair` and `pair14` tables are resolved through atom types, not row
    names: for atoms of types *a* and *b*, the row whose endpoints are
-   `{a, b}`. Failing one, a `pair` style uses its `mixing` of the two self
+   `{a, b}`, in either order. A cross row (`itom ≠ jtom`) therefore gives
+   its pair its own parameters and overrides the style's `mixing` for that
+   pair; `mixing` prices only the pairs no row names. A pair table **MUST
+   NOT** hold two rows with the same unordered `{itom, jtom}` and different
+   parameters: rows restating a pair, in either order, with equal values in
+   every parameter column (null equal only to null; `name` and the
+   annotation columns are not parameters) are one row, and a reader
+   **MUST** refuse a table whose restatements differ. A cross row's `name`
+   means nothing beyond its uniqueness in the table: it is not parsed, not
+   derived from the endpoints, and no system row names it. A writer
+   translating into a format that has no form for a cross row **MUST**
+   refuse the row rather than write it as a self row of either endpoint.
+   Failing a row, a `pair` style uses its `mixing` of the two self
    rows `{a, a}` and `{b, b}`; a `pair14` style gives nothing, and the pair
    keeps its scaled `pair` interaction. Every pair style of the force field
    applies to every non-excluded pair, scaled by `special_bonds` (`lj` or
@@ -266,7 +281,9 @@ parameters of a system row:
    linking.
 
 A name that resolves to nothing is not a format error. A reader **MUST NOT**
-refuse a record for it; a validator **SHOULD** report it.
+refuse a record for it; a validator **SHOULD** report it. Two pair rows that
+price one pair differently (rule 3) are a format error: the table cannot say
+which applies.
 
 ## Style registry
 
@@ -363,8 +380,18 @@ the row says otherwise.
 | `<RBTorsionForce><Proper … c0…c5>` | `dihedral.rb`: `c0`…`c5` |
 | `<NonbondedForce coulomb14scale lj14scale>` | `special_bonds` `lj [0, 0, lj14scale]`, `coul [0, 0, coulomb14scale]` |
 | `<NonbondedForce><Atom type charge sigma epsilon>` | `pair.lj/cut` self row (`itom = jtom = type`) with `sigma`, `epsilon`; `charge` → `atom.full.charge`; a `pair.coul/long/pme` style with no rows |
+| `<LennardJonesForce><NBFixPair type1 type2 sigma epsilon>` | no mapping yet (see below) |
 | `<Custom*Force energy>` with `<PerBondParameter>` / `<GlobalParameter>` | a style named by the force, `expression` = energy, per-type columns and `params` |
 | `<Residues>` | not carried |
+
+`<NonbondedForce>` holds one `<Atom>` row per type, so a `pair.lj/cut` cross
+row has no form there; OpenMM keeps pair overrides as `<NBFixPair>` rows of a
+`<LennardJonesForce>`, which this mapping does not cover yet. A writer refuses
+a cross row ([Linking a system](#linking-a-system), rule 3): written as an
+`<Atom>` it would replace `itom`'s own parameters. A reader that does not map
+`<NBFixPair>` refuses the file with an error naming it, or skips the
+`<LennardJonesForce>` with a diagnostic that says so; it never drops the
+overrides silently, which would leave each such pair at its mixed value.
 
 ### OpenFF (SMIRNOFF `.offxml`)
 
@@ -401,6 +428,7 @@ A system parameterized from it names rows by id: `bonds.type = "b1"`,
 | `[ dihedraltypes ]` funct 1 / 9 | `dihedral.periodic`; funct 9 rows with equal endpoints become terms `k<m>`, `periodicity<m>`, `phase<m>` of one row |
 | `[ dihedraltypes ]` funct 2 | `improper.harmonic`, `k` = k_ξ/2, `chi0` = ξ₀ (agrees only at ξ₀ = 0) |
 | `[ dihedraltypes ]` funct 3 / 4 | `dihedral.rb` (`c0`…`c5`) / `improper.periodic` |
+| `[ nonbond_params ] i j funct V W`, funct 1 | a cross row in the `pair` table that holds the `[ atomtypes ]` self rows (`pair.lj/cut` under comb-rule 2 or 3): `itom`, `jtom` = the type names i, j; V and W read as `[ atomtypes ]` reads them (`sigma`, `epsilon`). `j i` restating `i j` with the same V, W is the same row; with different ones the file is refused. Other funct codes have no mapping |
 | `[ pairtypes ]` funct 1 | `pair14.lj/cut` (`sigma`, `epsilon`) |
 | `[ constrainttypes ]` funct 1 | `constraint.fixed` (`r0`) |
 | endpoint `X` | `""` |
@@ -422,12 +450,29 @@ radians.
 | `dihedral_style multi/harmonic` `A1…A5` | `dihedral.multi/harmonic`: `a1`…`a5` |
 | `improper_style harmonic` `K χ0` | `improper.harmonic`: `k` = K, `chi0` |
 | `improper_style cvff` `K d n` | `improper.cvff`: `k`, `sign` = d, `periodicity` |
-| `pair_style lj/cut/coul/long rc` / `pair_coeff i j ε σ` | `pair.lj/cut` (`params.cutoff` = rc; row `itom` i, `jtom` j) and `pair.coul/long/pme` |
+| `pair_style lj/cut/coul/long rc` / `pair_coeff i j ε σ` | `pair.lj/cut` (`params.cutoff` = rc; row `itom` i, `jtom` j: a self row for i = j, a cross row otherwise) and `pair.coul/long/pme`. A later `pair_coeff` for the same pair, in either order, replaces the earlier one, as in LAMMPS, so the table holds one row per pair. A cross `pair_coeff` with a wildcard (`pair_coeff c3 * …`) has no mapping and is refused, not expanded |
+| data file `Pair Coeffs` `t ε σ` / `PairIJ Coeffs` `i j ε σ` | as `pair_coeff t t ε σ` / `pair_coeff i j ε σ`: `PairIJ Coeffs` rows with i ≠ j are cross rows |
 | `pair_modify mix <rule>` | `params.mixing` |
 | `special_bonds lj a b c coul d e f` | `special_bonds` |
 | `pair_style hybrid` sub-styles | one style each; relation rows carry `style` |
 | type labels (`Atom Type Labels`) | `name`; without labels the decimal type number |
-| `*` | `""` |
+| `*` (outside a cross `pair_coeff`) | `""` |
+
+### AMBER prmtop
+
+`units`: `length angstrom`, `energy kcal/mol`, `angle radian`, `charge e`,
+`mass dalton`. A type name is the atom's `AMBER_ATOM_TYPE`; its LJ class is
+its `ATOM_TYPE_INDEX`.
+
+| Source | Section |
+|--------|---------|
+| `BOND_FORCE_CONSTANT` RK, `BOND_EQUIL_VALUE` | `bond.harmonic`: `k` = 2·RK, `r0` |
+| `ANGLE_FORCE_CONSTANT` TK, `ANGLE_EQUIL_VALUE` | `angle.harmonic`: `k` = 2·TK, `theta0` |
+| `DIHEDRAL_FORCE_CONSTANT` PK, `DIHEDRAL_PERIODICITY`, `DIHEDRAL_PHASE` | `dihedral.periodic` (`improper.periodic` for a negative fourth atom index): `k` = PK, `periodicity`, `phase` |
+| `SCEE_SCALE_FACTOR`, `SCNB_SCALE_FACTOR` (one value over the torsions; absent, 1.2 and 2.0) | `special_bonds` `coul [0, 0, 1/SCEE]`, `lj [0, 0, 1/SCNB]` |
+| `LENNARD_JONES_ACOEF` A, `LENNARD_JONES_BCOEF` B on the diagonal of `NONBONDED_PARM_INDEX` | `pair.lj/cut` self row of every type name on that LJ class: `sigma` = (A/B)^{1/6}, `epsilon` = B²/(4A); `params.mixing arithmetic` |
+| an off-diagonal A, B that is the Lorentz–Berthelot mix of its two classes' self terms | no row: `mixing` gives it |
+| an off-diagonal A, B that is not (NBFIX, ParmEd `changeLJPair`) | a cross row, with σ and ε of that entry, for every pair of type names on the two LJ classes, endpoints in byte order |
 
 ## Conformance
 
@@ -442,6 +487,10 @@ The force-field suite (`module = "forcefield"`) pins down:
   parameter survive;
 - `ff-style-name-encoding`: `pair.lj%2Fcut%2Fcoul%2Flong` resolves to
   `lj/cut/coul/long`;
+- `ff-pair-cross-rows`: a cross row whose `name` is no endpoint spelling,
+  and a reversed restatement of it with equal parameters, survive beside the
+  self rows (that the row overrides `mixing` is an energy, which a format
+  suite does not compute);
 - `ff-hybrid-styles`: two bond styles, and a record whose `bonds` carry
   `style`;
 - `ff-per-instance-style`: a style with no rows beside relation columns that
@@ -458,7 +507,8 @@ The force-field suite (`module = "forcefield"`) pins down:
   `reject-ff-duplicate-style`, `reject-ff-missing-table`,
   `reject-ff-duplicate-type-name`, `reject-ff-wrong-arity`,
   `reject-ff-param-dtype`, `reject-ff-null-name`,
-  `reject-ff-class-key-without-class`.
+  `reject-ff-class-key-without-class`, `reject-ff-pair-conflict` (`B`–`A`
+  restating `A`–`B` with another `epsilon`).
 
 The record suite adds `record-with-forcefield` (a `system` whose `atoms.type`
 and `bonds.type` link into it) and `forcefield-only-record`; the collection
