@@ -164,12 +164,12 @@ molrs; `dev` keeps `MOLRS_REF=dev` when `master` is merged back.
 ## CI
 
 One workflow per kind of work. Every push of any branch runs `lint`, `test`
-and `docs`, on a fork as on MolCrafts. A pull request into `dev` or `master`
-runs them again only when it comes from another repository (a pull request
-inside a fork was already built by its push). molrec publishes nothing, so
+and `docs`, on a fork as on MolCrafts. A pull request into `dev`, `master` or
+`main` runs them again, except one inside a fork (its push already ran the
+full tier). molrec publishes nothing, so
 there is no `release.yml` or `nightly.yml`.
 
-| workflow | feature-branch push to MolCrafts | everything else: `dev`/`master`, pull requests, any push to a fork | upstream only |
+| workflow | feature-branch push to MolCrafts | everything else: any push to a fork, `dev`/`master`/`main`, pull requests, tags, dispatches | upstream only |
 | --- | --- | --- | --- |
 | `lint.yml` | `lint / hooks` (commit hooks on every file, partners, `uv lock --check`) | same | — |
 | `test.yml` | fast: `test / python (ubuntu-latest)` (bare import + the full suite against molrs) | full: `test / python` on Linux, macOS and Windows | — |
@@ -178,5 +178,6 @@ there is no `release.yml` or `nightly.yml`.
 So a fork branch gets the full tier on its push: push to your fork, wait for
 green, then open the pull request into MolCrafts `dev`. The
 `require-green-ci` (`dev`) and `protect-master` rulesets require the full
-tier's jobs. Shared setup lives in `.github/actions/` (`setup-rust`,
-`setup-python`, `setup-partners`).
+tier's jobs and `test / tier`. Shared setup is molcrafts-ci's
+`MolCrafts/molcrafts-ci/actions/<name>@master` (`setup-rust`, `setup-python`,
+`setup-partners`).
