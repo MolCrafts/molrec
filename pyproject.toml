@@ -18,7 +18,7 @@ dependencies = [
   "zarr>=3.3",
 ]
 
-# LMDB is the one optional backend: it is imported where a store is opened,
+# LMDB is the one optional backend: it is imported where a storage is opened,
 # so a consumer that never opens a collection never needs it.
 [project.optional-dependencies]
 lmdb = ["lmdb>=1.4"]

@@ -78,7 +78,7 @@ reader keeps every `meta` key it does not name, verbatim. See the [format specif
 - **Zarr + metrics WAL.** One Zarr V3 root holds arrays and document sections (group attributes). Closed metrics densify to Zarr series; live metrics use an append-only JSONL WAL (`metrics/metrics.jsonl`). The trajectory encoding is the [ragged CSR layout](docs/spec/ragged.md).
 - **Collections.** Named blocks carry any entity set.
 - **Preserve the unknown.** Readers keep sections, blocks, and columns they do not interpret.
-- **Backend-neutral.** Semantics are independent of the store; the Zarr root + JSONL buffer is the reference binding.
+- **Backend-neutral.** Semantics are independent of the storage backend; the Zarr root + JSONL buffer is the reference binding.
 
 ## Documentation
 
@@ -124,11 +124,11 @@ class MyRecordAdapter(molrec.core.adapter.RecordAdapter):
     backends = ("zarr",)
     refusal_types = (ValueError,)
 
-    def write(self, model, store):
-        mylib.write_record(store.uri, to_native(model))
+    def write(self, model, storage):
+        mylib.write_record(storage.uri, to_native(model))
 
-    def read(self, store):
-        return from_native(mylib.read_record(store.uri))
+    def read(self, storage):
+        return from_native(mylib.read_record(storage.uri))
 
 
 class MyLib(molrec.adapter.Implementation):
@@ -152,7 +152,7 @@ the adapter for molrs.
 its containers and its Zarr reader and writer implement the binding this
 repository specifies. The binding itself is the specification, not molrs's
 code. Other packages **consume** the contract; they must not ship a parallel
-store product name for the same layout.
+product name for the same layout.
 
 ## MolCrafts ecosystem
 

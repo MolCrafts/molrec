@@ -1,7 +1,7 @@
 """How big a chunk and a shard are -- the reference writer's choices.
 
 None of this is contractual. A conforming reader must open any chunking, and
-two stores of the same data are expected to differ byte for byte. The rules
+two records of the same data are expected to differ byte for byte. The rules
 below are the ones ``docs/spec/chunking.md`` records for the reference writer,
 so the codec here lays arrays out the way molrs does.
 

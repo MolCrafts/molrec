@@ -67,10 +67,10 @@ replacing the group metadata (atomically), so a crash between two writes of
 one commit costs the uncommitted frames and nothing else. A reader takes
 `nstep` from that attribute (a non-negative JSON integer); every array is
 read to its logical length and **MAY** be longer (a tail the writer had not
-yet committed) but **MUST NOT** be shorter. A store from a writer that kept
+yet committed) but **MUST NOT** be shorter. A trajectory from a writer that kept
 no marker attribute is read to `len(step)` (zero frames when there is no
 `step` array either). The progression attributes below are only ever written
-in the same metadata update as `nstep`, so a store that carries
+in the same metadata update as `nstep`, so a trajectory that carries
 `step_progression` or `time_progression` **without** `nstep` is malformed
 and a reader refuses it. The full protocol is
 [Chunking and packing](chunking.md#normative).
@@ -245,7 +245,7 @@ beside it:
   run, a zero-row update), or an update at an ordinal other than its own (a
   topology that changed at frame 5) — materializes **both** arrays,
   backfilled with the regular history, and the same commit removes **both**
-  markers for good. A committed store never carries a marker beside an index
+  markers for good. A committed trajectory never carries a marker beside an index
   array; a reader that finds both (a crash between the two writes of that
   commit) uses the arrays, which are authoritative.
 - A block with **no columns** has no length to count its updates by, so it
@@ -335,7 +335,7 @@ coordinates under proton hopping, species under grand-canonical insertion.
 - Rows correspond by position. A producer that reorders or replaces rows
   without changing their count restates the aligned block. (The two blocks
   share no column, so an `id` lives in one of them.)
-- A writer refuses a frame that breaks the rule; a reader refuses a store
+- A writer refuses a frame that breaks the rule; a reader refuses a trajectory
   that does.
 - A reader hands back two blocks. It **MAY** also offer them joined; the
   column sets are disjoint, so the join is the union of columns.
@@ -383,7 +383,7 @@ resolves exactly the declared blocks: a declared block whose group is
 missing is absent at every ordinal, and a child group of `trajectory/` the
 declaration does not name (and that is not one of the reserved names) is
 not a block of the sequence — a reader does not resolve it into frames, and
-preserves it as unknown content. Only a store that carries no
+preserves it as unknown content. Only a trajectory that carries no
 `sequence_schema` at all (a foreign writer's) is read by deriving the
 declaration from its groups.
 

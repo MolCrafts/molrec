@@ -16,7 +16,7 @@ import zarr
 from pydantic import BaseModel
 
 import molrec
-from molrec.core.bindings.zarr import ZarrFrameCodec, ZarrFrameStore
+from molrec.core.bindings.zarr import ZarrFrameCodec, ZarrFrameStorage
 from molrec.registry import REGISTRY
 
 
@@ -28,11 +28,11 @@ class CodecFrameAdapter(molrec.core.adapter.FrameAdapter):
     # ValidationError included).
     refusal_types = (ValueError,)
 
-    def write(self, model: molrec.core.model.FrameModel, store: ZarrFrameStore) -> None:
-        ZarrFrameCodec().write(model, store)
+    def write(self, model: molrec.core.model.FrameModel, storage: ZarrFrameStorage) -> None:
+        ZarrFrameCodec().write(model, storage)
 
-    def read(self, store: ZarrFrameStore) -> molrec.core.model.FrameModel:
-        return ZarrFrameCodec().read(store)
+    def read(self, storage: ZarrFrameStorage) -> molrec.core.model.FrameModel:
+        return ZarrFrameCodec().read(storage)
 
 
 class DropsUnknownAdapter(CodecFrameAdapter):
@@ -40,8 +40,8 @@ class DropsUnknownAdapter(CodecFrameAdapter):
 
     UNRECOGNIZED = "nobody_knows_this_block"
 
-    def read(self, store: ZarrFrameStore) -> molrec.core.model.FrameModel:
-        model = super().read(store)
+    def read(self, storage: ZarrFrameStorage) -> molrec.core.model.FrameModel:
+        model = super().read(storage)
         kept = {name: block for name, block in model.blocks.items() if name != self.UNRECOGNIZED}
         return model.model_copy(update={"blocks": kept})
 
@@ -49,8 +49,8 @@ class DropsUnknownAdapter(CodecFrameAdapter):
 class WidensIntegersAdapter(CodecFrameAdapter):
     """Reads every i32 column back as i64 -- the classic silent widening."""
 
-    def read(self, store: ZarrFrameStore) -> molrec.core.model.FrameModel:
-        model = super().read(store)
+    def read(self, storage: ZarrFrameStorage) -> molrec.core.model.FrameModel:
+        model = super().read(storage)
         widened = {
             name: block.model_copy(
                 update={
@@ -79,8 +79,8 @@ class WidensIntegersAdapter(CodecFrameAdapter):
 class FlattensGridAdapter(CodecFrameAdapter):
     """Loses the structural shape, so a grid reads back unreshapable."""
 
-    def read(self, store: ZarrFrameStore) -> molrec.core.model.FrameModel:
-        model = super().read(store)
+    def read(self, storage: ZarrFrameStorage) -> molrec.core.model.FrameModel:
+        model = super().read(storage)
         flattened = {
             name: block.model_copy(update={"structural_shape": None})
             for name, block in model.blocks.items()
@@ -183,14 +183,14 @@ class _CodecAdapter(molrec.adapter.Adapter):
     backends: ClassVar[tuple[str, ...]] = ("zarr", "lmdb")
     refusal_types: ClassVar[tuple[type[Exception], ...]] = (ValueError,)
 
-    def _codec(self, store: molrec.store.Store) -> molrec.binding.Codec:
-        return REGISTRY.bindings_for(self.module)[store.backend]().codec()
+    def _codec(self, storage: molrec.storage.Storage) -> molrec.binding.Codec:
+        return REGISTRY.bindings_for(self.module)[storage.backend]().codec()
 
-    def write(self, model: BaseModel, store: molrec.store.Store) -> None:
-        self._codec(store).write(model, store)
+    def write(self, model: BaseModel, storage: molrec.storage.Storage) -> None:
+        self._codec(storage).write(model, storage)
 
-    def read(self, store: molrec.store.Store) -> Any:
-        return self._codec(store).read(store)
+    def read(self, storage: molrec.storage.Storage) -> Any:
+        return self._codec(storage).read(storage)
 
 
 def _codec_implementation(module: str) -> molrec.adapter.Implementation:
@@ -213,7 +213,7 @@ def _assert_clean(report: molrec.report.Report, module: str, implementation: str
 CODEC_MATRIX = ["core", "record", TRAJECTORY_MODULE, "collection", "forcefield"]
 
 #: ``core`` is deliberately absent: molrs ships no door for a bare frame at a
-#: store root, and `tests/molrs_adapter.py` says so in as many words. The
+#: storage root, and `tests/molrs_adapter.py` says so in as many words. The
 #: frame cases reach molrs inside records instead.
 MOLRS_MATRIX = ["record", TRAJECTORY_MODULE, "forcefield"]
 
@@ -270,7 +270,7 @@ def test_every_ragged_must_has_a_negative_case() -> None:
 def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path, molrs) -> None:
     """ac-030 (a), the molrs half -- the two implementations must agree.
 
-    The store is built by hand because no model can produce it: ``BoxModel``
+    The storage is built by hand because no model can produce it: ``BoxModel``
     materializes ``boundary`` on validation, and the codec then omits the
     array only at its default. A foreign writer can lay down a box group with
     no ``boundary`` at all, and both implementations must read it as the
@@ -291,7 +291,7 @@ def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path, molrs) -> None
     box = frame.create_group("box")
     box.create_array("vectors", shape=(3, 3), dtype="float64")[...] = np.eye(3)
     box.create_array("origin", shape=(3,), dtype="float64")[...] = np.zeros(3)
-    assert "boundary" not in box, "the store under test must not carry the array"
+    assert "boundary" not in box, "the storage under test must not carry the array"
 
     frame = molrs.io.read_mrec_frame(path)
     assert [bool(flag) for flag in np.asarray(frame.box.pbc)] == [True, True, True]

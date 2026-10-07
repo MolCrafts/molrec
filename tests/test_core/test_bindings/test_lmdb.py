@@ -1,4 +1,4 @@
-"""Store-level pins for the LMDB binding.
+"""Storage-level pins for the LMDB binding.
 
 Mirrors ``src/molrec/core/bindings/lmdb.py``.
 
@@ -19,7 +19,7 @@ from molrec.core.bindings.lmdb import (
     FRAME_PREFIX,
     META_KEY,
     LmdbCollectionCodec,
-    LmdbCollectionStore,
+    LmdbCollectionStorage,
     decode_frame,
     encode_frame,
     key,
@@ -69,30 +69,30 @@ def _collection() -> CollectionModel:
 
 class TestLmdbCollectionCodec:
     def test_an_unchanged_block_is_written_once(self, tmp_path):
-        store = LmdbCollectionStore(tmp_path / "c.mrec.lmdb")
-        LmdbCollectionCodec().write(_collection(), store)
-        env = store.open()
+        storage = LmdbCollectionStorage(tmp_path / "c.mrec.lmdb")
+        LmdbCollectionCodec().write(_collection(), storage)
+        env = storage.open()
         with env.begin() as txn:
             rows = [decode_frame(txn.get(key(FRAME_PREFIX, j))) for j in range(3)]
         env.close()
         assert set(rows[0].blocks) == {"atoms", "bonds"}
         assert [set(row.blocks) for row in rows[1:]] == [{"atoms"}, {"atoms"}]
 
-    def test_a_store_without_meta_is_refused(self, tmp_path):
-        store = LmdbCollectionStore(tmp_path / "c.mrec.lmdb")
-        LmdbCollectionCodec().write(_collection(), store)
-        env = store.open(write=True)
+    def test_a_storage_without_meta_is_refused(self, tmp_path):
+        storage = LmdbCollectionStorage(tmp_path / "c.mrec.lmdb")
+        LmdbCollectionCodec().write(_collection(), storage)
+        env = storage.open(write=True)
         with env.begin(write=True) as txn:
             txn.delete(META_KEY)
         env.close()
         with pytest.raises(ValueError, match="not a committed collection"):
-            LmdbCollectionCodec().read(store)
+            LmdbCollectionCodec().read(storage)
 
     def test_the_collection_document_is_written_as_given(self, tmp_path):
         collection = _collection()
-        store = LmdbCollectionStore(tmp_path / "c.mrec.lmdb")
-        LmdbCollectionCodec().write(collection, store)
-        env = store.open()
+        storage = LmdbCollectionStorage(tmp_path / "c.mrec.lmdb")
+        LmdbCollectionCodec().write(collection, storage)
+        env = storage.open()
         with env.begin() as txn:
             meta = json.loads(bytes(txn.get(META_KEY)))
         env.close()
@@ -134,9 +134,9 @@ def test_n_atoms_is_the_system_count_even_when_zero(tmp_path):
             _collection().records[0],
         ],
     )
-    store = LmdbCollectionStore(tmp_path / "n.mrec.lmdb")
-    LmdbCollectionCodec().write(collection, store)
-    env = store.open()
+    storage = LmdbCollectionStorage(tmp_path / "n.mrec.lmdb")
+    LmdbCollectionCodec().write(collection, storage)
+    env = storage.open()
     with env.begin() as txn:
         index = decode_frame(txn.get(INDEX_KEY)).blocks[INDEX_BLOCK]
     env.close()

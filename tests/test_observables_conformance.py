@@ -14,7 +14,7 @@ import numpy as np
 import zarr
 
 import molrec
-from molrec.observables.bindings.zarr import ZarrObservablesCodec, ZarrObservableStore
+from molrec.observables.bindings.zarr import ZarrObservablesCodec, ZarrObservableStorage
 
 
 class CodecAdapter(molrec.observables.adapter.ObservableAdapter):
@@ -22,17 +22,17 @@ class CodecAdapter(molrec.observables.adapter.ObservableAdapter):
     refusal_types = (ValueError,)
 
     def write(
-        self, model: molrec.observables.model.ObservablesModel, store: ZarrObservableStore
+        self, model: molrec.observables.model.ObservablesModel, storage: ZarrObservableStorage
     ) -> None:
-        ZarrObservablesCodec().write(model, store)
+        ZarrObservablesCodec().write(model, storage)
 
-    def read(self, store: ZarrObservableStore) -> Any:
-        return ZarrObservablesCodec().read(store)
+    def read(self, storage: ZarrObservableStorage) -> Any:
+        return ZarrObservablesCodec().read(storage)
 
 
 class DropsUnknownKeys(CodecAdapter):
-    def read(self, store: ZarrObservableStore) -> Any:
-        model = super().read(store)
+    def read(self, storage: ZarrObservableStorage) -> Any:
+        model = super().read(storage)
         return molrec.observables.model.ObservablesModel(
             observables={
                 name: observable.model_copy(
@@ -51,8 +51,8 @@ class DropsUnknownKeys(CodecAdapter):
 
 
 class RewritesUnknownKinds(CodecAdapter):
-    def read(self, store: ZarrObservableStore) -> Any:
-        model = super().read(store)
+    def read(self, storage: ZarrObservableStorage) -> Any:
+        model = super().read(storage)
         return molrec.observables.model.ObservablesModel(
             observables={
                 name: observable.model_copy(
@@ -109,7 +109,7 @@ def test_a_default_run_never_judges_by_the_draft() -> None:
 
 
 def test_the_layout_is_meta_beside_data(tmp_path) -> None:
-    store = ZarrObservableStore(tmp_path / "o.mrec")
+    storage = ZarrObservableStorage(tmp_path / "o.mrec")
     energy = molrec.observables.model.ObservableModel(
         meta=molrec.observables.model.ObservableMetaModel(
             kind="scalar", description="total energy", time_dependent=False, unit="eV"
@@ -117,9 +117,9 @@ def test_the_layout_is_meta_beside_data(tmp_path) -> None:
         data=molrec.core.model.ArrayModel(dtype="f64", shape=(), values=np.array(-1.5)),
     )
     ZarrObservablesCodec().write(
-        molrec.observables.model.ObservablesModel(observables={"energy": energy}), store
+        molrec.observables.model.ObservablesModel(observables={"energy": energy}), storage
     )
-    root = zarr.open_group(store=store.path, mode="r")
+    root = zarr.open_group(store=storage.path, mode="r")
     assert dict(root["observables/meta/energy"].attrs) == {
         "kind": "scalar",
         "description": "total energy",
@@ -131,9 +131,9 @@ def test_the_layout_is_meta_beside_data(tmp_path) -> None:
 
 
 def test_an_observables_section_rides_in_a_record(tmp_path) -> None:
-    from molrec.core.bindings.zarr import ZarrRecordCodec, ZarrRecordStore
+    from molrec.core.bindings.zarr import ZarrRecordCodec, ZarrRecordStorage
 
-    store = ZarrRecordStore(tmp_path / "r.mrec")
+    storage = ZarrRecordStorage(tmp_path / "r.mrec")
     record = molrec.core.model.RecordModel(
         meta=molrec.core.model.MetaModel(),
         frame=molrec.core.model.FrameModel(),
@@ -150,5 +150,5 @@ def test_an_observables_section_rides_in_a_record(tmp_path) -> None:
             }
         ),
     )
-    ZarrRecordCodec().write(record, store)
-    assert ZarrRecordCodec().read(store) == record
+    ZarrRecordCodec().write(record, storage)
+    assert ZarrRecordCodec().read(storage) == record

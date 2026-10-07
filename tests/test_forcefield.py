@@ -8,7 +8,7 @@ import pytest
 import zarr
 from pydantic import ValidationError
 
-from molrec.core.bindings.zarr import ZarrForceFieldCodec, ZarrForceFieldStore
+from molrec.core.bindings.zarr import ZarrForceFieldCodec, ZarrForceFieldStorage
 from molrec.core.ffsuite import (
     atoms,
     cmap,
@@ -118,14 +118,14 @@ def test_the_tables_are_block_groups_at_their_names(tmp_path) -> None:
     model = forcefield(
         [(style("pair", "lj/cut/coul/long"), table(["A"], itom=["A"], jtom=["A"], epsilon=[1.0]))]
     )
-    store = ZarrForceFieldStore(tmp_path / "ff.mrec")
-    ZarrForceFieldCodec().write(model, store)
-    root = zarr.open_group(store=store.path, mode="r")
+    storage = ZarrForceFieldStorage(tmp_path / "ff.mrec")
+    ZarrForceFieldCodec().write(model, storage)
+    root = zarr.open_group(store=storage.path, mode="r")
     assert dict(root["meta"].attrs) == {}
     group = root["forcefield"]
     assert dict(group.attrs)["name"] == "test"
     assert [name for name, _ in group.groups()] == ["pair.lj%2Fcut%2Fcoul%2Flong"]
-    assert ZarrForceFieldCodec().read(store) == model
+    assert ZarrForceFieldCodec().read(storage) == model
 
 
 def _nullable(values: list[float], validity: list[bool]) -> ColumnModel:
@@ -277,11 +277,11 @@ class TestCmapGrid:
     def test_the_grid_round_trips_through_zarr_bit_for_bit(self, tmp_path) -> None:
         grids = np.stack([cmap_grid(24, 0.1), cmap_grid(24, -0.35)])
         model = forcefield([cmap(grids)])
-        store = ZarrForceFieldStore(tmp_path / "cmap.mrec")
-        ZarrForceFieldCodec().write(model, store)
-        array = zarr.open_group(store=store.path, mode="r")["forcefield/cmap.charmm/grid"]
+        storage = ZarrForceFieldStorage(tmp_path / "cmap.mrec")
+        ZarrForceFieldCodec().write(model, storage)
+        array = zarr.open_group(store=storage.path, mode="r")["forcefield/cmap.charmm/grid"]
         assert array.shape == (2, 24, 24)
-        back = ZarrForceFieldCodec().read(store)
+        back = ZarrForceFieldCodec().read(storage)
         assert back == model
         assert back.tables["cmap.charmm"].columns["grid"].values.tobytes() == grids.tobytes()
 
@@ -334,9 +334,9 @@ class TestArrayParams:
     def test_the_array_round_trips_through_zarr_bit_for_bit(self, tmp_path) -> None:
         values = np.arange(12, dtype="float64").reshape(2, 2, 3) / 7.0
         model = self._bond(_grid_column(values))
-        store = ZarrForceFieldStore(tmp_path / "arrays.mrec")
-        ZarrForceFieldCodec().write(model, store)
-        back = ZarrForceFieldCodec().read(store)
+        storage = ZarrForceFieldStorage(tmp_path / "arrays.mrec")
+        ZarrForceFieldCodec().write(model, storage)
+        back = ZarrForceFieldCodec().read(storage)
         assert back == model
         assert back.tables["bond.spline"].columns["knots"].values.tobytes() == values.tobytes()
 
@@ -361,10 +361,10 @@ def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:
     its ``grid`` a float64 numpy array equal bit for bit."""
     grids = np.stack([cmap_grid(24, 0.1), cmap_grid(24, -0.35)])
     model = forcefield([atoms(["C", "NH1", "CT1"], mass=[12.011, 14.007, 12.011]), cmap(grids)])
-    store = ZarrForceFieldStore(tmp_path / "cmap.mrec")
-    ZarrForceFieldCodec().write(model, store)
+    storage = ZarrForceFieldStorage(tmp_path / "cmap.mrec")
+    ZarrForceFieldCodec().write(model, storage)
 
-    ff = molrs.io.read_mrec_forcefield(store.path).to_forcefield()
+    ff = molrs.io.read_mrec_forcefield(storage.path).to_forcefield()
     style_ = ff.get_style("cmap", "charmm")
     assert isinstance(style_, molrs.ff.forcefield.CmapStyle)
     types = sorted(style_.get_types(), key=lambda t: t.name)

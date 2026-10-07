@@ -9,20 +9,20 @@ from molrec.adapter import Adapter
 from molrec.observables.model import (
     ObservablesModel,
 )
-from molrec.observables.store import ObservableStore
+from molrec.observables.storage import ObservableStorage
 
 
 class ObservableAdapter(Adapter):
     """Implement this to have your ``observables`` section judged.
 
-    The store is a record root holding ``meta`` and ``observables``; ``read``
+    The storage is a record root holding ``meta`` and ``observables``; ``read``
     hands back something shaped like :class:`ObservablesModel`.
     """
 
     module: ClassVar[str] = "observables"
 
     @abstractmethod
-    def write(self, model: ObservablesModel, store: ObservableStore) -> None: ...
+    def write(self, model: ObservablesModel, storage: ObservableStorage) -> None: ...
 
     @abstractmethod
-    def read(self, store: ObservableStore) -> Any: ...
+    def read(self, storage: ObservableStorage) -> Any: ...

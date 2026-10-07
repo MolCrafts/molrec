@@ -48,7 +48,7 @@ The table is published as
   `type_id`, `mol_id`, `res_id`, `atomi`, `atomj`, `atomk`, `atoml`,
   `atomm`, `ibead`, `bond_type`, `bond_number` — are **exactly `u64`**. A reader **MUST**
   refuse one stored at any other width or signedness rather than widen it on
-  read: a store that holds one narrower came from a writer that broke the
+  read: a record that holds one narrower came from a writer that broke the
   contract, and reading it back as `u64` would hide that.
 - A reader **SHOULD** refuse any other canonical key at another dtype too.
 - The [per-step scalars](#per-step-scalars) are canonical the same way: a

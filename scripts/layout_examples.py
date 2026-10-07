@@ -44,15 +44,15 @@ from molrec.core.bindings.lmdb import (
     INDEX_KEY,
     META_KEY,
     LmdbCollectionCodec,
-    LmdbCollectionStore,
+    LmdbCollectionStorage,
 )
 from molrec.core.bindings.zarr import (
     FROM_ZARR,
-    PackedRecordStore,
+    PackedRecordStorage,
     ZarrRecordCodec,
-    ZarrRecordStore,
+    ZarrRecordStorage,
     ZarrTrajectoryCodec,
-    ZarrTrajectoryStore,
+    ZarrTrajectoryStorage,
     pack,
 )
 from molrec.core.model import (
@@ -334,7 +334,7 @@ def variable_trajectory() -> TrajectoryModel:
         elements = column("string", (H2O2_ELEMENTS + ["Ar"])[:n])
         return xyz_block(positions(n), element=elements)
 
-    def types(values: list[str]) -> BlockModel:
+    def atom_types_block(values: list[str]) -> BlockModel:
         return block({"type": column("string", values)})
 
     def bonds(pairs: list[tuple[int, int]]) -> BlockModel:
@@ -351,14 +351,22 @@ def variable_trajectory() -> TrajectoryModel:
     radicals = ["HO", "OH", "OH", "HO"]
     peroxide = ["H1", "O1", "O1", "H1"]
     frames = [
-        {"atoms": atoms(4), "bonds": bonds([(0, 1), (2, 3)]), "atom_types": types(radicals)},
+        {
+            "atoms": atoms(4),
+            "bonds": bonds([(0, 1), (2, 3)]),
+            "atom_types": atom_types_block(radicals),
+        },
         {"atoms": atoms(4)},
         {
             "atoms": atoms(4),
             "bonds": bonds([(0, 1), (1, 2), (2, 3)]),
-            "atom_types": types(peroxide),
+            "atom_types": atom_types_block(peroxide),
         },
-        {"atoms": atoms(5), "atom_types": types(peroxide + ["Ar"]), "insertions": insertions([4])},
+        {
+            "atoms": atoms(5),
+            "atom_types": atom_types_block(peroxide + ["Ar"]),
+            "insertions": insertions([4]),
+        },
         {"atoms": atoms(5), "insertions": insertions([])},
     ]
     pe = [-4.1, -4.3, -12.2, -12.4, -12.3]
@@ -801,7 +809,7 @@ SECTION_KINDS = {
 
 def block_overview(work: Path) -> str:
     root = work / "tour.mrec"
-    ZarrRecordCodec().write(overview_record(), ZarrRecordStore(root))
+    ZarrRecordCodec().write(overview_record(), ZarrRecordStorage(root))
     (root / "metrics" / "metrics.jsonl").write_bytes(run_wal())
     root_attrs = json.loads((root / "zarr.json").read_text())["attributes"]
     lines = [f"tour.mrec/          the root group; its attributes: {compact(root_attrs)}"]
@@ -834,7 +842,7 @@ def _is_group(path: Path) -> bool:
 def block_frame(work: Path) -> str:
     root = work / "water.mrec"
     ZarrRecordCodec().write(
-        RecordModel(meta=MetaModel(), frame=water_frame()), ZarrRecordStore(root)
+        RecordModel(meta=MetaModel(), frame=water_frame()), ZarrRecordStorage(root)
     )
     return fence(zarr_tree(root, "water.mrec/"))
 
@@ -844,13 +852,13 @@ def block_trajectory_fixed(work: Path) -> str:
     record = RecordModel(
         meta=MetaModel(), system=h2o2_system(full=False), trajectory=fixed_trajectory()
     )
-    ZarrRecordCodec().write(record, ZarrRecordStore(root))
+    ZarrRecordCodec().write(record, ZarrRecordStorage(root))
     return fence(zarr_tree(root, "vibration.mrec/"))
 
 
 def block_trajectory_variable(work: Path) -> str:
     root = work / "reaction.mrec"
-    ZarrTrajectoryCodec().write(variable_trajectory(), ZarrTrajectoryStore(root))
+    ZarrTrajectoryCodec().write(variable_trajectory(), ZarrTrajectoryStorage(root))
     return fence(zarr_tree(root, "reaction.mrec/"))
 
 
@@ -899,7 +907,7 @@ def block_resolve(work: Path) -> str:
 def block_forcefield(work: Path) -> str:
     root = work / "peroxide.mrec"
     record = RecordModel(meta=MetaModel(), system=h2o2_system(), forcefield=h2o2_forcefield())
-    ZarrRecordCodec().write(record, ZarrRecordStore(root))
+    ZarrRecordCodec().write(record, ZarrRecordStorage(root))
     return fence(zarr_tree(root, "peroxide.mrec/", only=["forcefield"]))
 
 
@@ -909,7 +917,7 @@ def block_ff_system(work: Path) -> str:
 
 def block_linking(work: Path) -> str:
     """Each system row's ``type``, resolved by name against the tables read back."""
-    record = ZarrRecordCodec().read(ZarrRecordStore(work / "peroxide.mrec"))
+    record = ZarrRecordCodec().read(ZarrRecordStorage(work / "peroxide.mrec"))
     ff, system = record.forcefield, record.system
     categories = {"atoms": "atom", "bonds": "bond", "angles": "angle", "dihedrals": "dihedral"}
     rows = [
@@ -948,16 +956,16 @@ def block_linking(work: Path) -> str:
 
 
 def block_observables(work: Path) -> str:
-    from molrec.observables.bindings.zarr import ZarrObservablesCodec, ZarrObservableStore
+    from molrec.observables.bindings.zarr import ZarrObservablesCodec, ZarrObservableStorage
 
     root = work / "results.mrec"
-    ZarrObservablesCodec().write(observables(), ZarrObservableStore(root))
+    ZarrObservablesCodec().write(observables(), ZarrObservableStorage(root))
     return fence(zarr_tree(root, "results.mrec/", only=["observables"]))
 
 
 def block_metrics(work: Path) -> str:
     root = work / "fit.mrec"
-    ZarrRecordCodec().write(run_record(), ZarrRecordStore(root))
+    ZarrRecordCodec().write(run_record(), ZarrRecordStorage(root))
     (root / "metrics" / "metrics.jsonl").write_bytes(run_wal())
     tree = zarr_tree(root, "fit.mrec/", only=["meta", "status", "method", "metrics"])
     wal = ["", "metrics/metrics.jsonl:", *run_wal().decode().splitlines()]
@@ -1029,7 +1037,7 @@ def wrap(text: str, width: int = WIDTH - 4, indent: int = 4) -> list[str]:
 def _collection_file(work: Path) -> Path:
     path = work / "conformers.mrec.lmdb"
     if not path.exists():
-        LmdbCollectionCodec().write(collection(), LmdbCollectionStore(path))
+        LmdbCollectionCodec().write(collection(), LmdbCollectionStorage(path))
     return path
 
 
@@ -1097,8 +1105,8 @@ def block_packed(work: Path) -> str:
     with zipfile.ZipFile(archive) as zf:
         infos = zf.infolist()
     stored = all(info.compress_type == zipfile.ZIP_STORED for info in infos)
-    same = ZarrRecordCodec().read(PackedRecordStore(archive)) == ZarrRecordCodec().read(
-        ZarrRecordStore(live)
+    same = ZarrRecordCodec().read(PackedRecordStorage(archive)) == ZarrRecordCodec().read(
+        ZarrRecordStorage(live)
     )
     lines = [
         f"water.mrec.zip    {len(infos)} entries, all stored (method 0): {str(stored).lower()},"
@@ -1171,18 +1179,18 @@ def _density(work: Path, precision: float | None) -> float:
             columns={axis: SequenceColumnModel(dtype="f64", precision=precision) for axis in "xyz"}
         )
     }
-    store = ZarrTrajectoryStore(work / f"density-{precision}.mrec")
+    storage = ZarrTrajectoryStorage(work / f"density-{precision}.mrec")
     ZarrTrajectoryCodec().write(
-        TrajectoryModel(frames=frames, step=list(range(DENSITY_FRAMES)), blocks=declared), store
+        TrajectoryModel(frames=frames, step=list(range(DENSITY_FRAMES)), blocks=declared), storage
     )
-    root = zarr.open_group(store=store.path, mode="r")
+    root = zarr.open_group(store=storage.path, mode="r")
     stored = 0
     for axis in "xyz":
         array = root[f"trajectory/atoms/{axis}"]
         # The shard index (16 B per inner chunk + a crc32c) is a fixed cost
         # per shard that a 40-frame run cannot amortize; count the chunks.
         index = 16 * (array.shards[0] // array.chunks[0]) + 4
-        files = (store.path / "trajectory" / "atoms" / axis / "c").rglob("*")
+        files = (storage.path / "trajectory" / "atoms" / axis / "c").rglob("*")
         stored += sum(path.stat().st_size - index for path in files if path.is_file())
     return stored / (DENSITY_ATOMS * DENSITY_FRAMES)
 

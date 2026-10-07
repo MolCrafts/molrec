@@ -9,7 +9,7 @@ What is here:
 * **Models** (:mod:`molrec.core.model`, :mod:`molrec.observables.model`) --
   pydantic models that *are* the specification. The JSON Schema published
   for other languages is generated from them.
-* **Stores and bindings** -- one per (module x backend) pair: the Zarr V3
+* **Storage and bindings** -- one per (module x backend) pair: the Zarr V3
   record root (frames, records, trajectories, observables) and LMDB
   (collections, trajectories).
 * **Adapters** -- the only thing an implementation author writes. Two methods
@@ -24,13 +24,13 @@ Usage::
         backends = ("zarr",)
         refusal_types = (ValueError,)  # what molrs refuses malformed input with
 
-        def write(self, model, store):
-            molrs.io.write_mrec_frame(store.uri, self._build(model.frame), meta=...)
+        def write(self, model, storage):
+            molrs.io.write_mrec_frame(storage.uri, self._build(model.frame), meta=...)
 
-        def read(self, store):
+        def read(self, storage):
             return {
-                "meta": molrs.io.read_mrec_meta(store.uri),
-                "frame": self._describe(molrs.io.read_mrec_frame(store.uri)),
+                "meta": molrs.io.read_mrec_meta(storage.uri),
+                "frame": self._describe(molrs.io.read_mrec_frame(storage.uri)),
             }
 
     class Molrs(molrec.adapter.Implementation):
@@ -47,7 +47,7 @@ package root holds the subsystems and ``__version__`` only.
 
 Comparison is always at the model level, never on bytes: chunk size, codec,
 compression and attribute order are legitimate implementation freedom, so two
-conforming stores *should* differ byte for byte.
+conforming records *should* differ byte for byte.
 """
 
 from __future__ import annotations
@@ -71,7 +71,7 @@ from molrec import (
     registry,
     report,
     safe_name,
-    store,
+    storage,
     suite,
 )
 from molrec.draft import observables as _draft_observables  # noqa: F401  (registers)
@@ -99,6 +99,6 @@ __all__ = [
     "registry",
     "report",
     "safe_name",
-    "store",
+    "storage",
     "suite",
 ]

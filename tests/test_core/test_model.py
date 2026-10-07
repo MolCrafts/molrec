@@ -166,7 +166,10 @@ class TestMetaTags:
 
 
 class TestBlockStates:
-    """S1: present / empty / absent, with omission carrying forward."""
+    """Present / empty / absent, with omission carrying forward.
+
+    ``docs/spec/ragged.md#the-three-states-of-a-block``.
+    """
 
     def test_omitted_block_carries_forward(self) -> None:
         trajectory = TrajectoryModel(
@@ -224,7 +227,10 @@ class TestBlockStates:
             )
 
     def test_structural_shape_fixes_the_row_count(self) -> None:
-        """S4: the shape is pinned, and BlockModel pins the count to the shape."""
+        """A grid's row count is fixed: the shape is pinned, and BlockModel pins the count to it.
+
+        ``docs/spec/ragged.md#per-block-sparse-updates-csr``.
+        """
         grid = BlockModel(
             count=8,
             structural_shape=(2, 2, 2),

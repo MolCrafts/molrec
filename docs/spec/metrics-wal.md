@@ -67,4 +67,4 @@ Example line:
 | JSONL WAL | Record: past the watermark, or when no dense series exist. Host: **always** | During a run; the host's only surface |
 
 There is no separate first-class `metrics/index.json` on a record, and hosts
-do not maintain a dense store or an index beside the WAL.
+do not maintain a dense series or an index beside the WAL.

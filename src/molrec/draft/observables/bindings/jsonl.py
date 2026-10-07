@@ -38,13 +38,13 @@ from molrec import jsonvalue
 from molrec.binding import Binding, Codec
 from molrec.core.model import NUMPY_DTYPE, document
 from molrec.draft.observables.model import Array, ObservableModel, ObservablesModel, Source
-from molrec.draft.observables.store import ObservableStore
+from molrec.draft.observables.storage import ObservableStorage
 from molrec.registry import REGISTRY
 
 FILENAME = "observables.jsonl"
 
 
-class JsonlObservableStore(ObservableStore):
+class JsonlObservableStorage(ObservableStorage):
     """A directory holding one append-only WAL."""
 
     backend: ClassVar[str] = "jsonl"
@@ -104,11 +104,11 @@ class JsonlObservableStore(ObservableStore):
 class JsonlObservableCodec(Codec):
     """The official translation for the WAL."""
 
-    def write(self, model: ObservablesModel, store: JsonlObservableStore) -> None:
-        store.clear()
+    def write(self, model: ObservablesModel, storage: JsonlObservableStorage) -> None:
+        storage.clear()
         rows = set(model.row_dims)
 
-        store.append(
+        storage.append(
             *(
                 _dump(
                     {
@@ -120,7 +120,7 @@ class JsonlObservableCodec(Codec):
                 for name, array in model.coordinates.items()
             )
         )
-        store.append(
+        storage.append(
             *(
                 _dump(self._declaration(name, observable))
                 for name, observable in model.observables.items()
@@ -131,20 +131,20 @@ class JsonlObservableCodec(Codec):
         for dim in model.row_dims:
             coordinates = model.coordinates_on(dim)
             observables = model.observables_on(dim)
-            store.append(
+            storage.append(
                 *(
                     _dump(self._row(dim, coordinates, observables, index))
                     for index in range(extents[dim])
                 )
             )
 
-    def read(self, store: JsonlObservableStore) -> ObservablesModel:
+    def read(self, storage: JsonlObservableStorage) -> ObservablesModel:
         coordinate_specs: dict[str, dict] = {}
         declarations: dict[str, dict] = {}
         gathered_coordinates: dict[str, list] = {}
         gathered_values: dict[str, list] = {}
 
-        for line in store.lines():
+        for line in storage.lines():
             record = _parse(line)
             if record is None:
                 continue
@@ -303,10 +303,10 @@ class JsonlObservableBinding(Binding):
     module: ClassVar[str] = "draft/observables"
     backend: ClassVar[str] = "jsonl"
 
-    def new_store(self, workdir: Path) -> JsonlObservableStore:
-        store = JsonlObservableStore(workdir)
-        store.clear()
-        return store
+    def new_storage(self, workdir: Path) -> JsonlObservableStorage:
+        storage = JsonlObservableStorage(workdir)
+        storage.clear()
+        return storage
 
     def codec(self) -> JsonlObservableCodec:
         return JsonlObservableCodec()

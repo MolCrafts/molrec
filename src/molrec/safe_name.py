@@ -4,7 +4,7 @@ Two names need it. A metrics series key is slash-separated and has to become
 one array name under ``metrics/series/`` (its *safe name*); a force-field
 style (``lj/cut``) has to become part of its table's block name
 (``pair.lj%2Fcut``). A spec that referred to a mangling without defining one
-would get two manglings from two implementations and stores neither could
+would get two manglings from two implementations and records neither could
 read, so both are the same rule over a different set of bytes kept verbatim:
 every byte of the UTF-8 text outside the set is written ``%XX`` with
 uppercase hex.

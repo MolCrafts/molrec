@@ -18,7 +18,7 @@ import pytest
 from pydantic import BaseModel
 
 import molrec
-from molrec.core.bindings.zarr import ZarrFrameBinding, ZarrFrameCodec, ZarrFrameStore
+from molrec.core.bindings.zarr import ZarrFrameBinding, ZarrFrameCodec, ZarrFrameStorage
 from molrec.core.model import NUMPY_DTYPE, BlockModel, ColumnModel, FrameModel
 from molrec.core.suite import FrameSuite
 from molrec.refusal import as_refusal
@@ -28,8 +28,8 @@ from molrec.report import Violation
 MODULES = ["core", "record", "trajectory", "collection", "forcefield", "observables"]
 
 
-def _codec(module: str, store: molrec.store.Store) -> molrec.binding.Codec:
-    return REGISTRY.bindings_for(module)[store.backend]().codec()
+def _codec(module: str, storage: molrec.storage.Storage) -> molrec.binding.Codec:
+    return REGISTRY.bindings_for(module)[storage.backend]().codec()
 
 
 class CodecAdapter(molrec.adapter.Adapter):
@@ -38,11 +38,11 @@ class CodecAdapter(molrec.adapter.Adapter):
     backends: ClassVar[tuple[str, ...]] = ("zarr", "lmdb")
     refusal_types: ClassVar[tuple[type[Exception], ...]] = (ValueError,)
 
-    def write(self, model: BaseModel, store: molrec.store.Store) -> None:
-        _codec(self.module, store).write(model, store)
+    def write(self, model: BaseModel, storage: molrec.storage.Storage) -> None:
+        _codec(self.module, storage).write(model, storage)
 
-    def read(self, store: molrec.store.Store) -> Any:
-        return _codec(self.module, store).read(store)
+    def read(self, storage: molrec.storage.Storage) -> Any:
+        return _codec(self.module, storage).read(storage)
 
 
 def _run(module: str, adapter_type: type[molrec.adapter.Adapter]) -> molrec.report.Report:
@@ -77,19 +77,19 @@ class RaisesNotImplemented(molrec.adapter.Adapter):
     backends: ClassVar[tuple[str, ...]] = ("zarr", "lmdb")
     refusal_types: ClassVar[tuple[type[Exception], ...]] = (ValueError,)
 
-    def write(self, model: BaseModel, store: molrec.store.Store) -> None:
+    def write(self, model: BaseModel, storage: molrec.storage.Storage) -> None:
         raise NotImplementedError
 
-    def read(self, store: molrec.store.Store) -> Any:
+    def read(self, storage: molrec.storage.Storage) -> Any:
         raise NotImplementedError
 
 
 class RaisesAttributeError(RaisesNotImplemented):
-    def write(self, model: BaseModel, store: molrec.store.Store) -> None:
+    def write(self, model: BaseModel, storage: molrec.storage.Storage) -> None:
         return model.no_such_door  # type: ignore[attr-defined]
 
-    def read(self, store: molrec.store.Store) -> Any:
-        return store.no_such_door  # type: ignore[attr-defined]
+    def read(self, storage: molrec.storage.Storage) -> Any:
+        return storage.no_such_door  # type: ignore[attr-defined]
 
 
 class DeclaresItsDefectsRefusals(RaisesNotImplemented):
@@ -130,8 +130,8 @@ def _fields(model: BaseModel, **update: Any) -> dict[str, Any]:
 class DropsCarriedForwardBlocks(CodecAdapter):
     """Hands back only the blocks updated at each ordinal, not what carried forward."""
 
-    def read(self, store: molrec.store.Store) -> Any:
-        model = super().read(store)
+    def read(self, storage: molrec.storage.Storage) -> Any:
+        model = super().read(storage)
         frames: list[FrameModel] = []
         previous: dict[str, BlockModel] = {}
         for frame in model.frames:
@@ -158,8 +158,8 @@ def test_a_reader_that_drops_carried_forward_blocks_fails() -> None:
 class DropsFills(CodecAdapter):
     """Leaves a declared fill out of the frames that omitted the key."""
 
-    def read(self, store: molrec.store.Store) -> Any:
-        model = super().read(store)
+    def read(self, storage: molrec.storage.Storage) -> Any:
+        model = super().read(storage)
         frames = [
             FrameModel.model_construct(
                 blocks=frame.blocks,
@@ -184,8 +184,8 @@ def test_a_reader_that_drops_filled_values_fails() -> None:
 class DropsBoxDefaults(CodecAdapter):
     """Hands back a cell's vectors only, leaving origin and boundary to the defaults."""
 
-    def read(self, store: molrec.store.Store) -> Any:
-        model = super().read(store)
+    def read(self, storage: molrec.storage.Storage) -> Any:
+        model = super().read(storage)
         box = None if model.box is None else {"vectors": model.box.vectors}
         return _fields(model, box=box)
 
@@ -202,7 +202,7 @@ def test_a_reader_that_leaves_the_box_defaults_to_the_model_fails() -> None:
 
 
 class ReturnsAnEmptyFrame(CodecAdapter):
-    def read(self, store: molrec.store.Store) -> Any:
+    def read(self, storage: molrec.storage.Storage) -> Any:
         return FrameModel()
 
 
@@ -249,13 +249,13 @@ def _recast(model: FrameModel, source: str, target: str) -> FrameModel:
 
 
 class WidensU8Writer(CodecAdapter):
-    def write(self, model: BaseModel, store: molrec.store.Store) -> None:
-        super().write(_recast(model, "u8", "u64"), store)
+    def write(self, model: BaseModel, storage: molrec.storage.Storage) -> None:
+        super().write(_recast(model, "u8", "u64"), storage)
 
 
 class NarrowsI64Writer(CodecAdapter):
-    def write(self, model: BaseModel, store: molrec.store.Store) -> None:
-        super().write(_recast(model, "i64", "i32"), store)
+    def write(self, model: BaseModel, storage: molrec.storage.Storage) -> None:
+        super().write(_recast(model, "i64", "i32"), storage)
 
 
 def test_a_writer_that_widens_u8_fails() -> None:
@@ -293,12 +293,12 @@ def _result(report: molrec.report.Report, case_id: str, direction: str) -> molre
 class RefusesRowCounts(CodecAdapter):
     refusal_types: ClassVar[tuple[type[Exception], ...]] = ()
 
-    def read(self, store: molrec.store.Store) -> Any:
+    def read(self, storage: molrec.storage.Storage) -> Any:
         raise molrec.refusal.Refusal("count disagrees", kind="row_count_mismatch")
 
 
 class RefusesForAnotherReason(RefusesRowCounts):
-    def read(self, store: molrec.store.Store) -> Any:
+    def read(self, storage: molrec.storage.Storage) -> Any:
         raise molrec.refusal.Refusal("unsupported", kind="unsupported_dtype")
 
 
@@ -377,7 +377,7 @@ def _drive(suite_type: type[molrec.suite.Suite], tmp_path: Path) -> list[molrec.
     return suite_type().run(adapter, ZarrFrameBinding(), tmp_path)
 
 
-def _explode(store: ZarrFrameStore) -> None:
+def _explode(storage: ZarrFrameStorage) -> None:
     raise RuntimeError("tamper broke")
 
 
@@ -397,7 +397,7 @@ def test_a_tamper_that_raises_is_an_error(tmp_path: Path) -> None:
     assert "tamper" in result.message
 
 
-def test_a_store_the_codec_refuses_to_lay_down_is_an_error(tmp_path: Path) -> None:
+def test_a_storage_the_codec_refuses_to_lay_down_is_an_error(tmp_path: Path) -> None:
     """The implementation was never shown the malformation, so it cannot have refused it."""
 
     class Suite(_OneCaseSuite):
@@ -436,8 +436,8 @@ def test_the_read_direction_compares_before_validating(tmp_path: Path) -> None:
     class Adapter(CodecAdapter):
         module = "core"
 
-        def read(self, store: molrec.store.Store) -> Any:
-            model = ZarrFrameCodec().read(store)
+        def read(self, storage: molrec.storage.Storage) -> Any:
+            model = ZarrFrameCodec().read(storage)
             box = _fields(model.box)
             del box["cell_defined"]
             return _fields(model, box=box)

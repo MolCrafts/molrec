@@ -37,7 +37,7 @@ from pydantic import (
 )
 
 from molrec import jsonvalue
-from molrec.arrays import NDArray, arrays_equal, arrays_identical
+from molrec.arrays import NdArray, arrays_equal, arrays_identical
 from molrec.precision import PRECISION_MAX, PRECISION_MIN, quantize
 from molrec.safe_name import percent_decode, percent_encode
 
@@ -215,7 +215,7 @@ def coerce_meta_value(tag: str, value: Any) -> Any:
     as ``1`` is ``1.0``; an integer given as ``1.0`` is refused, not
     rounded), a vector a list of exactly its width, a ``json`` value a plain
     finite JSON document. What a writer stores is what this returns, so two
-    implementations that were handed the same Python value store the same
+    implementations that were handed the same Python value storage the same
     thing.
     """
     if tag == "json":
@@ -312,7 +312,7 @@ def decode_typed_meta(attrs: dict[str, Any], where: str) -> tuple[dict[str, Any]
     """A stored meta document (with its ``_meta_types``) as values and tags.
 
     A tagged key is decoded under its tag and any other form is refused; an
-    untagged key gets the tag it is inferred as (a store written before
+    untagged key gets the tag it is inferred as (a storage written before
     ``_meta_types``); a tag whose key is absent is ignored.
     """
     tags = attrs.pop(META_TYPES_ATTR, {})
@@ -358,14 +358,14 @@ STORED: dict[str, bool] = {"stored": True}
 
 
 def _stored(info: ValidationInfo | None) -> bool:
-    """Whether a model is being built from a store (:data:`STORED`)."""
+    """Whether a model is being built from a storage (:data:`STORED`)."""
     return bool(info is not None and info.context and info.context.get("stored"))
 
 
 def _as_stored(model: BaseModel, info: ValidationInfo | None) -> bool:
     """Whether ``model`` holds stored values that must not be rounded again.
 
-    Built from a store (:data:`STORED`), or already rounded once: pydantic
+    Built from a storage (:data:`STORED`), or already rounded once: pydantic
     runs a model's after-validators again whenever the instance is handed to
     another model, so the first verdict is remembered on the instance.
     """
@@ -403,7 +403,7 @@ class ColumnModel(BaseModel):
     ``BoxModel`` materializing its defaults, a validated model holds the
     **stored** values -- rounded to the precision's binary grid
     (:func:`molrec.precision.quantize`) -- which is what a writer stores and
-    a reader hands back. A model built from a store (:data:`STORED`) keeps
+    a reader hands back. A model built from a storage (:data:`STORED`) keeps
     the values exactly as stored.
     """
 
@@ -413,8 +413,8 @@ class ColumnModel(BaseModel):
 
     dtype: DType
     shape: tuple[int, ...] = Field(min_length=1)
-    values: NDArray | None = None
-    validity: Annotated[NDArray, WithJsonSchema(_MASK)] | None = None
+    values: NdArray | None = None
+    validity: Annotated[NdArray, WithJsonSchema(_MASK)] | None = None
     precision: Precision | None = None
     _as_stored: bool = PrivateAttr(default=False)
 
@@ -678,8 +678,8 @@ class CellModel(BaseModel):
 
     model_config = ConfigDict(frozen=True, from_attributes=True)
 
-    vectors: Annotated[NDArray, WithJsonSchema(_MATRIX3)]
-    origin: Annotated[NDArray, WithJsonSchema(_VECTOR3)] | None = None
+    vectors: Annotated[NdArray, WithJsonSchema(_MATRIX3)]
+    origin: Annotated[NdArray, WithJsonSchema(_VECTOR3)] | None = None
     boundary: Annotated[tuple[bool, ...], WithJsonSchema(_FLAGS3)] | None = None
 
     @model_validator(mode="after")
@@ -712,7 +712,7 @@ class CellModel(BaseModel):
 def resolve_cell(cell: CellModel, defined: bool) -> dict[str, Any]:
     """A cell's parts with the normative meaning of every absence filled in.
 
-    Two readers that default an absent part differently turn one store into
+    Two readers that default an absent part differently turn one storage into
     two physical systems, so absence is resolved here, once:
 
     * an absent ``origin`` is the coordinate origin;
@@ -900,7 +900,7 @@ class MetaSeriesModel(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _fill_arrives_in_its_json_form(cls, data: Any) -> Any:
-        """A fill read from a store is in the typed JSON form; one built in
+        """A fill read from a storage is in the typed JSON form; one built in
         Python is already a value. Both reach the same coerced value."""
         if isinstance(data, dict) and "fill" in data and isinstance(data.get("dtype"), str):
             tag, fill = data["dtype"], data["fill"]
@@ -1075,7 +1075,9 @@ def same_cell(left: CellModel, right: CellModel) -> bool:
 
 
 class BlockState(StrEnum):
-    """What a block *is* at one frame ordinal -- the three states of S1.
+    """What a block *is* at one frame ordinal.
+
+    The three states of ``docs/spec/ragged.md#the-three-states-of-a-block``:
 
     * ``PRESENT``: the most recent update at or before this ordinal has rows.
     * ``EMPTY``: the most recent update is a zero-row update -- the block is
@@ -1152,7 +1154,7 @@ class TrajectoryModel(BaseModel):
     This is the *logical* content, the thing a reader hands back. The physical
     form is the binding's: one CSR row range per section update, a sparse
     index of the ordinals a section changed at, and each section written again
-    only when it changed. Two conforming stores of one trajectory are expected
+    only when it changed. Two conforming records of one trajectory are expected
     to differ byte for byte, so none of that appears here.
 
     Two integers index a trajectory and they are not the same one. A frame's
@@ -1236,7 +1238,7 @@ class TrajectoryModel(BaseModel):
 
         A frame may present a **subset** of the declaration, never anything
         outside it. A run that decides halfway through to record a new block
-        or column needs a new store, so a frame that invents one is refused
+        or column needs a new storage, so a frame that invents one is refused
         here rather than half-written there. Reserved names are refused at
         declaration for the same reason.
         """
@@ -1320,9 +1322,11 @@ class TrajectoryModel(BaseModel):
                     declared[name] = pinned = pinned.model_copy(
                         update={"targets": presented.targets}
                     )
-                # S4: a grid block's row count is fixed. ``BlockModel`` already
-                # holds each presentation to ``count == prod(structural_shape)``,
-                # so pinning the shape pins the count.
+                # A grid block's row count is fixed
+                # (docs/spec/ragged.md#per-block-sparse-updates-csr). ``BlockModel``
+                # already holds each presentation to
+                # ``count == prod(structural_shape)``, so pinning the shape pins
+                # the count.
                 if presented.structural_shape != pinned.structural_shape:
                     raise ValueError(
                         f"block {name!r} has structural shape {presented.structural_shape} at "
@@ -1344,7 +1348,7 @@ class TrajectoryModel(BaseModel):
         Every frame holds the stored values -- rounded to its column's
         declared precision -- and neither its columns' precision nor its
         blocks' ``targets``: the declaration states both for the run. A model
-        built from a store (:data:`STORED`) keeps the values exactly as
+        built from a storage (:data:`STORED`) keeps the values exactly as
         stored.
         """
         declared = self.blocks or {}
@@ -1379,7 +1383,9 @@ class TrajectoryModel(BaseModel):
 
     @model_validator(mode="after")
     def _omission_carries_forward(self) -> TrajectoryModel:
-        """Resolve S1 once, so the frames are what a reader hands back.
+        """Resolve the block states once, so the frames are what a reader hands back.
+
+        The states are ``docs/spec/ragged.md#the-three-states-of-a-block``'s.
 
         A frame that omits a declared block carries no update for it: the
         block at that ordinal is its most recent update, rows included (or
@@ -1689,7 +1695,7 @@ class ArrayModel(BaseModel):
 
     dtype: DType
     shape: tuple[int, ...] = ()
-    values: NDArray | None = None
+    values: NdArray | None = None
 
     @model_validator(mode="after")
     def _values_match_declaration(self) -> ArrayModel:

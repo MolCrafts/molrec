@@ -2,9 +2,9 @@
 
 Two methods per module, and both directions are exercised:
 
-* ``write(model, store)`` -- build your own object from the model, serialize
-  it your way. The suite then reads the store back with the official codec.
-* ``read(store)`` -- the suite wrote a canonical store with the official
+* ``write(model, storage)`` -- build your own object from the model, serialize
+  it your way. The suite then reads the storage back with the official codec.
+* ``read(storage)`` -- the suite wrote a canonical storage with the official
   codec; hand back something shaped like the model.
 
 ``read`` may return anything duck-compatible: a dict, a dataclass, your own
@@ -27,7 +27,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel
 
-from molrec.store import Store
+from molrec.storage import Storage
 
 
 class Adapter(ABC):
@@ -47,12 +47,12 @@ class Adapter(ABC):
     unsupported: ClassVar[dict[str, str]] = {}
 
     @abstractmethod
-    def write(self, model: BaseModel, store: Store) -> None:
-        """Serialize ``model`` into ``store`` using the implementation."""
+    def write(self, model: BaseModel, storage: Storage) -> None:
+        """Serialize ``model`` into ``storage`` using the implementation."""
 
     @abstractmethod
-    def read(self, store: Store) -> Any:
-        """Read ``store`` and return something shaped like the module's model."""
+    def read(self, storage: Storage) -> Any:
+        """Read ``storage`` and return something shaped like the module's model."""
 
 
 class Implementation:

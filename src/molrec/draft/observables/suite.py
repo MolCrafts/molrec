@@ -66,7 +66,7 @@ class ObservableSuite(Suite):
 
         yield Case(
             id="shared-axis",
-            exercises="many quantities on one axis store that axis once",
+            exercises="many quantities on one axis storage that axis once",
             model=ObservablesModel(
                 coordinates={"step": array(("point",), [0, 1, 2], dtype="i64")},
                 observables={

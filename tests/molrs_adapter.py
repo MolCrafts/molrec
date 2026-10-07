@@ -4,8 +4,8 @@ Two methods per module and no assertions. The conversions report what molrs
 actually returns -- they never repair it. An adapter that quietly fixed up a
 narrowed integer or a widened float would turn a red suite green while the
 files on disk stayed wrong, which is the one failure mode this whole harness
-exists to prevent. For the same reason nothing here touches the store behind
-molrs's back: the store molrs is asked to read is exactly the one the codec
+exists to prevent. For the same reason nothing here touches the storage behind
+molrs's back: the storage molrs is asked to read is exactly the one the codec
 wrote.
 
 The molrs surface used here: the whole-record doors are
@@ -13,7 +13,7 @@ functions at the top of ``molrs.io`` -- ``write_mrec_frame`` / ``write_mrec_syst
 (both taking ``forcefield=``) and ``write_mrec_forcefield`` to write a record,
 ``read_mrec_frame`` / ``read_mrec_system`` / ``read_mrec_meta`` /
 ``read_mrec_forcefield`` to read one back, and ``read_mrec_trajectory`` for
-the eager trajectory read -- and the store's own classes are
+the eager trajectory read -- and the storage's own classes are
 ``molrs.io.mrec``'s: ``section_names`` lists a record's sections, a force
 field travels as a ``ForceFieldSection`` (the document plus one ``Block`` per
 style table, kept whole), and a trajectory is declared by a
@@ -22,7 +22,7 @@ through ``MrecWriter(path, schema)`` (``flush_every`` / ``compression`` /
 ``durable`` left at their defaults: durable, spec-following).
 
 molrs refuses malformed input with ``ValueError`` (every ``MolRsError``), and
-an array it cannot store as a column with ``molrs.core.BlockDtypeError``; those are
+an array it cannot storage as a column with ``molrs.core.BlockDtypeError``; those are
 the adapters' declared refusals. Anything else molrs or the adapter raises is
 a defect and the suite reports it as an error.
 """
@@ -302,8 +302,8 @@ class MolrsRecordAdapter(molrec.core.adapter.RecordAdapter):
     backends = ("zarr",)
     refusal_types = _REFUSALS
 
-    def write(self, model: molrec.core.model.RecordModel, store) -> None:
-        path = Path(store.uri)
+    def write(self, model: molrec.core.model.RecordModel, storage) -> None:
+        path = Path(storage.uri)
         meta = document(model.meta)
         forcefield = None if model.forcefield is None else _to_section(model.forcefield)
         if model.frame is not None:
@@ -325,8 +325,8 @@ class MolrsRecordAdapter(molrec.core.adapter.RecordAdapter):
             "molrs writes a record with a frame, a system or a forcefield section"
         )
 
-    def read(self, store) -> Any:
-        path = Path(store.uri)
+    def read(self, storage) -> Any:
+        path = Path(storage.uri)
         present = molrs.io.mrec.section_names(path)
         frame = _from_frame(molrs.io.read_mrec_frame(path)) if "frame" in present else None
         system = _from_frame(molrs.io.read_mrec_system(path)) if "system" in present else None
@@ -420,12 +420,14 @@ class MolrsForceFieldAdapter(molrec.core.adapter.ForceFieldAdapter):
     refusal_types = _REFUSALS
 
     def write(
-        self, model: molrec.core.model.ForceFieldModel, store: molrec.core.store.ForceFieldStore
+        self,
+        model: molrec.core.model.ForceFieldModel,
+        storage: molrec.core.storage.ForceFieldStorage,
     ) -> None:
-        molrs.io.write_mrec_forcefield(Path(store.uri), _to_section(model))
+        molrs.io.write_mrec_forcefield(Path(storage.uri), _to_section(model))
 
-    def read(self, store: molrec.core.store.ForceFieldStore) -> Any:
-        return _from_section(molrs.io.read_mrec_forcefield(Path(store.uri)))
+    def read(self, storage: molrec.core.storage.ForceFieldStorage) -> Any:
+        return _from_section(molrs.io.read_mrec_forcefield(Path(storage.uri)))
 
 
 class MolrsTrajectoryAdapter(molrec.core.adapter.TrajectoryAdapter):
@@ -443,7 +445,9 @@ class MolrsTrajectoryAdapter(molrec.core.adapter.TrajectoryAdapter):
     refusal_types = _REFUSALS
 
     def write(
-        self, model: molrec.core.model.TrajectoryModel, store: molrec.core.store.TrajectoryStore
+        self,
+        model: molrec.core.model.TrajectoryModel,
+        storage: molrec.core.storage.TrajectoryStorage,
     ) -> None:
         tags = {key: _tag(series.dtype) for key, series in model.meta.items()}
         frames = []
@@ -456,12 +460,12 @@ class MolrsTrajectoryAdapter(molrec.core.adapter.TrajectoryAdapter):
         schema = _declared_schema(model)
 
         times = model.time if model.time is not None else [None] * len(frames)
-        with molrs.io.mrec.MrecWriter(Path(store.uri), schema) as writer:
+        with molrs.io.mrec.MrecWriter(Path(storage.uri), schema) as writer:
             for native, step, time in zip(frames, model.step, times, strict=True):
                 writer.append(native, step=int(step), time=None if time is None else float(time))
 
-    def read(self, store: molrec.core.store.TrajectoryStore) -> Any:
-        trajectory = molrs.io.read_mrec_trajectory(Path(store.uri))
+    def read(self, storage: molrec.core.storage.TrajectoryStorage) -> Any:
+        trajectory = molrs.io.read_mrec_trajectory(Path(storage.uri))
         frames = list(trajectory.frames)
         described = []
         for frame in frames:
@@ -469,7 +473,7 @@ class MolrsTrajectoryAdapter(molrec.core.adapter.TrajectoryAdapter):
             # refuses a trajectory whose frames carry one of their own.
             described.append({**_from_frame(frame, in_trajectory=True), "box": None})
 
-        # A store with no committed frame reads back with no step series at
+        # A storage with no committed frame reads back with no step series at
         # all; that is the empty sequence. Step numbers missing beside frames
         # are reported as they are, for the suite to judge.
         step = trajectory.step
@@ -498,7 +502,7 @@ class Molrs(molrec.adapter.Implementation):
     name = "molrs"
     version = _installed_version()
     # Frame cases run inside records: molrs.io.write_mrec_frame writes a Structure
-    # (meta + frame/), not a bare frame at the store root.
+    # (meta + frame/), not a bare frame at the storage root.
     record = MolrsRecordAdapter()
     trajectory = MolrsTrajectoryAdapter()
     forcefield = MolrsForceFieldAdapter()
