@@ -2,5 +2,11 @@
   "created_at": "2026-08-04T00:00:00Z",
   "creator": {
     "name": "molrec"
+  },
+  "modules": {
+    "qm": {
+      "basis": "def2-svp",
+      "spec": "https://example.org/qm"
+    }
   }
 }

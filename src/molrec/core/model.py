@@ -1580,10 +1580,11 @@ class AuthorModel(DocumentModel):
 
 
 class ModuleModel(DocumentModel):
-    """A shared interpretation beyond this specification, keyed by name under
-    ``meta/modules``: a major/minor ``version`` plus module-specific keys."""
+    """A shared interpretation beyond this specification that the record uses,
+    keyed by its name under ``meta/modules``: optionally the URL of its
+    specification, plus module-specific keys."""
 
-    version: tuple[int, int]
+    spec: str | None = None
 
 
 def _rfc3339(value: str) -> str:

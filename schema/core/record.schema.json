@@ -999,26 +999,21 @@
     },
     "ModuleModel": {
       "additionalProperties": true,
-      "description": "A shared interpretation beyond this specification, keyed by name under\n``meta/modules``: a major/minor ``version`` plus module-specific keys.",
+      "description": "A shared interpretation beyond this specification that the record uses,\nkeyed by its name under ``meta/modules``: optionally the URL of its\nspecification, plus module-specific keys.",
       "properties": {
-        "version": {
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
+        "spec": {
+          "anyOf": [
             {
-              "type": "integer"
+              "type": "string"
             },
             {
-              "type": "integer"
+              "type": "null"
             }
           ],
-          "title": "Version",
-          "type": "array"
+          "default": null,
+          "title": "Spec"
         }
       },
-      "required": [
-        "version"
-      ],
       "title": "ModuleModel",
       "type": "object"
     },

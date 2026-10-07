@@ -2097,11 +2097,13 @@ class RecordSuite(Suite):
 
         yield Case(
             id="meta-unknown-keys-preserved",
-            exercises="a reader must keep meta keys it does not recognize",
+            exercises="a reader must keep meta keys it does not recognize, and a module entry "
+            "(its spec URL and its own keys) as given",
             model=RecordModel(
                 meta=MetaModel.model_validate(
                     {
                         "creator": {"name": "molrec-suite", "version": "0.1.0"},
+                        "modules": {"qm": {"spec": "https://example.org/qm", "basis": "def2-svp"}},
                         "x_vendor_local": {"anything": [1, 2, 3]},
                     }
                 ),

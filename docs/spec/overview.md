@@ -82,8 +82,8 @@ columns. The parameters that *define* the energy model live in the
 `method`.
 
 **Modules name extra rules.** A shared interpretation beyond this
-specification is declared under `meta/modules/<name>` with a major/minor
-version. Custom `method` types and custom metric types point there.
+specification is declared under `meta/modules/<name>`, which names the
+module the record uses. Custom `method` types and custom metric types point there.
 
 ## Adding your own content
 
@@ -127,7 +127,7 @@ meta
  +-- (source: string[])
  \-- (modules)
       \-- <module1>
-           +-- version: i64[2]
+           +-- (spec: string[])          URL of the module's specification
 ```
 
 Every key of `meta` is optional; an empty document is a valid one. A
@@ -148,5 +148,7 @@ Optional provenance.
 
 `modules`
 
-Each module is a subgroup keyed by name, holding a major/minor `version`
-pair and any module-specific information.
+Each module is an entry keyed by its name: the module the record uses. It
+may carry `spec`, the URL of the module's specification, and any
+module-specific information. A module entry carries no version and no
+compatibility rule.

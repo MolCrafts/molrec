@@ -58,11 +58,11 @@ class TestMetaModel:
         meta = MetaModel.model_validate(
             {
                 "creator": {"name": "molrs", "version": "0.14"},
-                "modules": {"qm": {"version": [1, 0]}},
+                "modules": {"qm": {"spec": "https://example.org/qm"}},
             }
         )
         assert meta.creator is not None and meta.creator.name == "molrs"
-        assert meta.modules is not None and meta.modules["qm"].version == (1, 0)
+        assert meta.modules is not None and meta.modules["qm"].spec == "https://example.org/qm"
 
 
 class TestRecordModel:
