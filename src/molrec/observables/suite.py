@@ -1,4 +1,4 @@
-"""What the v1 ``observables`` section is pinned down by.
+"""What the ``observables`` section is pinned down by.
 
 The kind-based layout of ``docs/spec/observables.md``: a metadata document
 beside one data array per name, unknown kinds and keys carried through, and
@@ -117,7 +117,7 @@ class ObservablesSuite(Suite):
 
         yield Case(
             id="unknown-kind-and-keys-preserved",
-            exercises="a kind this version does not define, and keys it does not name, are "
+            exercises="a kind the contract does not define, and keys it does not name, are "
             "carried through unchanged -- a null-valued one included",
             model=ObservablesModel(
                 observables={

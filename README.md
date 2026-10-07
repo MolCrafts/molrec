@@ -65,11 +65,8 @@ optional. A record also includes **at least one of** `frame`, `system`,
 `trajectory`, `forcefield`, or `status`. A **Run**-shaped record (`meta` + `status`) is
 valid on its own; a trajectory-only record (`meta` + `trajectory`) is
 equally valid, and trajectory may omit `system/`. The cell is **Box**.
-Every writer stamps `meta["molrec_version"]` (currently `2`); readers
-validate it when present and convert a version-1 store exactly, or refuse
-it — never read it as version 2. An absent key marks a store written before
-version 1. A record is identified by its `*.mrec` path suffix plus its Zarr
-root. See the [format specification](docs/spec/specification.md).
+A record is identified by its `*.mrec` path suffix plus its Zarr root; a
+reader keeps every `meta` key it does not name, verbatim. See the [format specification](docs/spec/specification.md).
 
 ## Key design principles
 
@@ -78,9 +75,7 @@ root. See the [format specification](docs/spec/specification.md).
 - **System and state.** `system/` defines the system; coordinates live on `frame` / `trajectory`.
 - **Run surface.** Training and jobs use `status` + `metrics` + `method` as one surface.
 - **Box.** The cell contract name is `Box` / `box`.
-- **One schema version.** Writers stamp `meta["molrec_version"]` (integer, currently 2); readers validate it when present, refuse a newer one, and convert (or refuse) an older one rather than misread it.
 - **Zarr + metrics WAL.** One Zarr V3 root holds arrays and document sections (group attributes). Closed metrics densify to Zarr series; live metrics use an append-only JSONL WAL (`metrics/metrics.jsonl`). The trajectory encoding is the [ragged CSR layout](docs/spec/ragged.md).
-- **Hard cut.** Writers emit the current keys (`sequence_schema`, `meta_dtype`, no vendor prefixes); migrate older files offline.
 - **Collections.** Named blocks carry any entity set.
 - **Preserve the unknown.** Readers keep sections, blocks, and columns they do not interpret.
 - **Backend-neutral.** Semantics are independent of the store; the Zarr root + JSONL buffer is the reference binding.

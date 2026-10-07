@@ -37,7 +37,6 @@ from molrec.binding import Binding, Codec
 from molrec.core.model import (
     DTYPES,
     META_TYPES_ATTR,
-    MOLREC_VERSION,
     NUMPY_DTYPE,
     RESERVED_INDEX_COLUMNS,
     STORED,
@@ -63,15 +62,12 @@ from molrec.core.model import (
     encode_typed_meta,
     revalidated,
     same_bits,
-    stamp_version,
 )
 from molrec.core.store import CollectionStore, TrajectoryStore
-from molrec.core.v1 import V1Upgrade, read_version
 from molrec.registry import REGISTRY
 
 MAGIC = b"MRF1"
 LAYOUT = "mrec-lmdb"
-LAYOUT_VERSION = 1
 META_KEY = b"meta"
 INDEX_KEY = b"index"
 #: The collection's one force field: frame bytes whose ``meta`` is the
@@ -415,8 +411,7 @@ class LmdbCollectionCodec(Codec):
                     jsonvalue.dumps(
                         {
                             "layout": LAYOUT,
-                            "layout_version": LAYOUT_VERSION,
-                            "collection": stamp_version(document(model.meta)),
+                            "collection": document(model.meta),
                             "sequence_schema": schema.model_dump(mode="json"),
                             "n_records": len(model.records),
                             "n_frames": ordinal,
@@ -472,7 +467,6 @@ class LmdbCollectionCodec(Codec):
                     raise ValueError(
                         f"{store.path}: layout {meta.get('layout')!r}, expected {LAYOUT!r}"
                     )
-                _check_layout_version(meta.get("layout_version"), store.path)
                 schema = SequenceSchemaModel.model_validate(meta["sequence_schema"])
                 index = decode_frame(txn.get(INDEX_KEY)).blocks[INDEX_BLOCK]
                 n_records, total = int(meta["n_records"]), int(meta["n_frames"])
@@ -487,28 +481,17 @@ class LmdbCollectionCodec(Codec):
                 # it has one at all.
                 flags = index.columns.get("has_trajectory")
                 carries = [False] * n_records if flags is None else flags.values.tolist()
-                raw = txn.get(FF_KEY)
-                stored = None if raw is None else decode_frame(raw)
-                # The collection's version covers every record: a version-1
-                # collection's force field and frames are converted.
-                CollectionMetaModel.model_validate(meta["collection"])
-                upgrade = None
-                if read_version(meta["collection"]) != MOLREC_VERSION:
-                    upgrade = (
-                        V1Upgrade() if stored is None else V1Upgrade(stored.meta, stored.blocks)
-                    )
                 records = [
-                    self._record(
-                        txn, r, int(first[r]), int(counts[r]), bool(carries[r]), schema, upgrade
-                    )
+                    self._record(txn, r, int(first[r]), int(counts[r]), bool(carries[r]), schema)
                     for r in range(n_records)
                 ]
+                raw = txn.get(FF_KEY)
                 forcefield = None
-                if stored is not None:
-                    document, tables = stored.meta, stored.blocks
-                    if upgrade is not None:
-                        document, tables = upgrade.forcefield(document, tables)
-                    forcefield = ForceFieldModel.model_validate({**document, "tables": tables})
+                if raw is not None:
+                    stored = decode_frame(raw)
+                    forcefield = ForceFieldModel.model_validate(
+                        {**stored.meta, "tables": stored.blocks}
+                    )
         finally:
             env.close()
         own = {
@@ -535,7 +518,6 @@ class LmdbCollectionCodec(Codec):
         count: int,
         carries_trajectory: bool,
         schema: SequenceSchemaModel,
-        upgrade: V1Upgrade | None = None,
     ) -> RecordModel:
         system = None
         raw = txn.get(key(SYSTEM_PREFIX, r))
@@ -585,21 +567,7 @@ class LmdbCollectionCodec(Codec):
             )
         raw = txn.get(key(RECORD_META_PREFIX, r))
         meta = MetaModel.model_validate(json.loads(bytes(raw)) if raw is not None else {})
-        if upgrade is not None:
-            system = None if system is None else upgrade.frame(system)
-            trajectory = None if trajectory is None else upgrade.trajectory(trajectory)
         return RecordModel(meta=meta, system=system, trajectory=trajectory)
-
-
-def _check_layout_version(version: Any, path: Path) -> None:
-    """``layout_version`` is the binding's own layout version: required, an
-    integer in ``1..=LAYOUT_VERSION``. It is not ``molrec_version``, which the
-    collection document carries under the record rule."""
-    if type(version) is not int or not 1 <= version <= LAYOUT_VERSION:
-        raise ValueError(
-            f"{path}: layout_version {version!r} is not one this reader supports "
-            f"(1..={LAYOUT_VERSION})"
-        )
 
 
 def _cell_section(r: int, ordinals: list[int], cells: list[BoxModel]) -> TrajectoryBoxModel | None:

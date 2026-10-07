@@ -6,6 +6,6 @@ the adapters in :mod:`molrec.core.adapter`, the stores in
 bench, and bindings.
 """
 
-from molrec.core import adapter, bench, bindings, ffsuite, model, store, suite, v1
+from molrec.core import adapter, bench, bindings, ffsuite, model, store, suite
 
-__all__ = ["adapter", "bench", "bindings", "ffsuite", "model", "store", "suite", "v1"]
+__all__ = ["adapter", "bench", "bindings", "ffsuite", "model", "store", "suite"]

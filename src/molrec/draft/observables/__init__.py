@@ -1,6 +1,6 @@
 """Observables: named quantities as functions of their coordinates.
 
-DRAFT (v2 proposal) — the v1 record ``observables/`` contract is the
+DRAFT (a proposal) — the record's ``observables/`` contract is the
 kind-based layout in ``docs/spec/observables.md``; see the note in
 :mod:`molrec.draft.observables.model`.
 

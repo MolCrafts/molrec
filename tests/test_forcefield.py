@@ -19,7 +19,6 @@ from molrec.core.ffsuite import (
     table,
 )
 from molrec.core.model import (
-    MOLREC_VERSION,
     UNIT_PRESETS,
     UNIT_QUANTITIES,
     CollectionMetaModel,
@@ -122,7 +121,7 @@ def test_the_tables_are_block_groups_at_their_names(tmp_path) -> None:
     store = ZarrForceFieldStore(tmp_path / "ff.mrec")
     ZarrForceFieldCodec().write(model, store)
     root = zarr.open_group(store=store.path, mode="r")
-    assert root["meta"].attrs["molrec_version"] == MOLREC_VERSION
+    assert dict(root["meta"].attrs) == {}
     group = root["forcefield"]
     assert dict(group.attrs)["name"] == "test"
     assert [name for name, _ in group.groups()] == ["pair.lj%2Fcut%2Fcoul%2Flong"]
@@ -175,12 +174,14 @@ class TestPairRows:
             ]
         )
 
-    def test_pair14_is_retired_to_an_unknown_category(self) -> None:
-        """No pair14 category: such a table is preserved as any unknown one --
-        its arity is its endpoint prefix and its rows are not pair-resolved."""
+    def test_an_unknown_category_is_not_pair_resolved(self) -> None:
+        """A category the contract does not define is preserved as given: it
+        declares no arity and its rows are not resolved as pair rows, so two
+        rows restating one unordered pair with other parameters stand."""
         rows = table(["r0", "r1"], itom=["A", "B"], jtom=["B", "A"], epsilon=[0.9, 0.8])
-        model = forcefield([(style("pair14", "lj/cut"), rows)])
+        model = forcefield([(style("x_pairs", "lj/cut"), rows)])
         assert model.styles[0].arity is None
+        assert model.tables[model.styles[0].block] == rows
 
     def test_a_null_differs_from_a_value(self) -> None:
         with pytest.raises(ValidationError, match=r"differ in \['shift'\]"):
@@ -358,10 +359,6 @@ class TestOneFour:
 def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:
     """A cmap table molrec's codec writes is a ``molrs.ff.forcefield.CmapType`` per row,
     its ``grid`` a float64 numpy array equal bit for bit."""
-    if not hasattr(molrs.ff.forcefield, "CmapStyle"):
-        pytest.skip("molrs lacks molrs.ff.forcefield.CmapStyle (the cmap category)")
-    if molrs.io.mrec.MOLREC_VERSION < MOLREC_VERSION:
-        pytest.skip(f"molrs does not read molrec_version {MOLREC_VERSION}")
     grids = np.stack([cmap_grid(24, 0.1), cmap_grid(24, -0.35)])
     model = forcefield([atoms(["C", "NH1", "CT1"], mass=[12.011, 14.007, 12.011]), cmap(grids)])
     store = ZarrForceFieldStore(tmp_path / "cmap.mrec")

@@ -16,18 +16,17 @@ from pydantic import BaseModel
 
 from molrec.case import Case
 from molrec.compare import diff, lookup
-from molrec.core.ffsuite import V1_REAL, round_trip_forcefield, v1_section
 from molrec.core.ffsuite import cmap as ff_cmap
 from molrec.core.ffsuite import cmap_grid as ff_cmap_grid
 from molrec.core.ffsuite import forcefield as ff_forcefield
 from molrec.core.ffsuite import no_rows as ff_no_rows
+from molrec.core.ffsuite import round_trip_forcefield
 from molrec.core.ffsuite import style as ff_style
 from molrec.core.ffsuite import table as ff_table
 from molrec.core.model import (
     ENDPOINTS,
     META_TAGS,
     META_TYPES_ATTR,
-    MOLREC_VERSION,
     NUMPY_DTYPE,
     STORED,
     BlockModel,
@@ -38,7 +37,6 @@ from molrec.core.model import (
     CollectionModel,
     ColumnModel,
     ForceFieldModel,
-    ForceFieldUnitsModel,
     FrameModel,
     MetaModel,
     MetaSeriesModel,
@@ -48,7 +46,6 @@ from molrec.core.model import (
     TrajectoryBoxModel,
     TrajectoryModel,
 )
-from molrec.core.v1 import DEGREES_PER_RADIAN
 from molrec.precision import quantum
 from molrec.registry import REGISTRY
 from molrec.report import Violation
@@ -2006,171 +2003,6 @@ class TrajectorySuite(Suite):
         )
 
 
-#: Marks a key a tamper removes rather than sets.
-_DELETE = object()
-
-
-def _set_record_meta(key: str, value: Any) -> Any:
-    """A tamper that sets (or, with :data:`_DELETE`, removes) one ``meta/`` attribute.
-
-    What a writer of another contract version -- or a broken one -- would have
-    left there; molrec's own codec always stamps a valid version.
-    """
-
-    def tamper(store: Any) -> None:
-        import zarr
-
-        group = zarr.open_group(store=store.path, mode="r+")["meta"]
-        attrs = dict(group.attrs)
-        if value is _DELETE:
-            attrs.pop(key, None)
-        else:
-            attrs[key] = value
-        group.attrs.clear()
-        group.attrs.update(attrs)
-
-    return tamper
-
-
-def _mmff_v1_system(*, converted: bool) -> FrameModel:
-    """An MMFF-typed system as molrs 0.15 wrote it (``converted=False``:
-    ``theta0`` in radians, the out-of-plane centre ``1`` second) or as
-    version 2 reads it, beside a ``bond harmonic`` row with a per-instance
-    ``k`` (½k form in version 1)."""
-    theta0 = [1.9 * DEGREES_PER_RADIAN, 2.0 * DEGREES_PER_RADIAN] if converted else [1.9, 2.0]
-    centre = ([1, 1], [0, 4]) if converted else ([0, 4], [1, 1])
-    return FrameModel(
-        blocks={
-            "atoms": BlockModel(
-                count=6, columns={"type": _column("string", ["1", "3", "7", "10", "5", "5"])}
-            ),
-            "bonds": BlockModel(
-                count=1,
-                columns={
-                    "atomi": _column("u64", [0]),
-                    "atomj": _column("u64", [1]),
-                    "type": _column("string", ["b"]),
-                    "k": _column("f64", [300.0 if converted else 600.0]),
-                },
-            ),
-            "angles": BlockModel(
-                count=2,
-                columns={
-                    "atomi": _column("u64", [0, 1]),
-                    "atomj": _column("u64", [1, 2]),
-                    "atomk": _column("u64", [2, 3]),
-                    "type": _column("string", ["0_1_3_7", "0_3_7_10"]),
-                    "theta0": _column("f64", theta0),
-                    "ka": _column("f64", [0.7, 0.8]),
-                },
-            ),
-            "impropers": BlockModel(
-                count=2,
-                columns={
-                    "atomi": _column("u64", centre[0]),
-                    "atomj": _column("u64", centre[1]),
-                    "atomk": _column("u64", [4, 5]),
-                    "atoml": _column("u64", [5, 0]),
-                    "type": _column("string", ["oop", "oop"]),
-                    "koop": _column("f64", [0.05, 0.05]),
-                },
-            ),
-        }
-    )
-
-
-def _mmff_v1_forcefield(*, converted: bool) -> ForceFieldModel:
-    """The force field :func:`_mmff_v1_system` links into, in either version."""
-    atom = (
-        ff_style("atom", "full"),
-        ff_table(["1", "3", "7", "10", "5"], mass=[12.011, 12.011, 15.999, 14.007, 1.008]),
-    )
-    bond = (
-        ff_style("bond", "harmonic"),
-        ff_table(["b"], itom=["1"], jtom=["3"], k=[300.0 if converted else 600.0], r0=[1.5]),
-    )
-    angle = (
-        ff_style("angle", "mmff_angle"),
-        ff_table(
-            ["0_1_3_7", "0_3_7_10"],
-            itom=["1", "3"],
-            jtom=["3", "7"],
-            ktom=["7", "10"],
-            ka=[0.7, 0.8],
-            theta0=[1.9 * DEGREES_PER_RADIAN, 2.0 * DEGREES_PER_RADIAN]
-            if converted
-            else [1.9, 2.0],
-        ),
-    )
-    oop = (
-        ff_style("improper", "mmff_oop"),
-        ff_table(
-            ["oop"],
-            itom=["3" if converted else "1"],
-            jtom=["1" if converted else "3"],
-            ktom=["5"],
-            ltom=["5"],
-            koop=[0.05],
-        ),
-    )
-    styles = [atom, bond, angle, oop]
-    if converted:
-        return ff_forcefield(
-            styles, name="MMFF94", units=ForceFieldUnitsModel(**{**V1_REAL, "angle": "degree"})
-        )
-    return v1_section(V1_REAL, styles, name="MMFF94")
-
-
-def _version_1_records() -> Iterable[Case]:
-    """A version-1 record's frames are converted with its force field, and
-    without one by their own columns (``docs/spec/forcefield.md``, "Reading a
-    version-1 record"); ``meta`` comes back as stored."""
-    v1_meta = MetaModel(molrec_version=1)
-    yield Case(
-        id="v1-frame-mmff-theta0-converted",
-        exercises="a version-1 system converts by its rows' styles: mmff_angle theta0 to "
-        "degrees, mmff_oop rows centre first, a per-instance bond harmonic k halved; the "
-        "force field converts with it and meta says 1",
-        model=RecordModel.model_construct(
-            meta=v1_meta,
-            system=_mmff_v1_system(converted=False),
-            forcefield=_mmff_v1_forcefield(converted=False),
-        ),
-        expected=RecordModel(
-            meta=v1_meta,
-            system=_mmff_v1_system(converted=True),
-            forcefield=_mmff_v1_forcefield(converted=True),
-        ),
-        directions=("read",),
-        tamper=_set_record_meta("molrec_version", 1),
-    )
-    bare = _mmff_v1_system(converted=False)
-    bare_converted = _mmff_v1_system(converted=True)
-    # Without a force field a row's style is unknown: the bond's k keeps its
-    # number; theta0 is an angle value and koop marks an out-of-plane row.
-    bare_converted = bare_converted.model_copy(
-        update={"blocks": {**bare_converted.blocks, "bonds": bare.blocks["bonds"]}}
-    )
-    yield Case(
-        id="v1-frame-without-forcefield-converted",
-        exercises="a version-1 system without its force field converts by its own columns: "
-        "theta0 is an angle value (radians to degrees), a koop row is an out-of-plane row",
-        model=RecordModel(meta=v1_meta, system=bare),
-        expected=RecordModel(meta=v1_meta, system=bare_converted),
-        directions=("read",),
-        tamper=_set_record_meta("molrec_version", 1),
-    )
-    yield Case(
-        id="absent-version-read-as-version-1",
-        exercises="a store without molrec_version predates version 1 and is read by its rules; "
-        "nothing is invented in meta",
-        model=RecordModel(meta=v1_meta, system=bare),
-        expected=RecordModel(meta=MetaModel(), system=bare_converted),
-        directions=("read",),
-        tamper=_set_record_meta("molrec_version", _DELETE),
-    )
-
-
 @REGISTRY.suite
 class RecordSuite(Suite):
     """The record root -- the shape a real producer actually writes.
@@ -2197,7 +2029,7 @@ class RecordSuite(Suite):
         them in front of a real implementation instead of only in front of
         molrec's own codec.
         """
-        meta = MetaModel(molrec_version=MOLREC_VERSION)
+        meta = MetaModel()
         for case in FrameSuite().rooted("frame/"):
             yield Case(
                 id=f"frame/{case.id}",
@@ -2226,48 +2058,7 @@ class RecordSuite(Suite):
             }
         )
 
-        meta = MetaModel(molrec_version=MOLREC_VERSION)
-
-        yield Case(
-            id="writer-stamps-version",
-            exercises="a writer stamps molrec_version on a meta document that carries none",
-            model=RecordModel(meta=MetaModel(), frame=atoms),
-            expected=RecordModel(meta=meta, frame=atoms),
-        )
-
-        yield Case(
-            id="version-present",
-            exercises=f"a store carrying molrec_version {MOLREC_VERSION} validates and hands it "
-            "back",
-            model=RecordModel(meta=meta, frame=atoms),
-        )
-
-        yield Case(
-            id="absent-version-opens",
-            exercises="a store written before version 1 has no molrec_version: no version "
-            "check, read best-effort, and nothing is invented",
-            model=RecordModel(meta=meta, frame=atoms),
-            expected=RecordModel(meta=MetaModel(), frame=atoms),
-            directions=("read",),
-            tamper=_set_record_meta("molrec_version", _DELETE),
-        )
-
-        yield from _version_1_records()
-
-        for case_id, value, why in (
-            ("reject-version-zero", 0, "an integer >= 1"),
-            ("reject-version-newer", MOLREC_VERSION + 1, "no newer than the reader supports"),
-            ("reject-version-null", None, "never null: present means validated"),
-            ("reject-version-string", "1", "an integer, not a string"),
-            ("reject-version-float", 1.0, "an integer, not a float"),
-        ):
-            yield Case(
-                id=case_id,
-                exercises=f"molrec_version, when present, is {why}",
-                expect_violation="bad_version",
-                model=RecordModel(meta=meta, frame=atoms),
-                tamper=_set_record_meta("molrec_version", value),
-            )
+        meta = MetaModel()
 
         yield Case(
             id="system-and-frame",
@@ -2297,7 +2088,6 @@ class RecordSuite(Suite):
             exercises="record identity and content hash survive the round trip",
             model=RecordModel(
                 meta=MetaModel(
-                    molrec_version=MOLREC_VERSION,
                     record_id="8f14e45f-ea8f-4b6d-9c1a-000000000001",
                     content_hash="sha256:0000000000000000000000000000000000000000000000000000000000000000",
                 ),
@@ -2311,7 +2101,6 @@ class RecordSuite(Suite):
             model=RecordModel(
                 meta=MetaModel.model_validate(
                     {
-                        "molrec_version": MOLREC_VERSION,
                         "creator": {"name": "molrec-suite", "version": "0.1.0"},
                         "x_vendor_local": {"anything": [1, 2, 3]},
                     }
@@ -2624,14 +2413,7 @@ class CollectionSuite(Suite):
             meta=schema_meta,
         )
         record = RecordModel(meta=MetaModel(), system=system, trajectory=relaxation)
-        meta = CollectionMetaModel(units=self.UNITS, molrec_version=MOLREC_VERSION)
-
-        yield Case(
-            id="writer-stamps-version",
-            exercises="the collection document carries molrec_version, stamped by the writer",
-            model=CollectionModel(meta=CollectionMetaModel(units=self.UNITS), records=[record]),
-            expected=CollectionModel(meta=meta, records=[record]),
-        )
+        meta = CollectionMetaModel(units=self.UNITS)
 
         yield Case(
             id="topology-once-state-per-frame",

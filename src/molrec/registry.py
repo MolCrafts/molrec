@@ -43,9 +43,9 @@ class Registry:
     def modules(self, *, drafts: bool = False) -> tuple[str, ...]:
         """The registered modules; a ``draft/`` one only when ``drafts`` is set.
 
-        A draft is a proposal for a later version of the contract, so a run
-        that names no modules must not judge an implementation of this one
-        by it. Name a draft explicitly to run it.
+        A draft is a proposed change to the contract, not part of it, so a
+        run that names no modules must not judge an implementation by it.
+        Name a draft explicitly to run it.
         """
         return tuple(
             sorted(name for name in self._suites if drafts or not name.startswith(DRAFT_PREFIX))

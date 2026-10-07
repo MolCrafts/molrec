@@ -1,11 +1,11 @@
 """Observables: a named quantity as a function of its coordinates.
 
-**DRAFT (v2 proposal), not the v1 record contract.** The normative v1
+**DRAFT (a proposal), not the record contract.** The normative
 ``observables/`` section is the kind-based layout in
 ``docs/spec/observables.md`` (``kind`` / ``time_dependent`` / ``axes`` /
 ``target`` metadata beside a data array), implemented by molrs. This module
 is the dims-based redesign; its schemas publish under ``schema/draft/`` and
-adopting it is a normative change that requires a ``molrec_version`` bump.
+adopting it is a normative change to the ``observables/`` section.
 
 Everything a run measures or an analysis computes is a function -- a training
 loss over steps, a temperature over wall-clock time, an RDF over distance, a

@@ -1,4 +1,4 @@
-"""The draft (v2) observables: where the dimension model has to earn its keep.
+"""The draft observables: where the dimension model has to earn its keep.
 
 Grid versus scatter, a shared axis versus two axes, a value dimension with no
 coordinate -- these are the shapes two implementations most easily disagree

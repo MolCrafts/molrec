@@ -2,13 +2,6 @@
   "additionalProperties": true,
   "description": "The collection's document. ``units`` is required; other keys are kept.\n\n``units`` maps a quantity (``length``, ``energy``, ``force``, ``charge``,\n``mass``, ``time``) to a unit string. It is the only place a collection's\nnumbers get a unit: columns and per-step tags carry none.",
   "properties": {
-    "molrec_version": {
-      "description": "The contract version the store was written in: 1 (converted on read) or 2. Absent on a store written before version 1, which is read as version 1; never null.",
-      "maximum": 2,
-      "minimum": 1,
-      "title": "Molrec Version",
-      "type": "integer"
-    },
     "units": {
       "additionalProperties": {
         "type": "string"

@@ -387,9 +387,6 @@ preserves it as unknown content. Only a store that carries no
 `sequence_schema` at all (a foreign writer's) is read by deriving the
 declaration from its groups.
 
-The attribute carries **no version of its own**; the record's
-`meta["molrec_version"]` covers it.
-
 ## Resolving a frame
 
 To read block `B` at frame ordinal `i`:
@@ -460,7 +457,6 @@ step.
 ```text
 growth.mrec
  \-- meta
- |    +-- molrec_version: 2
  \-- trajectory
       +-- sequence_schema
       +-- nstep: 19
@@ -480,8 +476,7 @@ growth.mrec
            +-- vectors: [[20, 0, 0], [0, 20, 0], [0, 0, 20]]
 ```
 
-`meta/` carries `molrec_version: 2`: writers always create it and stamp the
-version. There is no `step` array (the numbering is a progression) and no
+Writers always create `meta/`, here empty. There is no `step` array (the numbering is a progression) and no
 `box/` array (the cell is fixed from ordinal 0, so it is three attributes —
 here only `vectors`, because `origin` and `boundary` hold their defaults).
 

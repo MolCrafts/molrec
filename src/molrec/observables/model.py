@@ -1,12 +1,12 @@
-"""The v1 ``observables`` section (``docs/spec/observables.md``).
+"""The ``observables`` section (``docs/spec/observables.md``).
 
 Each observable is a pair -- a metadata document and one data array -- and
 the pair is mandatory. ``kind`` says how the array is read: ``scalar`` (one
 value per sample) or ``vector`` (an ordered tuple of components per sample),
-with ``axes`` naming trailing axes for higher-rank data. A kind this version
+with ``axes`` naming trailing axes for higher-rank data. A kind the contract
 does not define is **carried through unchanged**, and so is every metadata
 key it does not name. The dims-based redesign is the draft in
-:mod:`molrec.draft.observables`, not part of version 1.
+:mod:`molrec.draft.observables`, not part of the contract.
 
 The data array is a :class:`molrec.core.model.ArrayModel`, the record's one
 typed array of any shape.
@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from molrec.core.model import ArrayModel, DocumentModel
 
-#: The kinds version 1 defines. Others are carried through, never refused.
+#: The kinds the contract defines. Others are carried through, never refused.
 KNOWN_KINDS: tuple[str, ...] = ("scalar", "vector")
 
 #: The child of ``observables/`` that holds the metadata groups. An

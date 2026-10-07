@@ -24,7 +24,6 @@ from molrec.core.bindings.zarr import (
     pack,
 )
 from molrec.core.model import (
-    MOLREC_VERSION,
     STORED,
     BlockModel,
     ColumnModel,
@@ -289,7 +288,7 @@ def precision_fixture_model() -> RecordModel:
         )
     }
     return RecordModel(
-        meta=MetaModel(molrec_version=MOLREC_VERSION),
+        meta=MetaModel(),
         frame=FrameModel(blocks={"atoms": coordinates(positions, 1e-3)}),
         trajectory=TrajectoryModel(frames=frames, step=[0, 10, 20, 30], blocks=declared),
     )

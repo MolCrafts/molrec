@@ -95,10 +95,8 @@ reduced scale of the producer's choosing.
 `units` **MUST** carry `preset` or at least one quantity. When both a preset
 and a quantity are present they **MUST** agree (pint-equivalent strings); a
 reader refuses a document where they do not. So `"angle": "radian"` beside a
-preset is refused in a version-2 record: a section that states it holds
-radian angles, and reading them as the preset's degrees would be wrong. (A
-version-1 record states exactly that, and is converted on read instead:
-[Reading a version-1 record](#reading-a-version-1-record).) A style whose
+preset is refused: a section that states it holds radian angles, and
+reading them as the preset's degrees would be wrong. A style whose
 parameters need a quantity that `units` does not resolve is not refused on
 read; a validator **SHOULD** report it.
 
@@ -278,12 +276,10 @@ block does. With two to five endpoints it can be priced by an
 [expression](#expressions) over the positions of its atoms; with fewer it
 cannot.
 
-There is no `pair14` category. Per-type 1-4 parameters are the
-`epsilon14` and `sigma14` of a `pair.lj/charmm` row, as in LAMMPS
-([Style registry](#style-registry)); a pair's own 1-4 parameters or weights
-are [pair overrides](#pair-overrides) on the system's `pairs` rows. A
-`pair14` table an earlier writer laid down is a category outside this table,
-preserved like any other.
+Per-type 1-4 parameters are the `epsilon14` and `sigma14` of a
+`pair.lj/charmm` row, as in LAMMPS ([Style registry](#style-registry)); a
+pair's own 1-4 parameters or weights are [pair overrides](#pair-overrides)
+on the system's `pairs` rows.
 
 ## Linking a system
 
@@ -840,95 +836,6 @@ force field; its additional sections map as:
 | `LENNARD_JONES_14_ACOEF`/`BCOEF` | `pair.lj/charmm` `epsilon14`, `sigma14` of the same rows (cross rows where the entry is not Lorentz–Berthelot), and `one_four` = `"epsilon14"` when the 1-4 table differs from the regular one |
 | `CHARGE` | `atom.full.charge` = CHARGE ÷ √332.0716; `pair.coul/charmm`, `coulomb` 332.0716 (CHARMM's constant) |
 
-## Reading a version-1 record
-
-`molrec_version` 2 is the version in which the registry became the
-force-field IR as it stands above. Version 1 gave some of the same names
-other meanings: its harmonic terms were ½k(x − x0)², its angle values and
-the angle part of its force constants were in `units.angle`, which was the
-**radian** in every preset, and some styles had other names. A reader of
-version 2 **MUST NOT** read a version-1 record as version 2: it **MUST**
-either convert it exactly, by the rules below, or refuse it. A store without
-`molrec_version` predates version 1 and is read by the same rules
-([Metadata](overview.md#metadata)). The rules apply to the `forcefield`
-section and to every frame of the record (`system`, `frame`, each
-trajectory frame) and, for a [collection](collection.md) of version 1, to its
-force field and every record. `meta` is handed back as stored.
-
-### The angle unit
-
-Version 1's angle unit *U* is `units.angle` when stated, else the radian
-(every version-1 preset's angle, `lj` included, which states nothing), else —
-neither a preset nor an `angle` — none. A version-1 document stating an
-`angle` other than the radian beside a preset was invalid in version 1 and is
-refused. Converted, `units.angle` is `degree` (absent when *U* is none). In
-what follows, an **angle value** v in *U* becomes v·180/π when *U* is the
-radian (the multiplication by the double nearest 180/π; a reader **MAY**
-refuse any *U* other than the radian and the degree) and stays v when *U* is
-the degree or none; a **constant per Uⁿ** becomes per radianⁿ — unchanged for
-the radian or none, multiplied by 180/π *n* times for the degree.
-
-### The section
-
-| Version-1 style | Converted |
-|-----------------|-----------|
-| `bond.harmonic`, `drude.harmonic` | `k` × ½ |
-| `angle.harmonic` | `k` × ½, a constant per U²; `theta0` an angle value |
-| `angle.class2` | `theta0` an angle value; `k2`, `k3`, `k4` constants per U², U³, U⁴ |
-| `dihedral.periodic`, `improper.trefoil` | `phase`, `phase<m>` angle values |
-| `dihedral.charmm`, `improper.periodic` | `phase` an angle value |
-| `dihedral.class2` | `phi1`, `phi2`, `phi3` angle values |
-| `improper.harmonic` | `chi0` an angle value; `k` a constant per U² |
-| `bond.morse` | `D` renamed `d0` |
-
-Version 1 also left styles outside its registry to their producers. Those
-the reference implementation (molrs ≤ 0.15) wrote convert too:
-
-| Version-1 style | Converted |
-|-----------------|-----------|
-| `dihedral.fourier` | the style is `dihedral.periodic` (its table moves to `dihedral.periodic`; a record holding both is refused) and converts as it |
-| `pair.morse` | `D0` renamed `d0` |
-| `pair.thole` | `a_thole` renamed `damp` |
-| `angle.mmff_angle`, `angle.uff_angle` | `theta0` an angle value |
-| `improper.mmff_oop`, `improper.uff_inversion` | the centre was listed second: `itom` and `jtom` swap |
-
-A rename onto a column the table already has is refused. Every other style
-keeps its numbers — those of version 1's registry, which meant the same
-(`dihedral.charmm`'s `w` was the same 1-4 weight; version 1 did not say a
-dihedral prices it), and those of the non-angular categories (`atom`,
-`pair`, `cmap`, …), whose numbers hold no angle. Refused, because version 2
-has no exact form for them:
-
-- a `pair14` style: version 1 priced the 1-4 pairs from it, unweighted, and
-  version 2 has no force-field form for that;
-- an `improper.periodic` table with per-term columns (`k<m>`,
-  `periodicity<m>`, `phase<m>`): version 2's is one term;
-- an `expression` on a style the rules above convert: it is written in
-  version 1's meaning of the parameters;
-- a style of an angular category (`angle`, `dihedral`, `improper`) that is
-  neither in a registry nor above and carries a parameter or an expression:
-  its angle values and per-angle constants cannot be told from its other
-  numbers.
-
-### Frames
-
-A relation row's parameter columns ([Linking a system](#linking-a-system),
-rule 4) are parameters of its style, and convert as the style's parameter of
-the same name: the row's style is its `style` cell, else every table of its
-category whose `name` column holds its `type` (rule 2). Two resolved styles
-that would convert a non-null cell differently, and a cell the rules rename,
-are refused. A `style` cell naming a renamed style names the new one. Columns
-named as angle values (`theta0`, `chi0`, `phase`, `phase<m>`, `phi1` …
-`phi3`) are angle values in every style that has them, and convert so
-whether or not the row resolves — with *U* the radian when the record has no
-force field. An `impropers` row of an out-of-plane style above swaps
-`atomi` and `atomj`; one that resolves to no style is an out-of-plane row
-when it carries `koop` (MMFF) or `K` (UFF), the per-instance parameters of
-those styles. A null cell is not converted.
-
-A writer writes version 2 only; a version-1 trajectory is read, never
-appended to.
-
 ## Conformance
 
 The force-field suite (`module = "forcefield"`) pins down:
@@ -965,15 +872,6 @@ The force-field suite (`module = "forcefield"`) pins down:
   leave null `epsilon14` / `sigma14`, a cross row that carries only
   them (a GROMACS `[ pairtypes ]` row), and `one_four = "epsilon14"`;
 - `ff-units-preserved`: `nm` / `kJ/mol` numbers come back unconverted;
-- `v1-forcefield-converted`: a version-1 section (molrs 0.15's units
-  statement, `angle radian`) with every style the rules convert — halved
-  `k`, angle values in degrees, `D` and `D0` renamed `d0`, `a_thole` renamed
-  `damp`, an `mmff_oop` row centre first — and three that keep their numbers
-  (`dihedral.charmm` `w`, `improper.cvff`, `pair.lj/cut`) reads back as
-  version 2;
-- `v1-forcefield-lj-fourier-converted`: `preset lj` alone (its version-1
-  angle the radian) and a `dihedral.fourier` table read back as `degree` and
-  `dihedral.periodic`;
 - `ff-lj-preset`: `preset lj` with no quantity strings;
 - `ff-smirks-keyed`: a `smirks`-keyed table with no endpoint columns;
 - `ff-without-special-bonds`: absence survives as absence;
@@ -990,21 +888,12 @@ The force-field suite (`module = "forcefield"`) pins down:
   in a non-null row), `reject-ff-array-param-nonfinite` (a `NaN` in a
   non-null row of a bond table's `f64[T, 2, 2]` parameter),
   `reject-ff-array-param-string` (a `string[T, 2]` column),
-  `reject-ff-lj-charmm-one-four` (`one_four = "both"`); and, of version 1, `reject-v1-pair14`,
-  `reject-v1-multiterm-improper-periodic`,
-  `reject-v1-expression-on-converted-style`,
-  `reject-v1-unknown-angular-style` and `reject-v1-preset-angle-degree` (a
-  degree beside a preset is no version-1 section, and is not read as a
-  version-2 one).
+  and `reject-ff-lj-charmm-one-four` (`one_four = "both"`).
 
 The record suite adds `record-with-forcefield` (a `system` whose `atoms.type`
 and `bonds.type` link into it), `forcefield-only-record` and
 `record-pair-overrides` (a `system` whose `pairs` rows carry every
 [pair override](#pair-overrides), null in some rows, beside a
-`pair.lj/charmm` force field), `v1-frame-mmff-theta0-converted` (a
-version-1 MMFF system: `theta0` to degrees, out-of-plane rows centre first, a
-per-instance harmonic `k` halved, its force field with it),
-`v1-frame-without-forcefield-converted` (the same system alone, converted by
-its own columns) and `absent-version-read-as-version-1`; the collection
+`pair.lj/charmm` force field); the collection
 suite adds `collection-forcefield` and `collection-cmap` (a `cmap` grid under
 the LMDB key `ff`, linked from `cmaps` rows).

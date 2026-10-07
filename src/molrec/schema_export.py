@@ -68,10 +68,10 @@ PUBLISHED: dict[str, tuple[type[BaseModel], ...]] = {
         # bonds, styles) and the style tables as blocks.
         ForceFieldModel,
     ),
-    # The v1 `observables/` section: the kind-based layout molrs writes.
+    # The `observables/` section: the kind-based layout molrs writes.
     "observables": (ArrayModel, ObservableMetaModel, ObservableModel, ObservablesModel),
-    # DRAFT -- the dims-based redesign (v2 proposal); adopting it is a
-    # normative change and requires a `molrec_version` bump.
+    # DRAFT -- the dims-based redesign; adopting it is a normative change
+    # to the `observables/` section.
     "draft/observables": (
         draft.Array,
         draft.Source,

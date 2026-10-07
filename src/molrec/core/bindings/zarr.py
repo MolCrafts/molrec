@@ -58,7 +58,6 @@ from molrec.chunking import (
     rows_per_chunk,
 )
 from molrec.core.model import (
-    MOLREC_VERSION,
     NUMPY_DTYPE,
     RESERVED_BLOCK_NAMES,
     RESERVED_TRAJECTORY_NAMES,
@@ -90,10 +89,8 @@ from molrec.core.model import (
     encode_typed_meta,
     revalidated,
     same_bits,
-    stamp_version,
 )
 from molrec.core.store import ForceFieldStore, FrameStore, RecordStore, TrajectoryStore
-from molrec.core.v1 import V1Upgrade, read_version
 from molrec.precision import check_precision, quantize
 from molrec.registry import REGISTRY
 from molrec.store import Store
@@ -572,14 +569,14 @@ class ZarrTrajectoryCodec(Codec):
     def write(self, model: TrajectoryModel, store: ZarrTrajectoryStore) -> None:
         store.clear()
         root = store.root(mode="w")
-        # Root, then ``meta/`` (stamped with the contract version), then the
-        # sequence -- the creation order every writer follows.
-        root.create_group(RECORD_META).attrs.update(stamp_version({}))
+        # Root, then ``meta/``, then the sequence -- the creation order every
+        # writer follows.
+        root.create_group(RECORD_META)
         self.write_into(root.create_group(TRAJECTORY_GROUP), model)
 
     def read(self, store: ZarrTrajectoryStore) -> TrajectoryModel:
         root = store.root(mode="r")
-        return self.read_from(root[TRAJECTORY_GROUP], upgrade_of(root))
+        return self.read_from(root[TRAJECTORY_GROUP])
 
     # -- write -------------------------------------------------------------
 
@@ -788,13 +785,8 @@ class ZarrTrajectoryCodec(Codec):
 
     # -- read --------------------------------------------------------------
 
-    def read_from(self, group: zarr.Group, upgrade: V1Upgrade | None = None) -> TrajectoryModel:
-        """The sequence at ``group``; every frame of a version-1 one
-        (``upgrade``) converted to version 2."""
-        model = self._read_from(group)
-        return model if upgrade is None else upgrade.trajectory(model)
-
-    def _read_from(self, group: zarr.Group) -> TrajectoryModel:
+    def read_from(self, group: zarr.Group) -> TrajectoryModel:
+        """The sequence at ``group``."""
         nstep = self._nstep(group)
         step = self._series(group, STEP_PROGRESSION_ATTR, STEP_ARRAY, nstep, int)
         if step is None:
@@ -1207,7 +1199,7 @@ FORCEFIELD_GROUP = "forcefield"
 
 class ZarrForceFieldStore(ZarrStore, ForceFieldStore):
     """A Zarr V3 root holding one force field under ``forcefield/``, beside a
-    stamped ``meta/`` -- the same bytes as a record's section, and a valid
+    ``meta/`` -- the same bytes as a record's section, and a valid
     record on its own (a force-field package)."""
 
 
@@ -1229,50 +1221,26 @@ class ZarrForceFieldCodec(Codec):
     def write(self, model: ForceFieldModel, store: ZarrForceFieldStore) -> None:
         store.clear()
         root = store.root(mode="w")
-        root.create_group(RECORD_META).attrs.update(stamp_version({}))
+        root.create_group(RECORD_META)
         self.write_into(root.create_group(FORCEFIELD_GROUP), model)
 
     def read(self, store: ZarrForceFieldStore) -> ForceFieldModel:
         root = store.root(mode="r")
-        return self.read_from(root[FORCEFIELD_GROUP], upgrade_of(root))
+        return self.read_from(root[FORCEFIELD_GROUP])
 
     def write_into(self, group: zarr.Group, model: ForceFieldModel) -> None:
         group.attrs.update(model.document())
         for name, table in model.tables.items():
             write_block(group, name, table)
 
-    def read_from(self, group: zarr.Group, upgrade: V1Upgrade | None = None) -> ForceFieldModel:
-        """The section at ``group``; a version-1 one (``upgrade``) is converted
-        to version 2 before it is validated."""
-        document, tables = stored_forcefield(group)
-        if upgrade is not None:
-            document, tables = upgrade.forcefield(document, tables)
-        return ForceFieldModel.model_validate({**document, "tables": tables})
-
-
-def stored_forcefield(group: zarr.Group) -> tuple[dict[str, Any], dict[str, BlockModel]]:
-    """A ``forcefield`` group as stored: its document and its tables."""
-    tables = {
-        name: read_block(member)
-        for name, member in group.members()
-        if isinstance(member, zarr.Group)
-    }
-    return dict(group.attrs), tables
-
-
-def upgrade_of(root: zarr.Group) -> V1Upgrade | None:
-    """How the store rooted at ``root`` is read: ``None`` at the current
-    version; for a version-1 store -- or one without ``molrec_version``,
-    written before version 1 -- the conversion built from its force field as
-    stored (``docs/spec/forcefield.md``, "Reading a version-1 record"). A
-    ``meta`` whose version is malformed or newer is refused here."""
-    meta = dict(root[RECORD_META].attrs) if RECORD_META in root else {}
-    MetaModel.model_validate(meta)
-    if read_version(meta) == MOLREC_VERSION:
-        return None
-    if FORCEFIELD_GROUP in root:
-        return V1Upgrade(*stored_forcefield(root[FORCEFIELD_GROUP]))
-    return V1Upgrade()
+    def read_from(self, group: zarr.Group) -> ForceFieldModel:
+        """The section at ``group``."""
+        tables = {
+            name: read_block(member)
+            for name, member in group.members()
+            if isinstance(member, zarr.Group)
+        }
+        return ForceFieldModel.model_validate({**group.attrs, "tables": tables})
 
 
 @REGISTRY.binding
@@ -1297,7 +1265,7 @@ RECORD_METHOD = "method"
 RECORD_OBSERVABLES = "observables"
 RECORD_METRICS = "metrics"
 
-#: The root sections this version interprets; any other root group is
+#: The root sections the contract interprets; any other root group is
 #: preserved as a :class:`~molrec.core.model.NodeModel`.
 RECORD_SECTIONS = frozenset(
     {
@@ -1379,9 +1347,8 @@ class ZarrRecordCodec(Codec):
     for those. Frame-shaped sections delegate to the frame codec, so there is
     exactly one description of how blocks are laid out.
 
-    ``meta/`` is always written, first, and carries ``molrec_version``: a
-    writer stamps the version it writes when the producer's document has
-    none. A root without ``meta/`` reads as an empty document.
+    ``meta/`` is always written, first. A root without ``meta/`` reads as an
+    empty document.
     """
 
     def __init__(self) -> None:
@@ -1392,7 +1359,7 @@ class ZarrRecordCodec(Codec):
     def write(self, model: RecordModel, store: ZarrRecordStore) -> None:
         store.clear()
         root = store.root(mode="w")
-        root.create_group(RECORD_META).attrs.update(stamp_version(document(model.meta)))
+        root.create_group(RECORD_META).attrs.update(document(model.meta))
         for name, section in ((RECORD_STATUS, model.status), (RECORD_METHOD, model.method)):
             if section is not None:
                 root.create_group(name).attrs.update(document(section))
@@ -1400,7 +1367,7 @@ class ZarrRecordCodec(Codec):
             write_node(root.create_group(RECORD_METRICS), model.metrics)
         if model.observables is not None:
             self._observables().write_into(root.create_group(RECORD_OBSERVABLES), model.observables)
-        # Sections this version does not define go back exactly as they came.
+        # Sections the contract does not define go back exactly as they came.
         for name, node in (model.model_extra or {}).items():
             write_node(root.create_group(name), node)
         for name, frame in (
@@ -1421,17 +1388,14 @@ class ZarrRecordCodec(Codec):
     def read(self, store: ZarrRecordStore) -> RecordModel:
         root = store.root(mode="r")
         meta = dict(root[RECORD_META].attrs) if RECORD_META in root else {}
-        # A version-1 store's sections are converted; `meta` is handed back
-        # as stored.
-        upgrade = upgrade_of(root)
         return RecordModel(
             meta=MetaModel.model_validate(meta),
-            frame=self._section(root, RECORD_FRAME, upgrade),
-            system=self._section(root, RECORD_SYSTEM, upgrade),
-            trajectory=self._trajectories.read_from(root[TRAJECTORY_GROUP], upgrade)
+            frame=self._section(root, RECORD_FRAME),
+            system=self._section(root, RECORD_SYSTEM),
+            trajectory=self._trajectories.read_from(root[TRAJECTORY_GROUP])
             if TRAJECTORY_GROUP in root
             else None,
-            forcefield=self._forcefields.read_from(root[FORCEFIELD_GROUP], upgrade)
+            forcefield=self._forcefields.read_from(root[FORCEFIELD_GROUP])
             if FORCEFIELD_GROUP in root
             else None,
             status=StatusModel.model_validate(dict(root[RECORD_STATUS].attrs))
@@ -1453,16 +1417,13 @@ class ZarrRecordCodec(Codec):
 
     @staticmethod
     def _observables() -> Codec:
-        """The v1 observables codec, which builds on this module's helpers."""
+        """The observables codec, which builds on this module's helpers."""
         from molrec.observables.bindings.zarr import ZarrObservablesCodec
 
         return ZarrObservablesCodec()
 
-    def _section(self, root: zarr.Group, name: str, upgrade: V1Upgrade | None) -> FrameModel | None:
-        if name not in root:
-            return None
-        frame = self._frames.read_from(root[name])
-        return frame if upgrade is None else upgrade.frame(frame)
+    def _section(self, root: zarr.Group, name: str) -> FrameModel | None:
+        return self._frames.read_from(root[name]) if name in root else None
 
 
 @REGISTRY.binding

@@ -1,4 +1,4 @@
-"""The v1 ``observables`` section: the kind-based layout molrs writes.
+"""The ``observables`` section: the kind-based layout molrs writes.
 
 The official codec passes its own suite; adapters broken in named ways --
 one that drops unknown keys, one that rewrites an unknown kind -- fail
@@ -14,7 +14,6 @@ import numpy as np
 import zarr
 
 import molrec
-from molrec.core.model import MOLREC_VERSION
 from molrec.observables.bindings.zarr import ZarrObservablesCodec, ZarrObservableStore
 
 
@@ -128,7 +127,7 @@ def test_the_layout_is_meta_beside_data(tmp_path) -> None:
         "unit": "eV",
     }
     assert root["observables/energy"].shape == ()
-    assert dict(root["meta"].attrs) == {"molrec_version": MOLREC_VERSION}
+    assert dict(root["meta"].attrs) == {}
 
 
 def test_an_observables_section_rides_in_a_record(tmp_path) -> None:
@@ -136,7 +135,7 @@ def test_an_observables_section_rides_in_a_record(tmp_path) -> None:
 
     store = ZarrRecordStore(tmp_path / "r.mrec")
     record = molrec.core.model.RecordModel(
-        meta=molrec.core.model.MetaModel(molrec_version=MOLREC_VERSION),
+        meta=molrec.core.model.MetaModel(),
         frame=molrec.core.model.FrameModel(),
         observables=molrec.observables.model.ObservablesModel(
             observables={

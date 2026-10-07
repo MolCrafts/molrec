@@ -352,7 +352,7 @@ def test_refusal_translation() -> None:
 
     assert as_refusal(DtypeError("no"), (DtypeError,)) is not None
     assert as_refusal(TypeError("no"), (DtypeError,)) is None
-    refusal = molrec.refusal.Refusal("no", kind="bad_version")
+    refusal = molrec.refusal.Refusal("no", kind="bad_forcefield")
     assert as_refusal(refusal) is refusal
 
 

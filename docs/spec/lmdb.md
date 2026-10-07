@@ -37,9 +37,7 @@ everywhere else.
 ```json
 {
   "layout": "mrec-lmdb",
-  "layout_version": 1,
   "collection": {
-    "molrec_version": 2,
     "units": { "length": "angstrom", "energy": "kcal/mol" }
   },
   "sequence_schema": { "blocks": { ... }, "meta": { ... } },
@@ -51,29 +49,8 @@ everywhere else.
 `meta` is written **last**, in the transaction that commits the collection.
 A file without it is not a collection, and a reader refuses it.
 
-Two versions ride on it, and they version different things:
-
-* `collection.molrec_version` is the **contract** version, under the same
-  rule as a record's `meta`: every writer stamps the current one, a reader
-  validates it when present (an integer in `1 ..= newest supported`, never
-  `null`) and reads the collection by its version's rules — a version-1
-  collection's force field and every record's frames are converted as
-  [Reading a version-1 record](forcefield.md#reading-a-version-1-record)
-  says. It covers the collection document, the `sequence_schema` and every
-  record in the file; a record's own `meta` document carries no version of
-  its own.
-* `layout_version` is the version of **this binding's byte layout** — the
-  key scheme and the [frame bytes](#frame-bytes) encoding. It is required (the
-  binding has written it since its first version), an integer in
-  `1 ..= newest supported`, and a reader refuses anything else.
-
-They are kept apart because they move independently: a new key or header
-field in the LMDB encoding changes how the same logical collection is laid
-out without changing what it means, and a normative change to the record
-contract changes what it means without touching how LMDB stores the bytes.
-Folding one into the other would force a contract bump for a storage change
-(or the reverse), and the Zarr binding — which has no layout version — would
-then disagree with LMDB about what version `1` is.
+`layout` names this binding; a reader refuses any other value. `collection`
+is the [collection](collection.md)'s document.
 
 ### `index`
 

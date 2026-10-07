@@ -1025,9 +1025,6 @@ class SequenceSchemaModel(DocumentModel):
     lifetime. ``blocks`` mirrors the frame blocks; ``meta`` declares each
     per-step key as ``{dtype, fill?}`` -- the tag the array's ``meta_dtype``
     attribute repeats, and the fill an omitting frame is completed with.
-
-    The attribute carries no version of its own; the record's
-    ``meta["molrec_version"]`` covers it.
     """
 
     blocks: dict[str, SequenceBlockModel] = Field(default_factory=dict)
@@ -1607,25 +1604,6 @@ Timestamp = Annotated[
     WithJsonSchema({"type": "string", "format": "date-time"}),
 ]
 
-#: The contract version this package speaks. Every writer stamps it on
-#: ``meta``; a reader validates a present key and refuses a newer one. A
-#: version-1 store (or one without the key) is converted on read
-#: (:mod:`molrec.core.v1`).
-MOLREC_VERSION = 2
-
-#: ``meta["molrec_version"]``: absent, or an integer in ``1..=MOLREC_VERSION``.
-#: Strict -- ``"1"``, ``1.0`` and ``true`` are not versions -- and never
-#: ``null``: present means validated.
-MolrecVersion = Annotated[StrictInt, Field(ge=1, le=MOLREC_VERSION)]
-
-_VERSION_SCHEMA = {
-    "type": "integer",
-    "minimum": 1,
-    "maximum": MOLREC_VERSION,
-    "description": "The contract version the store was written in: 1 (converted on read) or "
-    "2. Absent on a store written before version 1, which is read as version 1; never null.",
-}
-
 
 def revalidated[M: BaseModel](model: M) -> M:
     """``model`` run through its validators again.
@@ -1639,38 +1617,18 @@ def revalidated[M: BaseModel](model: M) -> M:
     return type(model).model_validate(model.model_dump(exclude_unset=True))
 
 
-def stamp_version(document: dict[str, Any]) -> dict[str, Any]:
-    """``document`` with the current ``molrec_version`` stamped in.
-
-    Every writer -- molrec's own codecs included -- writes the current
-    version and says so, over any value the producer's document carries: the
-    key is reserved, and what is written is version-``MOLREC_VERSION`` content
-    whatever the document claims.
-    """
-    return {**document, "molrec_version": MOLREC_VERSION}
-
-
 class MetaModel(DocumentModel):
     """The record's identity document.
 
     ``extra="allow"`` is not convenience -- it is the preserve-the-unknown
     invariant: a reader must keep keys it does not recognize.
 
-    ``molrec_version`` is stamped by every writer (:func:`stamp_version`). A
-    reader validates it when present: an integer in ``1..=MOLREC_VERSION`` --
-    ``null``, ``0``, a string, a float or a newer version is refused. Absent
-    is a store written before version 1, read best-effort by version 1's
-    rules. A reader hands it back as stored, also when it converted the
-    store's sections from version 1. Identity of a record is the ``*.mrec``
-    path suffix plus a Zarr root, not this key.
+    Identity of a record is the ``*.mrec`` path suffix plus a Zarr root.
 
     ``record_id`` and ``content_hash`` are optional provenance, like
     ``creator``, ``author``, ``created_at`` and ``source``.
     """
 
-    molrec_version: Annotated[MolrecVersion, WithJsonSchema(_VERSION_SCHEMA)] = Field(
-        default=None, json_schema_extra=lambda schema: schema.pop("default", None)
-    )
     creator: CreatorModel | None = None
     author: AuthorModel | None = None
     created_at: Timestamp | None = None
@@ -1824,6 +1782,10 @@ STYLE_UNRESERVED: frozenset[int] = frozenset(
 
 #: The combining rules a van-der-Waals pair style may name.
 MIXING_RULES: tuple[str, ...] = ("arithmetic", "geometric", "sixthpower")
+
+#: 180/π, the one rounding of it every implementation multiplies by: an angle
+#: in radians times this is the same double everywhere.
+DEGREES_PER_RADIAN = 180.0 / math.pi
 
 #: The unit presets and the unit of each quantity in them; ``None`` is a
 #: quantity the preset gives no unit (reduced ``lj``). The presets are the
@@ -2241,7 +2203,7 @@ class RecordModel(BaseModel):
     record is conforming and a reader must not require a frame beside it,
     because frames may embed full blocks including topology.
 
-    ``observables`` is the v1 section
+    ``observables`` is the section
     (:class:`molrec.observables.model.ObservablesModel`). ``metrics``
     -- the catalog document, the dense series and the live WAL of
     ``docs/spec/metrics.md`` -- is carried verbatim as a :class:`NodeModel`:
@@ -2272,7 +2234,7 @@ class RecordModel(BaseModel):
 
     @model_validator(mode="after")
     def _unknown_sections_are_subtrees(self) -> RecordModel:
-        """An extra key is a root section this version does not define: a
+        """An extra key is a root section the contract does not define: a
         group, kept as the :class:`NodeModel` it was read as."""
         extra = self.__pydantic_extra__ or {}
         for name, value in extra.items():
@@ -2378,9 +2340,6 @@ class CollectionMetaModel(DocumentModel):
     """
 
     units: dict[str, str]
-    molrec_version: Annotated[MolrecVersion, WithJsonSchema(_VERSION_SCHEMA)] = Field(
-        default=None, json_schema_extra=lambda schema: schema.pop("default", None)
-    )
 
 
 class CollectionModel(BaseModel):
@@ -2514,7 +2473,7 @@ class CollectionModel(BaseModel):
         return self
 
 
-# The record root holds the v1 observables section, which
+# The record root holds the observables section, which
 # :mod:`molrec.observables.model` owns. That module builds on this one
 # (``DocumentModel``, ``ArrayModel``), so it is imported once this one is
 # complete and the two models that reach the section are finished here.

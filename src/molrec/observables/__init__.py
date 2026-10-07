@@ -1,4 +1,4 @@
-"""The v1 ``observables`` section: named results, each a kind plus an array.
+"""The ``observables`` section: named results, each a kind plus an array.
 
 Each symbol is its owner module's: the models in
 :mod:`molrec.observables.model`, the adapter in

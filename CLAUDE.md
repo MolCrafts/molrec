@@ -34,7 +34,7 @@ code, and the **fixtures**:
 - `src/molrec/core/bindings/` — the reference codecs: **Zarr V3** (`zarr.py`:
   bare frame, record, trajectory, force field; the arbiter the conformance
   suite reads and writes through) and **LMDB** (`lmdb.py`: a collection of
-  records in one file). `src/molrec/observables/` — the v1 observables codec.
+  records in one file). `src/molrec/observables/` — the observables codec.
 - `src/molrec/*suite*.py`, `core/suite.py` — the **conformance suite**:
   cases per module (`core`, `record`, `trajectory`, `collection`,
   `forcefield`, `observables`; drafts only when named). An implementation writes an
@@ -107,23 +107,19 @@ a red PR.
 
 ## Spec hygiene
 
-- Version key `meta["molrec_version"]` (integer, currently 2): **writers always
-  stamp the current one** (molrec's own codecs included, over any producer
-  value); readers validate it when present (`null` or newer = refuse) and read
-  a version-1 store through `src/molrec/core/v1.py` (exact conversion or
-  refusal, `docs/spec/forcefield.md` "Reading a version-1 record"); absent =
-  pre-1 store, read best-effort by version 1's rules. `meta` comes back as
-  stored.
-  Identity = `*.mrec` suffix + Zarr root; writers always create `meta/`.
+- No version key, no migration: before 1.0 a record carries no schema
+  version and no reader converts or refuses an old layout. A `meta` key the
+  spec does not name is preserved verbatim, like any unknown key; `meta`
+  comes back as stored. Identity = `*.mrec` suffix + Zarr root; writers
+  always create `meta/`.
 - Scientific paths are `*.mrec/` / `*.mrec.zip`. Host metrics stay on the
-  filename-gated `*.mlp.*` surface (live WAL `*.mlp.jsonl`; leftover
-  `*.mlp.zarr` is ignored).
+  filename-gated `*.mlp.*` surface (live WAL `*.mlp.jsonl`).
 - Cell contract name: `Box` / `box`.
-- v1 `observables/` is the kind-based layout in `docs/spec/observables.md`
+- `observables/` is the kind-based layout in `docs/spec/observables.md`
   (matches molrs; `src/molrec/observables/`, models in `core/model.py`). The
-  dims-based model in `src/molrec/draft/observables/` is a **v2 draft**
+  dims-based model in `src/molrec/draft/observables/` is a **draft**
   (`schema/draft/observables/`, conformance module `draft/observables`, never
-  run unless named); adopting it needs a `molrec_version` bump.
+  run unless named); adopting it is a normative change to `observables/`.
 - `system` is strictly frame-shaped (flat blocks, no `parameters` child).
   Force-field parameters in the `forcefield` section
   (`docs/spec/forcefield.md`, frame-shaped: document attrs + one block per

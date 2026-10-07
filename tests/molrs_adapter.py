@@ -8,7 +8,7 @@ exists to prevent. For the same reason nothing here touches the store behind
 molrs's back: the store molrs is asked to read is exactly the one the codec
 wrote.
 
-The molrs surface used here is molrs 0.16's: the whole-record doors are
+The molrs surface used here: the whole-record doors are
 functions at the top of ``molrs.io`` -- ``write_mrec_frame`` / ``write_mrec_system``
 (both taking ``forcefield=``) and ``write_mrec_forcefield`` to write a record,
 ``read_mrec_frame`` / ``read_mrec_system`` / ``read_mrec_meta`` /
@@ -38,7 +38,7 @@ import molrs
 import numpy as np
 
 import molrec
-from molrec.core.model import MOLREC_VERSION, NUMPY_DTYPE, CellModel, document, same_cell
+from molrec.core.model import NUMPY_DTYPE, CellModel, document, same_cell
 
 #: ``Block.dtype`` names the domain scalars by role; every other column dtype
 #: is already spelled as the contract spells it.
@@ -46,136 +46,6 @@ _MOLRS_DTYPE = {"float": "f64", "int": "i32", "uint": "u64"}
 
 #: What molrs refuses malformed input with.
 _REFUSALS: tuple[type[Exception], ...] = (ValueError, molrs.core.BlockDtypeError)
-
-# ---------------------------------------------------------------------------
-# What molrs cannot run yet -- the one place it is declared.
-#
-# Each entry names the molrs API a group of cases needs, whether this molrs
-# build has it, and the cases, per conformance module. A case whose API is
-# present is judged like any other (so it goes red, not skipped, the moment
-# molrs lands the API with a defect); one whose API is absent is reported as
-# a skip carrying the missing API's name. Nothing here is an xfail.
-# ---------------------------------------------------------------------------
-
-_MREC = molrs.io.mrec
-
-#: Whether this molrs build carries a block's row references (molrec F4).
-_HAS_TARGETS = hasattr(molrs.core.Block, "set_target") and hasattr(molrs.core.Block, "targets")
-
-
-def _refuses_pair_conflicts() -> bool:
-    """Whether this molrs build refuses, on reading a section, a pair table that
-    restates ``{A, B}`` as ``B``-``A`` with another epsilon (molrec forcefield
-    rule 3). molrs 0.15.1 refuses it only when it compiles the kernel."""
-    if not hasattr(_MREC, "ForceFieldSection"):
-        return False
-    rows = molrs.core.Block()
-    rows.resize(2)
-    for column, values in {
-        "name": ["A-B", "B-A"],
-        "itom": ["A", "B"],
-        "jtom": ["B", "A"],
-        "epsilon": [0.9, 0.8],
-        "sigma": [2.0, 2.0],
-    }.items():
-        rows.insert(column, np.array(values))
-    document = {
-        "name": "probe",
-        "units": {"preset": "real"},
-        "styles": [{"category": "pair", "style": "lj/cut"}],
-    }
-    try:
-        _MREC.ForceFieldSection(document, {"pair.lj%2Fcut": rows}).validate()
-    except _REFUSALS:
-        return True
-    return False
-
-
-#: Whether this molrs build writes and reads molrec_version 2 (molrs 0.16).
-#: Until it does it refuses every store the suite's codec stamps 2 and stamps
-#: 1 on every record it writes, so no positive record, trajectory or
-#: force-field case -- and no version-1 refusal -- can be judged on it.
-_SPEAKS_VERSION_2 = _MREC.MOLREC_VERSION >= MOLREC_VERSION
-
-
-def _version_2_cases(*modules: str) -> dict[str, tuple[str, ...]]:
-    return {
-        module: tuple(
-            case.id
-            for case in molrec.registry.REGISTRY.suite_for(module)().cases()
-            if not case.expect_violation or case.id.startswith("reject-v1-")
-        )
-        for module in modules
-    }
-
-
-_PENDING: tuple[tuple[str, bool, dict[str, tuple[str, ...]]], ...] = (
-    (
-        "molrec_version 2 (molrs.io.mrec.MOLREC_VERSION 2: the stamp, and version-1 "
-        "records converted on read)",
-        _SPEAKS_VERSION_2,
-        _version_2_cases("record", "trajectory", "forcefield"),
-    ),
-    (
-        "molrs.core.Block.set_target / Block.targets (row references, molrec F4)",
-        _HAS_TARGETS,
-        {
-            "record": (
-                "frame/targets-declared",
-                "frame/reject-target-out-of-range",
-                "frame/reject-target-missing-block",
-                "frame/reject-target-not-u64",
-                "targets-absolute",
-                "reject-target-absolute-out-of-range",
-                "reject-target-into-trajectory",
-            ),
-        },
-    ),
-    (
-        "molrs.io.mrec.SequenceSchema.declare_target (row references, molrec F4)",
-        hasattr(_MREC.SequenceSchema, "declare_target"),
-        {"trajectory": ("targets-pinned", "reject-target-out-of-range-resolved")},
-    ),
-    (
-        "molrs.io.mrec.ForceFieldSection.validate refusing conflicting pair rows "
-        "(molrec forcefield rule 3)",
-        _refuses_pair_conflicts(),
-        {"forcefield": ("reject-ff-pair-conflict",)},
-    ),
-    (
-        "molrs.ff.forcefield.CmapStyle (the cmap category and its f64[T, N, N] grid)",
-        hasattr(molrs.ff.forcefield, "CmapStyle"),
-        {"forcefield": ("ff-cmap-grid",)},
-    ),
-    (
-        "molrs.io.mrec.SequenceSchema.declare_aligned (aligned blocks, molrec F5)",
-        hasattr(_MREC.SequenceSchema, "declare_aligned"),
-        {
-            "trajectory": (
-                "aligned-carries-forward",
-                "aligned-restated-on-growth",
-                "aligned-absent-then-present",
-                "aligned-empty-target",
-                "reject-aligned-not-restated",
-                "reject-aligned-count-mismatch",
-                "reject-aligned-target-undeclared",
-                "reject-aligned-chain",
-                "reject-aligned-shared-column",
-                "reject-aligned-target-absent",
-            ),
-        },
-    ),
-)
-
-
-def _unsupported(module: str) -> dict[str, str]:
-    """``module``'s cases whose molrs API this build lacks, each with the API."""
-    return {
-        case: f"molrs lacks {api}"
-        for api, available, cases in _PENDING
-        if not available
-        for case in cases.get(module, ())
-    }
 
 
 def _dtype_of(native: molrs.core.Block, column: str) -> str:
@@ -289,11 +159,9 @@ def _from_block(native: molrs.core.Block, *, in_trajectory: bool = False) -> dic
         "columns": columns,
         "structural_shape": tuple(structural) if structural is not None else None,
     }
-    if _HAS_TARGETS and not in_trajectory:
+    if not in_trajectory:
         # On a trajectory the declaration states a block's targets.
-        targets = native.targets
-        targets = dict(targets() if callable(targets) else targets)
-        block["targets"] = targets or None
+        block["targets"] = dict(native.targets()) or None
     return block
 
 
@@ -433,7 +301,6 @@ class MolrsRecordAdapter(molrec.core.adapter.RecordAdapter):
 
     backends = ("zarr",)
     refusal_types = _REFUSALS
-    unsupported = _unsupported("record")
 
     def write(self, model: molrec.core.model.RecordModel, store) -> None:
         path = Path(store.uri)
@@ -551,7 +418,6 @@ class MolrsForceFieldAdapter(molrec.core.adapter.ForceFieldAdapter):
 
     backends = ("zarr",)
     refusal_types = _REFUSALS
-    unsupported = _unsupported("forcefield")
 
     def write(
         self, model: molrec.core.model.ForceFieldModel, store: molrec.core.store.ForceFieldStore
@@ -575,7 +441,6 @@ class MolrsTrajectoryAdapter(molrec.core.adapter.TrajectoryAdapter):
 
     backends = ("zarr",)
     refusal_types = _REFUSALS
-    unsupported = _unsupported("trajectory")
 
     def write(
         self, model: molrec.core.model.TrajectoryModel, store: molrec.core.store.TrajectoryStore

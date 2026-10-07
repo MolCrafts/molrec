@@ -75,3 +75,14 @@ def test_the_schema_refuses_its_invalid_fixtures(schema: str) -> None:
 def test_the_run_minimal_documents_are_valid(document: str, schema: str) -> None:
     instance = json.loads((REPO / "fixtures/run-minimal/attrs" / document).read_text())
     _validator(schema).validate(instance)
+
+
+def test_fixtures_readme_lists_only_fixtures_that_exist() -> None:
+    text = (REPO / "fixtures/README.md").read_text()
+    listed = {
+        line.split("`")[1].removeprefix("fixtures/").strip("/")
+        for line in text.splitlines()
+        if line.startswith("| `fixtures/")
+    }
+    on_disk = {p.name for p in (REPO / "fixtures").iterdir() if p.name != "README.md"}
+    assert listed == on_disk

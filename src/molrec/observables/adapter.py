@@ -1,4 +1,4 @@
-"""Adapter base for the v1 observables module."""
+"""Adapter base for the observables module."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from molrec.observables.store import ObservableStore
 
 
 class ObservableAdapter(Adapter):
-    """Implement this to have your v1 ``observables`` section judged.
+    """Implement this to have your ``observables`` section judged.
 
     The store is a record root holding ``meta`` and ``observables``; ``read``
     hands back something shaped like :class:`ObservablesModel`.

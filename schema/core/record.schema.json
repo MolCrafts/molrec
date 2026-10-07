@@ -815,7 +815,7 @@
     },
     "MetaModel": {
       "additionalProperties": true,
-      "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.\n\n``molrec_version`` is stamped by every writer (:func:`stamp_version`). A\nreader validates it when present: an integer in ``1..=MOLREC_VERSION`` --\n``null``, ``0``, a string, a float or a newer version is refused. Absent\nis a store written before version 1, read best-effort by version 1's\nrules. A reader hands it back as stored, also when it converted the\nstore's sections from version 1. Identity of a record is the ``*.mrec``\npath suffix plus a Zarr root, not this key.\n\n``record_id`` and ``content_hash`` are optional provenance, like\n``creator``, ``author``, ``created_at`` and ``source``.",
+      "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.\n\nIdentity of a record is the ``*.mrec`` path suffix plus a Zarr root.\n\n``record_id`` and ``content_hash`` are optional provenance, like\n``creator``, ``author``, ``created_at`` and ``source``.",
       "properties": {
         "author": {
           "anyOf": [
@@ -878,13 +878,6 @@
           ],
           "default": null,
           "title": "Modules"
-        },
-        "molrec_version": {
-          "description": "The contract version the store was written in: 1 (converted on read) or 2. Absent on a store written before version 1, which is read as version 1; never null.",
-          "maximum": 2,
-          "minimum": 1,
-          "title": "Molrec Version",
-          "type": "integer"
         },
         "record_id": {
           "anyOf": [
@@ -1706,7 +1699,7 @@
       ]
     }
   ],
-  "description": "The record root.\n\n``meta`` is always present (an empty document is a valid one), plus at\nleast one of ``frame``, ``system``, ``trajectory``, ``forcefield`` or\n``status`` -- a record of ``meta`` and ``forcefield`` alone is a\nforce-field package. Each of\nthose is a valid **sole** section beside ``meta``: a trajectory-only\nrecord is conforming and a reader must not require a frame beside it,\nbecause frames may embed full blocks including topology.\n\n``observables`` is the v1 section\n(:class:`molrec.observables.model.ObservablesModel`). ``metrics``\n-- the catalog document, the dense series and the live WAL of\n``docs/spec/metrics.md`` -- is carried verbatim as a :class:`NodeModel`:\nmolrec does not interpret run-local monitoring, it only never loses it.",
+  "description": "The record root.\n\n``meta`` is always present (an empty document is a valid one), plus at\nleast one of ``frame``, ``system``, ``trajectory``, ``forcefield`` or\n``status`` -- a record of ``meta`` and ``forcefield`` alone is a\nforce-field package. Each of\nthose is a valid **sole** section beside ``meta``: a trajectory-only\nrecord is conforming and a reader must not require a frame beside it,\nbecause frames may embed full blocks including topology.\n\n``observables`` is the section\n(:class:`molrec.observables.model.ObservablesModel`). ``metrics``\n-- the catalog document, the dense series and the live WAL of\n``docs/spec/metrics.md`` -- is carried verbatim as a :class:`NodeModel`:\nmolrec does not interpret run-local monitoring, it only never loses it.",
   "properties": {
     "forcefield": {
       "anyOf": [

@@ -85,6 +85,6 @@ Every other key is a producer's: a reader preserves it verbatim, a
 A dims-based redesign of this section (named dimensions instead of `kind` /
 `time_dependent`, xarray-style shared coordinates) exists as a **draft**
 (`schema/draft/observables/`, the `draft/observables` conformance module).
-It is not part of version 1, and a conformance run that names no modules
+It is not part of the contract, and a conformance run that names no modules
 does not judge an implementation by it. Adopting it is a normative change
-and requires a `molrec_version` bump.
+to this section.

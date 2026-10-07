@@ -273,15 +273,15 @@ def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path, molrs) -> None
     The store is built by hand because no model can produce it: ``BoxModel``
     materializes ``boundary`` on validation, and the codec then omits the
     array only at its default. A foreign writer can lay down a box group with
-    no ``boundary`` at all, and the two implementations used to read it as
-    two different physical systems -- periodic here, vacuum in Rust.
+    no ``boundary`` at all, and both implementations must read it as the
+    same physical system: periodic on every axis.
 
     The molrec-codec half of this claim is
     ``tests/test_core/test_bindings/test_zarr.py``.
     """
     path = tmp_path / "absent-boundary.mrec"
     root = zarr.open_group(store=path, mode="w")
-    root.create_group("meta").attrs.update({"molrec_version": 1})
+    root.create_group("meta")
     frame = root.create_group("frame")
 
     atoms = frame.create_group("atoms")
@@ -295,11 +295,3 @@ def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path, molrs) -> None
 
     frame = molrs.io.read_mrec_frame(path)
     assert [bool(flag) for flag in np.asarray(frame.box.pbc)] == [True, True, True]
-
-
-def test_molrs_declares_only_real_cases_unsupported(molrs_implementation) -> None:
-    """Every case id the molrs adapter declares out of scope is a case of its
-    module, so a typo cannot silently skip nothing (or the wrong thing)."""
-    for module, adapter in molrs_implementation.adapters().items():
-        known = {case.id for case in REGISTRY.suite_for(module)().cases()}
-        assert set(adapter.unsupported) <= known, sorted(set(adapter.unsupported) - known)

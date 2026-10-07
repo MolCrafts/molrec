@@ -1,4 +1,4 @@
-"""The Zarr V3 binding of the v1 ``observables`` section.
+"""The Zarr V3 binding of the ``observables`` section.
 
 Layout (``docs/spec/observables.md``), inside a record root::
 
@@ -10,7 +10,7 @@ Layout (``docs/spec/observables.md``), inside a record root::
 The metadata document is the named keys (``kind``, ``description``,
 ``time_dependent``, then ``unit`` / ``axes`` / ``sampling`` / ``domain`` /
 ``target`` when set) plus every key the producer added, kept verbatim. A
-kind this version does not define is written and read back unchanged.
+kind the contract does not define is written and read back unchanged.
 """
 
 from __future__ import annotations
@@ -22,11 +22,7 @@ import zarr
 
 from molrec.binding import Binding, Codec
 from molrec.core.bindings.zarr import ZarrStore, create_fixed, stored_dtype
-from molrec.core.model import (
-    ArrayModel,
-    document,
-    stamp_version,
-)
+from molrec.core.model import ArrayModel, document
 from molrec.observables.model import (
     OBSERVABLES_META_GROUP,
     ObservableMetaModel,
@@ -46,12 +42,12 @@ class ZarrObservableStore(ZarrStore, ObservableStore):
 
 
 class ZarrObservablesCodec(Codec):
-    """The official translation of the v1 section."""
+    """The official translation of the section."""
 
     def write(self, model: ObservablesModel, store: ZarrObservableStore) -> None:
         store.clear()
         root = store.root(mode="w")
-        root.create_group("meta").attrs.update(stamp_version({}))
+        root.create_group("meta")
         self.write_into(root.create_group(OBSERVABLES_GROUP), model)
 
     def read(self, store: ZarrObservableStore) -> ObservablesModel:

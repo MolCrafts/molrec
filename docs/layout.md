@@ -90,7 +90,7 @@ with its kind, its attribute keys and its children.
 <!-- BEGIN generated:overview -->
 ```text
 tour.mrec/          the root group; its attributes: {}
- \-- meta/          document         attributes: molrec_version, creator, created_at
+ \-- meta/          document         attributes: creator, created_at
  \-- system/        frame-shaped     attributes: smiles, total_charge, _meta_types
  |                                   children:   atoms/, bonds/, angles/, dihedrals/
  \-- frame/         frame-shaped     attributes: smiles, total_charge, units,
@@ -125,7 +125,6 @@ its two bonds, a small density grid and a cubic box.
 ```text
 water.mrec/
  \-- meta/
- |    +-- molrec_version: 2
  \-- frame/
       +-- smiles: "O"
       +-- total_charge: 0
@@ -173,9 +172,8 @@ water.mrec/
 
 Reading it top to bottom:
 
-- **`meta/` comes first and carries `molrec_version: 2`.** Every writer
-  creates it and stamps the version, even when the producer gave no
-  identity at all.
+- **`meta/` comes first.** Every writer creates it, even when the producer
+  gave no identity at all (here it is empty).
 - **The attributes of `frame/` are the frame's meta document.** `smiles`,
   `total_charge` and `units` are the producer's keys; there is no `meta`
   child group. `_meta_types` is the one reserved attribute: it tags each key
@@ -234,7 +232,6 @@ potential energy and temperature of each frame.
 ```text
 vibration.mrec/
  \-- meta/
- |    +-- molrec_version: 2
  \-- system/
  |    +-- smiles: "OO"
  |    +-- total_charge: 0
@@ -354,7 +351,6 @@ the previous frame.
 ```text
 reaction.mrec/
  \-- meta/
- |    +-- molrec_version: 2
  \-- trajectory/
       +-- sequence_schema: {
       |      "blocks": {
@@ -724,7 +720,6 @@ a `metrics/` group holding both forms of the same three events.
 ```text
 fit.mrec/
  \-- meta/
- |    +-- molrec_version: 2
  |    +-- creator: {"name": "molrec-fixtures", "version": "0.0.0"}
  |    +-- created_at: "2026-08-04T00:00:00+00:00"
  \-- method/
@@ -844,11 +839,7 @@ index           key bytes 69 6e 64 65 78
 meta            key bytes 6d 65 74 61
     {
       "layout": "mrec-lmdb",
-      "layout_version": 1,
-      "collection": {
-        "units": {"length": "angstrom", "energy": "kcal/mol"},
-        "molrec_version": 2
-      },
+      "collection": {"units": {"length": "angstrom", "energy": "kcal/mol"}},
       "sequence_schema": {
         "blocks": {
           "atoms": {
@@ -887,9 +878,8 @@ s ‖ u64be(1)    key bytes 73 00 00 00 00 00 00 00 01
   prefix letter followed by a big-endian `u64`, so LMDB's byte order is
   numeric order and one record's frames are one contiguous cursor range.
 - **`meta` is JSON and is written last**, in the transaction that commits
-  the collection. It carries the layout tag and version, the collection
-  document (with `molrec_version` and the `units` every record's numbers
-  are in), the one `sequence_schema` every record uses, and the counts.
+  the collection. It carries the layout tag, the collection document (with
+  the `units` every record's numbers are in), the one `sequence_schema` every record uses, and the counts.
 - **`index`** is one block `records` with a row per record: the binding's
   own `first_frame`, `n_frames`, `n_atoms`, `has_trajectory`, plus the
   collection's columns (`smiles`). Record 1's frames start at global
