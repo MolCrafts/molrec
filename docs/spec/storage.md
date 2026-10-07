@@ -223,9 +223,9 @@ Each [column dtype](frame.md#data-types) is stored as exactly one Zarr V3
 
 ## Array groups
 
-Reference implementation: molrs — `molrs.io.write_mrec` /
+Reference implementation: molrs — `molrs.io.write_mrec_frame` /
 `write_mrec_system` / `write_mrec_trajectory` and the streaming
-`molrs.io.mrec.MrecWriter`, with `read_mrec` / `read_mrec_system` /
+`molrs.io.mrec.MrecWriter`, with `read_mrec_frame` / `read_mrec_system` /
 `read_mrec_trajectory` / `read_mrec_meta` (and
 `molrs.io.mrec.section_names`) on the way back.
 

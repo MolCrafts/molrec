@@ -293,7 +293,7 @@ def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path, molrs) -> None
     box.create_array("origin", shape=(3,), dtype="float64")[...] = np.zeros(3)
     assert "boundary" not in box, "the store under test must not carry the array"
 
-    frame = molrs.io.read_mrec(path)
+    frame = molrs.io.read_mrec_frame(path)
     assert [bool(flag) for flag in np.asarray(frame.box.pbc)] == [True, True, True]
 
 

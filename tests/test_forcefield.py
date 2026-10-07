@@ -360,17 +360,17 @@ def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:
     its ``grid`` a float64 numpy array equal bit for bit."""
     if not hasattr(molrs.ff.forcefield, "CmapStyle"):
         pytest.skip("molrs lacks molrs.ff.forcefield.CmapStyle (the cmap category)")
-    if molrs.io.mrec.schema.MOLREC_VERSION < MOLREC_VERSION:
+    if molrs.io.mrec.MOLREC_VERSION < MOLREC_VERSION:
         pytest.skip(f"molrs does not read molrec_version {MOLREC_VERSION}")
     grids = np.stack([cmap_grid(24, 0.1), cmap_grid(24, -0.35)])
     model = forcefield([atoms(["C", "NH1", "CT1"], mass=[12.011, 14.007, 12.011]), cmap(grids)])
     store = ZarrForceFieldStore(tmp_path / "cmap.mrec")
     ZarrForceFieldCodec().write(model, store)
 
-    ff = molrs.ff.forcefield.ForceField.from_section(molrs.io.read_mrec_forcefield(store.path))
+    ff = molrs.io.read_mrec_forcefield(store.path).to_forcefield()
     style_ = ff.get_style("cmap", "charmm")
     assert isinstance(style_, molrs.ff.forcefield.CmapStyle)
-    types = sorted(style_.types, key=lambda t: t.name)
+    types = sorted(style_.get_types(), key=lambda t: t.name)
     assert [t.name for t in types] == ["cmap0", "cmap1"]
     for row, cmap_type in enumerate(types):
         assert isinstance(cmap_type, molrs.ff.forcefield.CmapType)
@@ -384,7 +384,7 @@ def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:
         assert grid.tobytes() == grids[row].tobytes()
 
     # And back: molrs's section of the force field holds the same table.
-    table_ = ff.to_section().table("cmap", "charmm")
+    table_ = molrs.io.mrec.ForceFieldSection.from_forcefield(ff).table("cmap", "charmm")
     assert np.asarray(table_["grid"]).tobytes() == grids.tobytes()
 
 
@@ -430,10 +430,10 @@ def test_every_molrs_preset_is_the_molrec_table(molrs) -> None:
     """molrec's preset table is the implementation-neutral one; every unit
     preset molrs ships names the same units in it, quantity by quantity
     (molrs states no angle unit: every preset's angle is the degree)."""
-    names = molrs.units.UnitPreset.names()
+    names = molrs.core.UnitPreset.names()
     assert sorted(names) == sorted(UNIT_PRESETS)
     for name in names:
-        preset = molrs.units.UnitPreset(name)
+        preset = molrs.core.UnitPreset(name)
         stated = {
             quantity: _RECORD_SPELLING[getattr(preset, quantity)()]
             for quantity in UNIT_QUANTITIES

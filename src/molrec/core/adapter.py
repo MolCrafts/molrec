@@ -37,7 +37,7 @@ class FrameAdapter(Adapter):
 
     ``read`` may return any duck shaped like ``FrameModel``. This door is a
     bare frame at a store root; an implementation that only writes whole
-    records (molrs: ``molrs.io.write_mrec`` / ``read_mrec``) is judged on the
+    records (molrs: ``molrs.io.write_mrec_frame`` / ``read_mrec_frame``) is judged on the
     same frame cases through :class:`RecordAdapter`, which runs each of them
     inside a record.
     """

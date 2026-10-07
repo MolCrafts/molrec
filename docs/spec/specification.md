@@ -6,7 +6,7 @@ guessing private layouts. It covers molecular systems, snapshots and
 trajectories, scientific observables, and run logs (status, metrics, method).
 
 MolRec names layout and semantics. Implementations expose their own APIs
-(the reference implementation's are `molrs.io.write_mrec`,
+(the reference implementation's are `molrs.io.write_mrec_frame`,
 `write_mrec_trajectory` and the streaming `molrs.io.mrec.MrecWriter`);
 the contract is the structure in the chapters that follow.
 
