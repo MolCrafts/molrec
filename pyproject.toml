@@ -62,6 +62,12 @@ packages = ["src/molrec"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `python -X warn_default_encoding -m pytest` (how the suite is run) makes
+# every text-mode open without encoding= warn, and this makes the warning an
+# error: Python would decode with the locale, cp1252 on Windows, so such a
+# read passes on Linux and fails only on Windows. Ruff's PLW1514 catches it
+# statically only where it can tell the receiver is a Path.
+filterwarnings = ["error::EncodingWarning"]
 markers = [
   "molrs: judges the reference implementation (needs molcrafts-molrs built); deselect with -m 'not molrs'",
 ]
@@ -71,4 +77,10 @@ line-length = 100
 src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+# PLW1514 (a preview rule; explicit-preview-rules keeps every other preview
+# rule off): text-mode file I/O names its encoding. Unnamed, Python decodes
+# with the locale -- cp1252 on Windows -- so a read that passes every Linux
+# hook fails only on CI's Windows leg.
+select = ["E", "F", "I", "UP", "B", "SIM", "PLW1514"]
+preview = true
+explicit-preview-rules = true

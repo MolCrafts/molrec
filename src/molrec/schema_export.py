@@ -109,10 +109,12 @@ def export(root: Path) -> list[Path]:
         for model in models:
             target = directory / filename(model)
             schema = model.model_json_schema()
-            target.write_text(json.dumps(schema, indent=2, sort_keys=True) + "\n")
+            target.write_text(json.dumps(schema, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             written.append(target)
     vocabulary = root / VOCABULARY
-    vocabulary.write_text(json.dumps(CANONICAL_COLUMNS, indent=2, sort_keys=True) + "\n")
+    vocabulary.write_text(
+        json.dumps(CANONICAL_COLUMNS, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     written.append(vocabulary)
     return written
 

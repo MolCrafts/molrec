@@ -169,7 +169,7 @@ def test_the_common_run_costs_one_array_per_column(tmp_path: Path) -> None:
     arrays = sorted(
         str(path.parent.relative_to(storage.path))
         for path in (storage.path / "trajectory").rglob("zarr.json")
-        if json.loads(path.read_text())["node_type"] == "array"
+        if json.loads(path.read_text(encoding="utf-8"))["node_type"] == "array"
     )
     assert arrays == ["trajectory/atoms/x"]
     assert trajectory.attrs["step_progression"] == {"start": 0, "stride": 10}
@@ -250,7 +250,7 @@ def test_every_trajectory_array_is_sharded_with_the_index_at_the_start(tmp_path:
     ]
     assert arrays
     for path in arrays:
-        document = json.loads(path.read_text())
+        document = json.loads(path.read_text(encoding="utf-8"))
         if document["node_type"] != "array":
             continue
         sharding = document["codecs"][0]
@@ -261,9 +261,9 @@ def test_every_trajectory_array_is_sharded_with_the_index_at_the_start(tmp_path:
         assert set(inner) <= {"bytes", "vlen-utf8", "gzip", "crc32c"}, path
 
     # Float columns are uncompressed; dense arrays and non-float columns take gzip.
-    x = json.loads((storage.path / "trajectory/atoms/x/zarr.json").read_text())
+    x = json.loads((storage.path / "trajectory/atoms/x/zarr.json").read_text(encoding="utf-8"))
     assert [c["name"] for c in x["codecs"][0]["configuration"]["codecs"]] == ["bytes", "crc32c"]
-    dense = json.loads((storage.path / "trajectory/meta/pe/zarr.json").read_text())
+    dense = json.loads((storage.path / "trajectory/meta/pe/zarr.json").read_text(encoding="utf-8"))
     assert [c["name"] for c in dense["codecs"][0]["configuration"]["codecs"]] == [
         "bytes",
         "gzip",

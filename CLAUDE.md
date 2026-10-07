@@ -72,7 +72,7 @@ Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract.
   commit `scripts/partners.py` resolves, in a layout of its own -- never your
   `../molrs` working tree):
   `scripts/partners.py run -- env MOLREC_REQUIRE_MOLRS=1 uv run --locked
-  --python 3.12 --extra dev pytest -q`. It compiles molrs: **only on a build
+  --python 3.12 --extra dev python -X warn_default_encoding -m pytest -q`. It compiles molrs: **only on a build
   machine, never a login node** (the pre-push hook dispatches it for you).
 - Relocking against molrs (when molrs's `dev` changed its version or its
   dependencies and `uv lock --check` fails): `scripts/partners.py run -- sh -c
@@ -114,21 +114,24 @@ CI (`partners.py resolve`, appended to `$GITHUB_ENV`) and for the hooks
 (`partners.py run`) alike -- to the first of:
 
 1. molrs's branch named like the one being built (CI: the pushed branch or a
-   pull request's head branch; locally: the checked-out branch), when
-   MolCrafts/molrs has one;
+   pull request's head branch; locally: the checked-out branch), looked up
+   first on the fork the build comes from (`<owner>/molrs`, where `<owner>`
+   owns the pull request's head repository or the repository CI runs in; in a
+   git hook, the remote being pushed to), then on MolCrafts/molrs;
 2. outside CI only, that branch in the sibling clone `../molrs`, when it has
-   one and the remote does not yet;
-3. molrs's `dev`.
+   one and neither remote does yet;
+3. MolCrafts/molrs's `dev`.
 
 A change to the contract between molrec and molrs (molrs's adapter, the
 conformance suite) lands as two same-named branches, never by skipping a gate:
-create the same branch (say `converge/x`) in both checkouts; push the first
-(its gates take the partner's branch from the sibling clone), then the second
-(its gates take the first from the remote); open both pull requests into `dev`
--- each CI run resolves the other's branch -- and once both are green,
-fast-forward both `dev`s to them (or merge both) and delete the branches. A
-`dev` push whose partner's `dev` has not caught up yet is re-run once both
-have landed.
+create the same branch (say `converge/x`) in both checkouts; push both to
+your forks, never to MolCrafts (the first push's gates take the partner's
+branch from the sibling clone, the second's from your fork); run CI on the
+forks by opening each branch as a pull request inside its fork -- each run
+resolves the other's branch on your fork; only once both forks are green, open
+the pull requests into MolCrafts `dev`, merge both once green (never a red
+one), and delete the branches. A `dev` push whose partner's `dev` has not
+caught up yet is re-run once both have landed.
 
 `uv.lock` records molrs's package metadata (version, dependencies), never a
 commit, and every gate is `--locked`; when molrs's `dev` moves that metadata,

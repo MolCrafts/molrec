@@ -60,7 +60,7 @@ jobs:
       - run: rustup toolchain install
         working-directory: molrs
       - uses: astral-sh/setup-uv@v5
-      - run: uv run --locked --python 3.12 --extra dev pytest -q
+      - run: uv run --locked --python 3.12 --extra dev python -X warn_default_encoding -m pytest -q
         env:
           MOLREC_REQUIRE_MOLRS: "1"
           # The molrs wheel uv builds is --locked against molrs's Cargo.lock.

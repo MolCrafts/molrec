@@ -430,7 +430,7 @@ def _array(values: np.ndarray) -> ArrayModel:
 
 
 def _fixture(name: str) -> dict[str, Any]:
-    return json.loads((RUN_FIXTURE / "attrs" / name).read_text())
+    return json.loads((RUN_FIXTURE / "attrs" / name).read_text(encoding="utf-8"))
 
 
 def run_wal() -> bytes:
@@ -738,7 +738,7 @@ def attr_items(attrs: dict[str, Any], indent: int) -> list[Item]:
 
 def node_items(path: Path, indent: int, notes: bool, depth: int | None) -> list[Item]:
     """The children of the group at ``path``: its attributes, then its members."""
-    meta = json.loads((path / "zarr.json").read_text())
+    meta = json.loads((path / "zarr.json").read_text(encoding="utf-8"))
     items = attr_items(meta.get("attributes", {}), indent)
     if depth == 0:
         return items
@@ -751,7 +751,7 @@ def member(path: Path, indent: int, notes: bool, depth: int | None) -> Item:
     metadata = path / "zarr.json"
     if not metadata.exists():
         return Item("child", [f"{path.name}    (a plain file, not a Zarr node)"])
-    meta = json.loads(metadata.read_text())
+    meta = json.loads(metadata.read_text(encoding="utf-8"))
     if meta["node_type"] == "group":
         return Item("child", [path.name + "/"], node_items(path, indent, notes, depth))
     dtype = FROM_ZARR[meta["data_type"]]
@@ -781,7 +781,7 @@ def zarr_tree(
     depth: int | None = None,
 ) -> list[str]:
     """``root`` as an annotated tree; ``only`` keeps those root members."""
-    meta = json.loads((root / "zarr.json").read_text())
+    meta = json.loads((root / "zarr.json").read_text(encoding="utf-8"))
     items = attr_items(meta.get("attributes", {}), 1)
     for child in sorted((p for p in root.iterdir() if p.name != "zarr.json"), key=_order):
         if only is None or child.name in only:
@@ -811,12 +811,12 @@ def block_overview(work: Path) -> str:
     root = work / "tour.mrec"
     ZarrRecordCodec().write(overview_record(), ZarrRecordStorage(root))
     (root / "metrics" / "metrics.jsonl").write_bytes(run_wal())
-    root_attrs = json.loads((root / "zarr.json").read_text())["attributes"]
+    root_attrs = json.loads((root / "zarr.json").read_text(encoding="utf-8"))["attributes"]
     lines = [f"tour.mrec/          the root group; its attributes: {compact(root_attrs)}"]
     sections = sorted((p for p in root.iterdir() if p.name != "zarr.json"), key=_order)
     for index, path in enumerate(sections):
         bar = " " if index == len(sections) - 1 else "|"
-        attrs = list(json.loads((path / "zarr.json").read_text())["attributes"])
+        attrs = list(json.loads((path / "zarr.json").read_text(encoding="utf-8"))["attributes"])
         children = [
             p.name + ("/" if _is_group(p) else "")
             for p in sorted((p for p in path.iterdir() if p.name != "zarr.json"), key=_order)
@@ -836,7 +836,10 @@ def block_overview(work: Path) -> str:
 def _is_group(path: Path) -> bool:
     """A Zarr group (a plain file, such as the metrics WAL, is not one)."""
     metadata = path / "zarr.json"
-    return metadata.exists() and json.loads(metadata.read_text())["node_type"] == "group"
+    return (
+        metadata.exists()
+        and json.loads(metadata.read_text(encoding="utf-8"))["node_type"] == "group"
+    )
 
 
 def block_frame(work: Path) -> str:
@@ -1270,14 +1273,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     blocks = render_all()
     if args.write or args.check:
-        text = DOC.read_text()
+        text = DOC.read_text(encoding="utf-8")
         updated = apply(text, blocks)
         if args.check:
             if updated != text:
                 print("docs/layout.md is out of date: run scripts/layout_examples.py --write")
                 return 1
             return 0
-        DOC.write_text(updated)
+        DOC.write_text(updated, encoding="utf-8")
         return 0
     for name, body in blocks.items():
         print(marked(name, body) + "\n")
