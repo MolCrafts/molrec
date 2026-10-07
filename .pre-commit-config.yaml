@@ -1,5 +1,5 @@
 # Managed by prek / pre-commit: `prek install` (installs both hook types).
-# CI parity: every job in .github/workflows/ci.yml has a hook here, running
+# CI parity: every job in .github/workflows/{lint,test,docs}.yml has a hook here, running
 # the same command against the same molrs commit (scripts/partners.py resolves
 # .github/partners.env: molrs's dev, or its branch named like this one).
 #
@@ -34,16 +34,16 @@ repos:
   - repo: local
     hooks:
       - id: ci-lint
-        name: "CI lint (same as ci.yml)"
+        name: "ruff format + ruff (lint.yml)"
         entry: bash -c 'uvx ruff@0.16.5 format --check . && uvx ruff@0.16.5 check .'
         language: system
         pass_filenames: false
         always_run: true
 
-      # ci.yml `checks` runs the hooks above on every file; a commit only
+      # lint.yml runs the hooks above on every file; a commit only
       # sees the staged ones (an untouched file with no final newline slips by).
       - id: all-files
-        name: "pre-commit hooks on --all-files (ci.yml checks)"
+        name: "pre-commit hooks on --all-files (lint.yml)"
         entry: uvx pre-commit run --all-files --hook-stage pre-commit --show-diff-on-failure
         language: system
         pass_filenames: false
@@ -61,7 +61,7 @@ repos:
       # uv.lock records the molcrafts-molrs metadata the RESOLVED molrs carries,
       # not the sibling ../molrs's: checked in CI's layout.
       - id: uv-lock
-        name: "uv.lock is current against the resolved molrs (ci.yml checks)"
+        name: "uv.lock is current against the resolved molrs (lint.yml)"
         entry: python3 scripts/partners.py run -- uv lock --check
         language: system
         pass_filenames: false
@@ -69,7 +69,7 @@ repos:
         stages: [pre-push]
 
       - id: bare-import
-        name: "molrec imports with no extras (ci.yml checks)"
+        name: "molrec imports with no extras (lint.yml)"
         entry: >-
           python3 scripts/partners.py run --
           uv run --isolated --locked --python 3.12 python -c "import molrec"
@@ -80,17 +80,17 @@ repos:
 
       # Cloudflare Pages builds the site: `pip install ".[docs]"` + zensical.
       - id: docs
-        name: "docs build (ci.yml docs, Cloudflare Pages)"
+        name: "docs build (docs.yml, Cloudflare Pages)"
         entry: uv run --isolated --no-project --python 3.12 --with '.[docs]' zensical build --clean --strict
         language: system
         pass_filenames: false
         files: ^(docs/|zensical\.toml|pyproject\.toml|src/)
         stages: [pre-push]
 
-      # ci.yml `test`: the whole suite, molrs-marked conformance included, with
+      # test.yml: the whole suite, molrs-marked conformance included, with
       # molrs built from the resolved commit. Compiles molrs.
       - id: ci-test
-        name: "full suite against the resolved molrs (ci.yml test)"
+        name: "full suite against the resolved molrs (test.yml)"
         entry: >-
           scripts/hook-run.sh python3 scripts/partners.py run --
           env MOLREC_REQUIRE_MOLRS=1 MATURIN_PEP517_ARGS=--locked uv run --locked --python 3.12 --extra dev python -X warn_default_encoding -m pytest -q

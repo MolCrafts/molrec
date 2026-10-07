@@ -167,7 +167,7 @@ def test_the_common_run_costs_one_array_per_column(tmp_path: Path) -> None:
     trajectory = root["trajectory"]
 
     arrays = sorted(
-        str(path.parent.relative_to(storage.path))
+        path.parent.relative_to(storage.path).as_posix()
         for path in (storage.path / "trajectory").rglob("zarr.json")
         if json.loads(path.read_text(encoding="utf-8"))["node_type"] == "array"
     )
