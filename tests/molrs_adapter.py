@@ -285,7 +285,7 @@ def _from_block(native: molrs.core.Block, *, in_trajectory: bool = False) -> dic
         }
     structural = native.structural_shape
     block: dict[str, Any] = {
-        "count": native.nrows,
+        "count": native.n_rows,
         "columns": columns,
         "structural_shape": tuple(structural) if structural is not None else None,
     }

@@ -435,7 +435,7 @@ header entry when `column.precision` is set (system and index frames only);
 - `molrs-python/src/core/store/block.rs`: `Block.set_precision(column,
   precision)`, `Block.precision(column) -> float | None`.
   `molrs-python/src/io/mrec.rs`: `SequenceSchema.declare_precision(block,
-  column, precision)`. Stubs in `molrs-python/python/molrs/_lib.pyi`.
+  column, precision)`. Stubs in `molrs-python/python/molrs/_native.pyi`.
 - Tests: `molrs/tests` — frame round trip keeps `precision` and stored values;
   trajectory sub-quantum change writes one update (`block_update_at` stays
   at 0); a store written with shuffle + zstd reads back in a
@@ -902,7 +902,7 @@ forcefield=None)` and `write_mrec_system(path, system, meta=None,
 forcefield=None)` take a `molrs.ff.forcefield.ForceField`; new
 `molrs.io.write_mrec_forcefield(path, ff, meta=None)` and
 `read_mrec_forcefield(path) -> ForceField | None`;
-`molrs.io.mrec.section_names` lists `forcefield`. Stubs in `_lib.pyi`. `tests/molrs_adapter.py` (molrec) gains a
+`molrs.io.mrec.section_names` lists `forcefield`. Stubs in `_native.pyi`. `tests/molrs_adapter.py` (molrec) gains a
 `ForceFieldAdapter` mapping `ForceFieldModel` ↔ the Python `ForceField`
 through these doors.
 
@@ -1129,8 +1129,8 @@ declared rule instead of a growing list of special cases.
 | Key / block | molrs | molrec | Resolution |
 |-------------|-------|--------|------------|
 | `fx fy fz` (atoms, f64) | — | yes | **adopt in molrs** (`Float`, `Of(Force)`) |
-| `formal_charge` (atoms) | — | `i64` (pinned by the alignment pass) | **adopt in molrs as `i64`** (`Int64`, `NotAQuantity`); molrec unchanged |
-| `atom_map` (atoms, u64) | — | yes | **adopt in molrs** (`UInt`) |
+| `formal_charge` (atoms) | — | `i64` (pinned by the alignment pass) | **adopt in molrs as `i64`** (`I64`, `NotAQuantity`); molrec unchanged |
+| `atom_map` (atoms, u64) | — | yes | **adopt in molrs** (`Uint`) |
 | `ix iy iz` (atoms) | `Int` = `i32` | — | **adopt in molrec**, `i32` |
 | `quatw quati quatj quatk` (atoms, f64) | yes | — | **adopt in molrec** |
 | `mux muy muz` (atoms, f64) | yes | — | **adopt in molrec** |
@@ -1429,14 +1429,14 @@ on the trajectory path it lives in the pinned `sequence_schema` only.
 | Key | DType | Shape | Dimension | Doc (abridged) |
 |-----|-------|-------|-----------|----------------|
 | `altloc` | `String` | Scalar | NotAQuantity | alternate-location indicator, `""` none |
-| `atom_map` | `UInt` | Scalar | NotAQuantity | atom-map number in `mapped_smiles`, 0 unmapped |
+| `atom_map` | `Uint` | Scalar | NotAQuantity | atom-map number in `mapped_smiles`, 0 unmapped |
 | `b_factor` | `Float` | Scalar | `Product(Length, Length)` | isotropic B |
 | `chain` | `String` | Scalar | NotAQuantity | chain label |
-| `formal_charge` | `Int64` | Scalar | NotAQuantity | integer formal charge, e |
+| `formal_charge` | `I64` | Scalar | NotAQuantity | integer formal charge, e |
 | `fx`, `fy`, `fz` | `Float` | Scalar | `Of(Force)` | force components |
 | `icode` | `String` | Scalar | NotAQuantity | insertion code, `""` none |
 | `occupancy` | `Float` | Scalar | Dimensionless | crystallographic occupancy |
-| `ibead` | `UInt` | Scalar | NotAQuantity | `members`: the bead's `atoms` row |
+| `ibead` | `Uint` | Scalar | NotAQuantity | `members`: the bead's `atoms` row |
 | `style` | `String` | Scalar | NotAQuantity | force-field style of a relation row |
 
 `KEY_GROUPS` gains `FORCES = [FX, FY, FZ]`. `ATOMS.optional` gains every
@@ -1639,7 +1639,7 @@ write side already refuses through the model.
   for each update ordinal of either block, the resolved counts agree (both
   `BlockIndex` searches are `O(log n)`; regular blocks answer in `O(1)`).
 - `molrs-python/src/io/mrec.rs`: `SequenceSchema.declare_aligned(block,
-  target)`; `_lib.pyi`.
+  target)`; `_native.pyi`.
 - System/trajectory: the record writer (`write_record_store`,
   `MrecWriter` with a system) refuses an aligned block named like a
   system block.
