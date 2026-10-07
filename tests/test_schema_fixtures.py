@@ -40,12 +40,14 @@ def _validator(schema: str) -> jsonschema.protocols.Validator:
 
 
 def test_every_schema_file_is_produced_by_a_model() -> None:
-    on_disk = sorted(str(path.relative_to(SCHEMA)) for path in SCHEMA.rglob("*.schema.json"))
+    on_disk = sorted(path.relative_to(SCHEMA).as_posix() for path in SCHEMA.rglob("*.schema.json"))
     assert on_disk == PRODUCED, "schema/ holds a file no model produces, or misses one"
 
 
 def test_every_fixture_names_a_published_schema() -> None:
-    directories = {str(path.parent.relative_to(FIXTURES)) for path in FIXTURES.rglob("*.json")}
+    directories = {
+        path.parent.relative_to(FIXTURES).as_posix() for path in FIXTURES.rglob("*.json")
+    }
     assert directories == {schema.removesuffix(".schema.json") for schema in PRODUCED}
 
 
