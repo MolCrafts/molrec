@@ -367,7 +367,7 @@ def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:
     store = ZarrForceFieldStore(tmp_path / "cmap.mrec")
     ZarrForceFieldCodec().write(model, store)
 
-    ff = molrs.ff.forcefield.ForceField.from_section(molrs.io.read_mrec_forcefield(store.path))
+    ff = molrs.ff.forcefield.ForceField.from_section(molrs.io.mrec.read_forcefield(store.path))
     style_ = ff.get_style("cmap", "charmm")
     assert isinstance(style_, molrs.ff.forcefield.CmapStyle)
     types = sorted(style_.types, key=lambda t: t.name)

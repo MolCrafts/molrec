@@ -24,12 +24,12 @@ Usage::
         refusal_types = (ValueError,)  # what molrs refuses malformed input with
 
         def write(self, model, store):
-            molrs.io.write_mrec(store.uri, self._build(model.frame), meta=...)
+            molrs.io.mrec.write(store.uri, self._build(model.frame), meta=...)
 
         def read(self, store):
             return {
-                "meta": molrs.io.read_mrec_meta(store.uri),
-                "frame": self._describe(molrs.io.read_mrec(store.uri)),
+                "meta": molrs.io.mrec.read_meta(store.uri),
+                "frame": self._describe(molrs.io.mrec.read(store.uri)),
             }
 
     class Molrs(molrec.Implementation):

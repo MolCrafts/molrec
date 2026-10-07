@@ -897,11 +897,11 @@ at twice its energy. Fix both to `k = K` and update
 `lammps_coeff_params_converts_each_kernel` (expects `k = 20` for `K = 10`;
 must expect `10`). The GROMACS path (`k = k_ξ/2`) is already right.
 
-**Python:** `molrs.io.write_mrec(path, frame, system=None, meta=None,
-forcefield=None)` and `write_mrec_system(path, system, meta=None,
+**Python:** `molrs.io.mrec.write(path, frame, system=None, meta=None,
+forcefield=None)` and `write_system(path, system, meta=None,
 forcefield=None)` take a `molrs.ff.forcefield.ForceField`; new
-`molrs.io.write_mrec_forcefield(path, ff, meta=None)` and
-`read_mrec_forcefield(path) -> ForceField | None`; `mrec_sections` lists
+`molrs.io.mrec.write_forcefield(path, ff, meta=None)` and
+`read_forcefield(path) -> ForceField | None`; `section_names` lists
 `forcefield`. Stubs in `_lib.pyi`. `tests/molrs_adapter.py` (molrec) gains a
 `ForceFieldAdapter` mapping `ForceFieldModel` ↔ the Python `ForceField`
 through these doors.
@@ -1641,7 +1641,7 @@ write side already refuses through the model.
 - `molrs-python/src/io/mrec.rs`: `SequenceSchema.declare_aligned(block,
   target)`; `_lib.pyi`.
 - System/trajectory: the record writer (`write_record_store`,
-  `TrajectoryWriter` with a system) refuses an aligned block named like a
+  `FrameSequenceWriter` with a system) refuses an aligned block named like a
   system block.
 
 ### F5.7 Conformance (A)
