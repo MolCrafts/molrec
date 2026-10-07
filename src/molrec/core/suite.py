@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from molrec.case import Case
 from molrec.compare import diff, lookup
-from molrec.core.ffsuite import DEG, V1_REAL, round_trip_forcefield, v1_section
+from molrec.core.ffsuite import V1_REAL, round_trip_forcefield, v1_section
 from molrec.core.ffsuite import cmap as ff_cmap
 from molrec.core.ffsuite import cmap_grid as ff_cmap_grid
 from molrec.core.ffsuite import forcefield as ff_forcefield
@@ -48,6 +48,7 @@ from molrec.core.model import (
     TrajectoryBoxModel,
     TrajectoryModel,
 )
+from molrec.core.v1 import DEGREES_PER_RADIAN
 from molrec.precision import quantum
 from molrec.registry import REGISTRY
 from molrec.report import Violation
@@ -2036,7 +2037,7 @@ def _mmff_v1_system(*, converted: bool) -> FrameModel:
     ``theta0`` in radians, the out-of-plane centre ``1`` second) or as
     version 2 reads it, beside a ``bond harmonic`` row with a per-instance
     ``k`` (½k form in version 1)."""
-    theta0 = [1.9 * DEG, 2.0 * DEG] if converted else [1.9, 2.0]
+    theta0 = [1.9 * DEGREES_PER_RADIAN, 2.0 * DEGREES_PER_RADIAN] if converted else [1.9, 2.0]
     centre = ([1, 1], [0, 4]) if converted else ([0, 4], [1, 1])
     return FrameModel(
         blocks={
@@ -2096,7 +2097,9 @@ def _mmff_v1_forcefield(*, converted: bool) -> ForceFieldModel:
             jtom=["3", "7"],
             ktom=["7", "10"],
             ka=[0.7, 0.8],
-            theta0=[1.9 * DEG, 2.0 * DEG] if converted else [1.9, 2.0],
+            theta0=[1.9 * DEGREES_PER_RADIAN, 2.0 * DEGREES_PER_RADIAN]
+            if converted
+            else [1.9, 2.0],
         ),
     )
     oop = (

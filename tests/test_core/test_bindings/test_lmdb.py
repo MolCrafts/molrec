@@ -165,7 +165,8 @@ def test_a_version_1_collection_is_converted_on_read(tmp_path):
     import json
 
     from molrec.core.bindings.lmdb import FF_KEY, SYSTEM_PREFIX
-    from molrec.core.ffsuite import DEG, v1_forcefield
+    from molrec.core.ffsuite import v1_forcefield
+    from molrec.core.v1 import DEGREES_PER_RADIAN
 
     v1, v2 = v1_forcefield()
     angles = BlockModel(
@@ -207,4 +208,4 @@ def test_a_version_1_collection_is_converted_on_read(tmp_path):
     assert read.meta.molrec_version == 1
     assert read.forcefield == v2
     theta0 = read.records[0].system.blocks["angles"].columns["theta0"].values
-    assert theta0.tolist() == [1.9 * DEG]
+    assert theta0.tolist() == [1.9 * DEGREES_PER_RADIAN]

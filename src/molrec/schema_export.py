@@ -31,9 +31,6 @@ from molrec.core.model import (
     MetaModel,
     MetaSeriesModel,
     MethodModel,
-    ObservableMetaModel,
-    ObservableModel,
-    ObservablesModel,
     RecordModel,
     SequenceSchemaModel,
     StatusModel,
@@ -41,6 +38,11 @@ from molrec.core.model import (
     TrajectoryModel,
 )
 from molrec.draft.observables import model as draft
+from molrec.observables.model import (
+    ObservableMetaModel,
+    ObservableModel,
+    ObservablesModel,
+)
 from molrec.ref import Ref
 from molrec.report import Violation
 

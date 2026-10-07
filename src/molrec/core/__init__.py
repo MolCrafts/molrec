@@ -1,94 +1,11 @@
 """Containers and the record root.
 
-Importing this package registers the core suite, bench, and bindings.
+Each symbol is its owner module's: the models in :mod:`molrec.core.model`,
+the adapters in :mod:`molrec.core.adapter`, the stores in
+:mod:`molrec.core.store`. Importing this package registers the core suite,
+bench, and bindings.
 """
 
-from molrec.core import bench as _bench  # noqa: F401
-from molrec.core import bindings as _bindings  # noqa: F401
-from molrec.core import ffsuite as _ffsuite  # noqa: F401
-from molrec.core import suite as _suite  # noqa: F401
-from molrec.core.adapter import (
-    CollectionAdapter,
-    ForceFieldAdapter,
-    FrameAdapter,
-    RecordAdapter,
-    TrajectoryAdapter,
-)
-from molrec.core.model import (
-    DTYPES,
-    META_TAGS,
-    BlockModel,
-    BlockState,
-    BoxModel,
-    BoxUpdateModel,
-    CellModel,
-    CollectionMetaModel,
-    CollectionModel,
-    ColumnModel,
-    DType,
-    ForceFieldModel,
-    ForceFieldSourceModel,
-    ForceFieldUnitsModel,
-    FrameModel,
-    MetaModel,
-    MetaSeriesModel,
-    MetaTag,
-    MethodModel,
-    RecordModel,
-    SequenceBlockModel,
-    SequenceColumnModel,
-    SequenceSchemaModel,
-    SpecialBondsModel,
-    StatusModel,
-    StyleModel,
-    TrajectoryBoxModel,
-    TrajectoryModel,
-)
-from molrec.core.store import (
-    CollectionStore,
-    ForceFieldStore,
-    FrameStore,
-    RecordStore,
-    TrajectoryStore,
-)
+from molrec.core import adapter, bench, bindings, ffsuite, model, store, suite, v1
 
-__all__ = [
-    "DTYPES",
-    "META_TAGS",
-    "BlockModel",
-    "BlockState",
-    "BoxModel",
-    "BoxUpdateModel",
-    "CellModel",
-    "CollectionAdapter",
-    "CollectionMetaModel",
-    "CollectionModel",
-    "CollectionStore",
-    "ColumnModel",
-    "DType",
-    "ForceFieldAdapter",
-    "ForceFieldModel",
-    "ForceFieldSourceModel",
-    "ForceFieldStore",
-    "ForceFieldUnitsModel",
-    "FrameAdapter",
-    "FrameModel",
-    "FrameStore",
-    "MetaModel",
-    "MetaSeriesModel",
-    "MetaTag",
-    "MethodModel",
-    "RecordAdapter",
-    "RecordModel",
-    "RecordStore",
-    "SequenceBlockModel",
-    "SequenceColumnModel",
-    "SequenceSchemaModel",
-    "SpecialBondsModel",
-    "StatusModel",
-    "StyleModel",
-    "TrajectoryAdapter",
-    "TrajectoryBoxModel",
-    "TrajectoryModel",
-    "TrajectoryStore",
-]
+__all__ = ["adapter", "bench", "bindings", "ffsuite", "model", "store", "suite", "v1"]

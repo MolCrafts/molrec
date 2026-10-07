@@ -16,6 +16,8 @@ from molrec.case import Case
 from molrec.core.model import (
     NUMPY_DTYPE,
     ArrayModel,
+)
+from molrec.observables.model import (
     ObservableMetaModel,
     ObservableModel,
     ObservablesModel,

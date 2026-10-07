@@ -23,14 +23,16 @@ import zarr
 from molrec.binding import Binding, Codec
 from molrec.core.bindings.zarr import ZarrStore, create_fixed, stored_dtype
 from molrec.core.model import (
-    OBSERVABLES_META_GROUP,
     ArrayModel,
+    document,
+    stamp_version,
+)
+from molrec.observables.model import (
+    OBSERVABLES_META_GROUP,
     ObservableMetaModel,
     ObservableModel,
     ObservablesModel,
     check_observable_name,
-    document,
-    stamp_version,
 )
 from molrec.observables.store import ObservableStore
 from molrec.registry import REGISTRY

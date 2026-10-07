@@ -6,7 +6,9 @@ from abc import abstractmethod
 from typing import Any, ClassVar
 
 from molrec.adapter import Adapter
-from molrec.core.model import ObservablesModel
+from molrec.observables.model import (
+    ObservablesModel,
+)
 from molrec.observables.store import ObservableStore
 
 

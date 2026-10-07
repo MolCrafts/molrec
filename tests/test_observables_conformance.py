@@ -18,11 +18,13 @@ from molrec.core.model import MOLREC_VERSION
 from molrec.observables.bindings.zarr import ZarrObservablesCodec, ZarrObservableStore
 
 
-class CodecAdapter(molrec.ObservableAdapter):
+class CodecAdapter(molrec.observables.adapter.ObservableAdapter):
     backends = ("zarr",)
     refusal_types = (ValueError,)
 
-    def write(self, model: molrec.ObservablesModel, store: ZarrObservableStore) -> None:
+    def write(
+        self, model: molrec.observables.model.ObservablesModel, store: ZarrObservableStore
+    ) -> None:
         ZarrObservablesCodec().write(model, store)
 
     def read(self, store: ZarrObservableStore) -> Any:
@@ -32,14 +34,14 @@ class CodecAdapter(molrec.ObservableAdapter):
 class DropsUnknownKeys(CodecAdapter):
     def read(self, store: ZarrObservableStore) -> Any:
         model = super().read(store)
-        return molrec.ObservablesModel(
+        return molrec.observables.model.ObservablesModel(
             observables={
                 name: observable.model_copy(
                     update={
-                        "meta": molrec.ObservableMetaModel(
+                        "meta": molrec.observables.model.ObservableMetaModel(
                             **{
                                 key: getattr(observable.meta, key)
-                                for key in molrec.ObservableMetaModel.model_fields
+                                for key in molrec.observables.model.ObservableMetaModel.model_fields
                             }
                         )
                     }
@@ -52,14 +54,14 @@ class DropsUnknownKeys(CodecAdapter):
 class RewritesUnknownKinds(CodecAdapter):
     def read(self, store: ZarrObservableStore) -> Any:
         model = super().read(store)
-        return molrec.ObservablesModel(
+        return molrec.observables.model.ObservablesModel(
             observables={
                 name: observable.model_copy(
                     update={
                         "meta": observable.meta.model_copy(
                             update={
                                 "kind": observable.meta.kind
-                                if observable.meta.kind in molrec.observables.KNOWN_KINDS
+                                if observable.meta.kind in molrec.observables.model.KNOWN_KINDS
                                 else "vector"
                             }
                         )
@@ -70,11 +72,11 @@ class RewritesUnknownKinds(CodecAdapter):
         )
 
 
-def _run(adapter: molrec.ObservableAdapter) -> molrec.Report:
+def _run(adapter: molrec.observables.adapter.ObservableAdapter) -> molrec.report.Report:
     implementation = type(
-        "Implementation", (molrec.Implementation,), {"name": "x", "observables": adapter}
+        "Implementation", (molrec.adapter.Implementation,), {"name": "x", "observables": adapter}
     )()
-    return molrec.ConformanceSuite(implementation, modules=["observables"]).run()
+    return molrec.suite.ConformanceSuite(implementation, modules=["observables"]).run()
 
 
 def test_the_official_codec_passes_its_own_suite() -> None:
@@ -95,25 +97,29 @@ def test_rewriting_an_unknown_kind_is_caught() -> None:
 
 
 def test_a_default_run_never_judges_by_the_draft() -> None:
-    assert "draft/observables" not in molrec.REGISTRY.modules()
-    assert "draft/observables" in molrec.REGISTRY.modules(drafts=True)
+    assert "draft/observables" not in molrec.registry.REGISTRY.modules()
+    assert "draft/observables" in molrec.registry.REGISTRY.modules(drafts=True)
     implementation = type(
-        "Implementation", (molrec.Implementation,), {"name": "x", "observables": CodecAdapter()}
+        "Implementation",
+        (molrec.adapter.Implementation,),
+        {"name": "x", "observables": CodecAdapter()},
     )()
-    report = molrec.ConformanceSuite(implementation).run()
+    report = molrec.suite.ConformanceSuite(implementation).run()
     assert {r.module for r in report.results} >= {"observables"}
     assert not any(r.module.startswith("draft/") for r in report.results)
 
 
 def test_the_layout_is_meta_beside_data(tmp_path) -> None:
     store = ZarrObservableStore(tmp_path / "o.mrec")
-    energy = molrec.ObservableModel(
-        meta=molrec.ObservableMetaModel(
+    energy = molrec.observables.model.ObservableModel(
+        meta=molrec.observables.model.ObservableMetaModel(
             kind="scalar", description="total energy", time_dependent=False, unit="eV"
         ),
-        data=molrec.ArrayModel(dtype="f64", shape=(), values=np.array(-1.5)),
+        data=molrec.core.model.ArrayModel(dtype="f64", shape=(), values=np.array(-1.5)),
     )
-    ZarrObservablesCodec().write(molrec.ObservablesModel(observables={"energy": energy}), store)
+    ZarrObservablesCodec().write(
+        molrec.observables.model.ObservablesModel(observables={"energy": energy}), store
+    )
     root = zarr.open_group(store=store.path, mode="r")
     assert dict(root["observables/meta/energy"].attrs) == {
         "kind": "scalar",
@@ -129,16 +135,18 @@ def test_an_observables_section_rides_in_a_record(tmp_path) -> None:
     from molrec.core.bindings.zarr import ZarrRecordCodec, ZarrRecordStore
 
     store = ZarrRecordStore(tmp_path / "r.mrec")
-    record = molrec.RecordModel(
-        meta=molrec.MetaModel(molrec_version=MOLREC_VERSION),
-        frame=molrec.FrameModel(),
-        observables=molrec.ObservablesModel(
+    record = molrec.core.model.RecordModel(
+        meta=molrec.core.model.MetaModel(molrec_version=MOLREC_VERSION),
+        frame=molrec.core.model.FrameModel(),
+        observables=molrec.observables.model.ObservablesModel(
             observables={
-                "energy": molrec.ObservableModel(
-                    meta=molrec.ObservableMetaModel(
+                "energy": molrec.observables.model.ObservableModel(
+                    meta=molrec.observables.model.ObservableMetaModel(
                         kind="scalar", description="e", time_dependent=False
                     ),
-                    data=molrec.ArrayModel(dtype="f64", shape=(1,), values=np.array([1.0])),
+                    data=molrec.core.model.ArrayModel(
+                        dtype="f64", shape=(1,), values=np.array([1.0])
+                    ),
                 )
             }
         ),

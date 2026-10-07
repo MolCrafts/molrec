@@ -25,7 +25,7 @@ from molrec.core.store import (
 class FrameAdapter(Adapter):
     """Implement this to have your frame serialization judged.
 
-        class MyFrameAdapter(molrec.FrameAdapter):
+        class MyFrameAdapter(molrec.core.adapter.FrameAdapter):
             backends = ("zarr",)
             refusal_types = (ValueError,)
 
@@ -37,7 +37,7 @@ class FrameAdapter(Adapter):
 
     ``read`` may return any duck shaped like ``FrameModel``. This door is a
     bare frame at a store root; an implementation that only writes whole
-    records (molrs: ``molrs.io.mrec.write`` / ``read``) is judged on the
+    records (molrs: ``molrs.io.write_mrec`` / ``read_mrec``) is judged on the
     same frame cases through :class:`RecordAdapter`, which runs each of them
     inside a record.
     """

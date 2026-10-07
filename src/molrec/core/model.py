@@ -39,6 +39,7 @@ from pydantic import (
 from molrec import jsonvalue
 from molrec.arrays import NDArray, arrays_equal, arrays_identical
 from molrec.precision import PRECISION_MAX, PRECISION_MIN, quantize
+from molrec.safe_name import percent_decode, percent_encode
 
 
 class DocumentModel(BaseModel):
@@ -1722,59 +1723,6 @@ class MethodModel(DocumentModel):
     stages: dict[str, MethodModel] | None = None
 
 
-# ---------------------------------------------------------------------------
-# The v1 observables section (docs/spec/observables.md)
-#
-# Each observable is a pair -- a metadata document and one data array -- and
-# the pair is mandatory. ``kind`` says how the array is read: ``scalar`` (one
-# value per sample) or ``vector`` (an ordered tuple of components per
-# sample), with ``axes`` naming trailing axes for higher-rank data. A kind
-# this version does not define is **carried through unchanged**, and so is
-# every metadata key it does not name. The dims-based redesign is the draft
-# in :mod:`molrec.draft.observables`, not part of version 1.
-# ---------------------------------------------------------------------------
-
-#: The kinds version 1 defines. Others are carried through, never refused.
-KNOWN_KINDS: tuple[str, ...] = ("scalar", "vector")
-
-#: The child of ``observables/`` that holds the metadata groups. An
-#: observable cannot take the name.
-OBSERVABLES_META_GROUP = "meta"
-
-
-def check_observable_name(name: str) -> None:
-    """An observable is one array and one metadata group named ``name``: a
-    single Zarr node name that is not the reserved ``meta``."""
-    if (
-        not name
-        or name in (".", "..", OBSERVABLES_META_GROUP)
-        or "/" in name
-        or name.startswith("__")
-    ):
-        raise ValueError(
-            f"observable name {name!r} is not a single node name (non-empty, no '/', not "
-            f"'.', '..' or {OBSERVABLES_META_GROUP!r}, no leading '__')"
-        )
-
-
-class ObservableMetaModel(DocumentModel):
-    """The ``observables/meta/<name>`` document.
-
-    ``kind``, ``description`` and ``time_dependent`` are required; the rest
-    are written only when set. Every other key is a producer's and is kept
-    verbatim (``extra="allow"``).
-    """
-
-    kind: Annotated[str, Field(min_length=1)]
-    description: str
-    time_dependent: bool
-    unit: str | None = None
-    axes: list[str] | None = None
-    sampling: str | None = None
-    domain: str | None = None
-    target: str | None = None
-
-
 class ArrayModel(BaseModel):
     """One typed array of any shape, a 0-d one included."""
 
@@ -1804,39 +1752,6 @@ class ArrayModel(BaseModel):
         )
 
     __hash__ = None  # type: ignore[assignment]
-
-
-class ObservableModel(BaseModel):
-    """One named result: its metadata document and its data array -- the two
-    halves the layout stores side by side."""
-
-    model_config = ConfigDict(frozen=True, from_attributes=True)
-
-    meta: ObservableMetaModel
-    data: ArrayModel
-
-    @model_validator(mode="after")
-    def _time_runs_along_the_leading_axis(self) -> ObservableModel:
-        if self.meta.time_dependent and not self.data.shape:
-            raise ValueError(
-                "a time-dependent observable's leading axis is the trajectory axis; a 0-d "
-                "array has none"
-            )
-        return self
-
-
-class ObservablesModel(BaseModel):
-    """The section: every named observable of the record."""
-
-    model_config = ConfigDict(frozen=True, from_attributes=True)
-
-    observables: dict[str, ObservableModel] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def _names_are_node_names(self) -> ObservablesModel:
-        for name in self.observables:
-            check_observable_name(name)
-        return self
 
 
 class ArrayNodeModel(ArrayModel):
@@ -1903,15 +1818,19 @@ ANNOTATION_COLUMNS: frozenset[str] = frozenset(
 )
 
 #: Bytes of a style name kept verbatim in its table's block name.
-_UNRESERVED = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+STYLE_UNRESERVED: frozenset[int] = frozenset(
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+)
 
 #: The combining rules a van-der-Waals pair style may name.
 MIXING_RULES: tuple[str, ...] = ("arithmetic", "geometric", "sixthpower")
 
 #: The unit presets and the unit of each quantity in them; ``None`` is a
-#: quantity the preset gives no unit (reduced ``lj``). The angle is a degree
-#: in every preset, as in LAMMPS: it is the unit of angle *values* (theta0,
-#: phases); a force constant is per radian whatever it says.
+#: quantity the preset gives no unit (reduced ``lj``). The presets are the
+#: LAMMPS ``units`` styles plus ``openmm`` (OpenMM's and GROMACS's nm, kJ/mol,
+#: ps). The angle is a degree in every preset, as in LAMMPS: it is the unit of
+#: angle *values* (theta0, phases); a force constant is per radian whatever it
+#: says.
 UNIT_QUANTITIES: tuple[str, ...] = ("length", "energy", "angle", "charge", "mass", "time")
 UNIT_PRESETS: dict[str, dict[str, str | None]] = {
     "real": dict(
@@ -1949,16 +1868,16 @@ UNIT_PRESETS: dict[str, dict[str, str | None]] = {
         )
     ),
     "lj": {**dict.fromkeys(UNIT_QUANTITIES), "angle": "degree"},
+    "openmm": dict(
+        zip(UNIT_QUANTITIES, ("nm", "kJ/mol", "degree", "e", "dalton", "ps"), strict=True)
+    ),
 }
 
 
 def style_block_name(category: str, style: str) -> str:
     """The block a style's table lives at: ``<category>.<encoded style>``, every
     byte of the UTF-8 style outside ``A-Z a-z 0-9 - _`` written ``%XX``."""
-    encoded = "".join(
-        chr(byte) if byte in _UNRESERVED else f"%{byte:02X}" for byte in style.encode("utf-8")
-    )
-    return f"{category}.{encoded}"
+    return f"{category}.{percent_encode(style, STYLE_UNRESERVED)}"
 
 
 def parse_style_block_name(name: str) -> tuple[str, str]:
@@ -1967,22 +1886,7 @@ def parse_style_block_name(name: str) -> tuple[str, str]:
     category, dot, encoded = name.partition(".")
     if not dot or not category:
         raise ValueError(f"{name!r} is no style table name (<category>.<style>)")
-    raw = bytearray()
-    i = 0
-    while i < len(encoded):
-        char = encoded[i]
-        if char == "%":
-            digits = encoded[i + 1 : i + 3]
-            if len(digits) != 2 or not all(c in "0123456789ABCDEF" for c in digits):
-                raise ValueError(f"{name!r}: {encoded[i : i + 3]!r} is no %XX escape")
-            raw.append(int(digits, 16))
-            i += 3
-            continue
-        if ord(char) not in _UNRESERVED:
-            raise ValueError(f"{name!r}: {char!r} is written as a %XX escape")
-        raw.append(ord(char))
-        i += 1
-    style = raw.decode("utf-8")
+    style = percent_decode(encoded, STYLE_UNRESERVED)
     if style_block_name(category, style) != name:
         raise ValueError(f"{name!r} escapes a byte it keeps verbatim")
     return category, style
@@ -2036,7 +1940,9 @@ class ForceFieldUnitsModel(DocumentModel):
         }
     )
 
-    preset: Literal["real", "metal", "si", "cgs", "electron", "micro", "nano", "lj"] | None = None
+    preset: (
+        Literal["real", "metal", "si", "cgs", "electron", "micro", "nano", "lj", "openmm"] | None
+    ) = None
     length: str | None = None
     energy: str | None = None
     angle: str | None = None
@@ -2335,7 +2241,8 @@ class RecordModel(BaseModel):
     record is conforming and a reader must not require a frame beside it,
     because frames may embed full blocks including topology.
 
-    ``observables`` is the v1 section (:class:`ObservablesModel`). ``metrics``
+    ``observables`` is the v1 section
+    (:class:`molrec.observables.model.ObservablesModel`). ``metrics``
     -- the catalog document, the dense series and the live WAL of
     ``docs/spec/metrics.md`` -- is carried verbatim as a :class:`NodeModel`:
     molrec does not interpret run-local monitoring, it only never loses it.
@@ -2361,7 +2268,7 @@ class RecordModel(BaseModel):
     status: StatusModel | None = None
     method: MethodModel | None = None
     metrics: NodeModel | None = None
-    observables: ObservablesModel | None = None
+    observables: _observables.ObservablesModel | None = None
 
     @model_validator(mode="after")
     def _unknown_sections_are_subtrees(self) -> RecordModel:
@@ -2605,3 +2512,13 @@ class CollectionModel(BaseModel):
         if reserved:
             raise ValueError(f"index columns {reserved} are reserved for the binding")
         return self
+
+
+# The record root holds the v1 observables section, which
+# :mod:`molrec.observables.model` owns. That module builds on this one
+# (``DocumentModel``, ``ArrayModel``), so it is imported once this one is
+# complete and the two models that reach the section are finished here.
+from molrec.observables import model as _observables  # noqa: E402
+
+RecordModel.model_rebuild()
+CollectionModel.model_rebuild()

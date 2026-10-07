@@ -83,11 +83,14 @@ a force constant: a force constant is per **radian**ⁿ whatever `angle` says
 | `micro` | `micrometer` | `picogram * micrometer**2 / microsecond**2` | `degree` | `picocoulomb` | `picogram` | `microsecond` |
 | `nano` | `nm` | `attogram * nm**2 / ns**2` | `degree` | `e` | `attogram` | `ns` |
 | `lj` | — | — | `degree` | — | — | — |
+| `openmm` | `nm` | `kJ/mol` | `degree` | `e` | `dalton` | `ps` |
 
-The presets are those of the LAMMPS `units` command, and so is their angle:
-LAMMPS writes every angle value in degrees, so every preset's angle is the
-`degree`. `lj` is reduced units: no quantity but `angle` has a unit, and the
-numbers are in the reduced scale of the producer's choosing.
+The presets are those of the LAMMPS `units` command, plus `openmm` (the unit
+system OpenMM and GROMACS share), and so is their angle: LAMMPS writes every
+angle value in degrees, so every preset's angle is the `degree` — `openmm`'s
+too, as a record states it, though OpenMM's own files use radians. `lj` is
+reduced units: no quantity but `angle` has a unit, and the numbers are in the
+reduced scale of the producer's choosing.
 
 `units` **MUST** carry `preset` or at least one quantity. When both a preset
 and a quantity are present they **MUST** agree (pint-equivalent strings); a

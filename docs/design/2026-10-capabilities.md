@@ -179,14 +179,14 @@ unconstrained.
 
 The grid is binary on purpose: a multiple of `2^−10` has zero low-order
 mantissa bits, which a byte shuffle gathers into runs a lossless compressor
-removes ([Chunking](chunking.md)); a multiple of `10^−3` has a full mantissa
+removes ([Chunking](../spec/chunking.md)); a multiple of `10^−3` has a full mantissa
 and compresses no better than raw data.
 
 - `p` is a finite binary64 with `2^−1000 ≤ p ≤ 2^1000`. Only an `f64`
   column declares one; a writer refuses any other.
 - On a frame-shaped section `p` is the column array's attribute
   `precision`. On a trajectory it is the column's entry in the pinned
-  [`sequence_schema`](ragged.md#the-pinned-declaration) and nowhere else.
+  [`sequence_schema`](../spec/ragged.md#the-pinned-declaration) and nowhere else.
 - Absent means the values are stored as given.
 - A reader preserves the declaration: a record read and written back
   declares the same `p`.
@@ -204,9 +204,9 @@ begins "`blocks`: a map of block name to …" with:**
   per-entity shape after the leading count axis; `nullable: true` declares a
   [nullable column](#nullable-columns) and is written only when true (absent
   means `false`); `precision` is the column's
-  [declared precision](frame.md#declared-precision), the only place a
+  [declared precision](../spec/frame.md#declared-precision), the only place a
   trajectory states it, written only when declared; `targets` is the
-  block's [row references](frame.md#row-references); `aligned_with` makes it
+  block's [row references](../spec/frame.md#row-references); `aligned_with` makes it
   an [aligned block](#aligned-blocks). Each of the last three is written only
   when set.
 ~~~
@@ -220,7 +220,7 @@ with:**
 ~~~markdown
 - A writer compares a presented block with its previous update **bitwise**,
   after rounding every column that declares a
-  [precision](frame.md#declared-precision); an identical presentation writes
+  [precision](../spec/frame.md#declared-precision); an identical presentation writes
   no update. A repeated `NaN` therefore counts as unchanged, and so does a
   change smaller than half the quantum.
 ~~~
@@ -239,7 +239,7 @@ bytes   gzip   zstd   numcodecs.shuffle   crc32c   vlen-utf8   sharding_indexed 
 and a conforming writer uses no codec outside this set unless the store is
 for a reader known to have it. `numcodecs.shuffle` is the byte shuffle of the
 Zarr extension registry (configuration `{"elementsize": n}`). **No lossy codec
-is admitted**: a [declared precision](frame.md#declared-precision) is a
+is admitted**: a [declared precision](../spec/frame.md#declared-precision) is a
 rounding the writer applies to values before they reach the pipeline, and
 every pipeline returns the stored bytes exactly.
 ~~~
@@ -279,7 +279,7 @@ The contract names a small must-decode set — `bytes`, `gzip`, `zstd`,
 `numcodecs.shuffle`, `crc32c`, `vlen-utf8`, `sharding_indexed`, `transpose` —
 that every reader of these stores, wasm32 included, decodes. Nothing lossy: a
 declared precision rounds values before they are encoded. See
-[Chunking](chunking.md#normative).
+[Chunking](../spec/chunking.md#normative).
 ~~~
 
 **E1.7 — lmdb.md § "Frame bytes": after the bullet beginning "Every numeric
@@ -287,7 +287,7 @@ column is one buffer", insert:**
 
 ~~~markdown
 * A column of a `system` or `index` frame that declares a
-  [precision](frame.md#declared-precision) carries `"precision": p` in its
+  [precision](../spec/frame.md#declared-precision) carries `"precision": p` in its
   header entry, and its buffer holds the rounded values. A trajectory frame's
   columns carry none: the collection's `sequence_schema` declares them. No
   codec is applied: frame bytes are raw buffers.
@@ -416,7 +416,7 @@ header entry when `column.precision` is set (system and index frames only);
   - `inner_codecs(compression, shuffle: Option<usize>)`: shuffle first; for a
     precision column `Compression::None` means the default (`Zstd(3)` under
     `zarr-codecs`, else `Gzip(1)`).
-  - `FrameSequenceWriter::append`: quantize every precision column of the
+  - `MrecWriter::append`: quantize every precision column of the
     presented frame (copy) **before** the `same_block` comparison and before
     landing (D1.7).
   - `schema_from_store` / `pinned_schema` read `precision`.
@@ -553,7 +553,7 @@ alignment pass left in its place) with:**
 
 ~~~markdown
 The parameters that *define* the energy model live in the
-[`forcefield`](forcefield.md) section; how a job was run lives under
+[`forcefield`](../spec/forcefield.md) section; how a job was run lives under
 `method`.
 ~~~
 
@@ -565,7 +565,7 @@ paragraph "Scientific and force-field parameters live under
 `system/parameters`. How a job is run lives under `method`." with:**
 
 ~~~markdown
-Force-field parameters live in the [`forcefield`](forcefield.md) section. How
+Force-field parameters live in the [`forcefield`](../spec/forcefield.md) section. How
 a job is run lives under `method`.
 ~~~
 
@@ -575,7 +575,7 @@ block per style`. In § "Section → form map" insert after the `trajectory`
 row:**
 
 ~~~markdown
-| `forcefield` | Force-field document + style tables | Zarr group attributes + one block group per style ([Force field](forcefield.md)) |
+| `forcefield` | Force-field document + style tables | Zarr group attributes + one block group per style ([Force field](../spec/forcefield.md)) |
 ~~~
 
 **and in § "Array groups" insert after the first bullet:**
@@ -583,7 +583,7 @@ row:**
 ~~~markdown
 - `forcefield/` is laid out as a frame-shaped section whose attribute map is
   the force-field document and whose blocks are its style tables
-  ([Force field](forcefield.md)).
+  ([Force field](../spec/forcefield.md)).
 ~~~
 
 **E2.7 — system.md: append (the alignment pass removes
@@ -591,7 +591,7 @@ row:**
 
 ~~~markdown
 Types are linked, not embedded: `atoms.type` and each relation block's
-`type` name rows of the record's [`forcefield`](forcefield.md) section (or
+`type` name rows of the record's [`forcefield`](../spec/forcefield.md) section (or
 its collection's), and a relation block's `style` column picks among styles
 of one category. Per-instance parameters (MMFF, UFF) stay columns of the
 relation blocks.
@@ -608,7 +608,7 @@ field every record links into` after `\-- index …` in the tree, and after the
 ~~~markdown
 `forcefield`
 
-Optional. The [force field](forcefield.md#collections) every record's
+Optional. The [force field](../spec/forcefield.md#collections) every record's
 `atoms.type` and relation `type` columns link into. A record of a collection
 carries no `forcefield` of its own.
 ~~~
@@ -619,7 +619,7 @@ round-trips;".**
 **E2.10 — lmdb.md § "The file", key table: insert after the `index` row:**
 
 ~~~markdown
-| `ff` | frame bytes | the collection's [force field](forcefield.md): `meta` = the document, `blocks` = the style tables; absent key = none |
+| `ff` | frame bytes | the collection's [force field](../spec/forcefield.md): `meta` = the document, `blocks` = the style tables; absent key = none |
 ~~~
 
 **E2.11 — zensical.toml nav: insert `{ "Force field" = "spec/forcefield.md" },`
@@ -897,12 +897,12 @@ at twice its energy. Fix both to `k = K` and update
 `lammps_coeff_params_converts_each_kernel` (expects `k = 20` for `K = 10`;
 must expect `10`). The GROMACS path (`k = k_ξ/2`) is already right.
 
-**Python:** `molrs.io.mrec.write(path, frame, system=None, meta=None,
-forcefield=None)` and `write_system(path, system, meta=None,
+**Python:** `molrs.io.write_mrec(path, frame, system=None, meta=None,
+forcefield=None)` and `write_mrec_system(path, system, meta=None,
 forcefield=None)` take a `molrs.ff.forcefield.ForceField`; new
-`molrs.io.mrec.write_forcefield(path, ff, meta=None)` and
-`read_forcefield(path) -> ForceField | None`; `section_names` lists
-`forcefield`. Stubs in `_lib.pyi`. `tests/molrs_adapter.py` (molrec) gains a
+`molrs.io.write_mrec_forcefield(path, ff, meta=None)` and
+`read_mrec_forcefield(path) -> ForceField | None`;
+`molrs.io.mrec.section_names` lists `forcefield`. Stubs in `_lib.pyi`. `tests/molrs_adapter.py` (molrec) gains a
 `ForceFieldAdapter` mapping `ForceFieldModel` ↔ the Python `ForceField`
 through these doors.
 
@@ -964,7 +964,7 @@ box." with:**
 ~~~markdown
 A *frame* is a snapshot: a set of named blocks, a `meta` document, and an
 optional box. Each `meta` value is typed by one of the per-step
-[tags](ragged.md#per-step-metadata) — a scalar of a column dtype, a fixed
+[tags](../spec/ragged.md#per-step-metadata) — a scalar of a column dtype, a fixed
 vector (`f64x3`, `i32x3`, `bool3`, …), or `json` for a nested document — and
 a frame read back carries every value at its tag.
 ~~~
@@ -974,7 +974,7 @@ a frame read back carries every value at its tag.
 ~~~markdown
 - A frame-shaped section's `meta` document is its group's attribute map.
   The attribute `_meta_types` maps every key of the document to its tag, and
-  each value is in the [typed JSON form](conventions.md#typed-json-values) of
+  each value is in the [typed JSON form](../spec/conventions.md#typed-json-values) of
   that tag (so an `f64` NaN is `"NaN"` and a `u64` beyond 2⁵³ a decimal
   string). A writer emits an entry for every key and omits the attribute
   for an empty document; `_meta_types` is not a meta key, and a writer
@@ -994,7 +994,7 @@ meta document as JSON. A per-step key's exact type is the tag the
 * `meta` is the frame's meta document, each value in its typed JSON form. A
   trajectory update's keys are typed by the `sequence_schema`; a `system`
   frame carries `"meta_types": {key: tag}` beside `meta` with the rules of
-  the [Zarr frame group](storage.md#array-groups). The `ff` frame's `meta` is
+  the [Zarr frame group](../spec/storage.md#array-groups). The `ff` frame's `meta` is
   the force-field document and carries no `meta_types`.
 ~~~
 
@@ -1298,7 +1298,7 @@ reference atoms …", the `bonds` tree, and the block table with:**
 ~~~markdown
 Relation blocks reference atoms by 0-based `u64` row indices into the
 `atoms` block (`atomi` … `atoml`); a relation that references another block
-says so with [`targets`](frame.md#row-references).
+says so with [`targets`](../spec/frame.md#row-references).
 
 ```text
 bonds
@@ -1324,7 +1324,7 @@ bonds
 | `drudes` | `atomi` (core), `atomj` (Drude particle) | `type`, `type_id`, `style` |
 | `members` | `ibead` → `atoms`, `atom` (declared) | — |
 
-`type` names a row of the record's [force field](forcefield.md#linking-a-system)
+`type` names a row of the record's [force field](../spec/forcefield.md#linking-a-system)
 and `style` picks the style when several hold that name. `type_id` is a
 format-local ordinal (LAMMPS) and plays no part in linking. A relation may
 carry per-instance parameters as further columns named as its style names
@@ -1354,7 +1354,7 @@ keys":**
 
 The meta key `units` (`json`) on a `frame` or `system` says what unit system
 the frame's numbers are in. Its value has the shape of the
-[force-field `units`](forcefield.md#the-document) object
+[force-field `units`](../spec/forcefield.md#the-document) object
 (`{"preset": "real"}`, `{"length": "nm", "energy": "kJ/mol"}`). A string
 value is read as `{"preset": <string>}`. Absent means the frame states none
 (a collection states them once, in its `meta.units`).
@@ -1586,7 +1586,7 @@ coordinates under proton hopping, species under grand-canonical insertion.
 **E5.2 — trajectory.md § "Blocks over time": append:**
 
 ~~~markdown
-A block may be declared [aligned](ragged.md#aligned-blocks) with another:
+A block may be declared [aligned](../spec/ragged.md#aligned-blocks) with another:
 its rows are the other block's rows, so it can change rarely beside a block
 that changes every frame, and it is restated whenever the other's row count
 changes.
@@ -1632,16 +1632,16 @@ write side already refuses through the model.
   `SequenceSchema::declare_aligned(block, target) -> Result<&mut Self,
   MolRsError>` checking D5.2 (also re-checked when columns are declared
   later: a column added to either block that collides is refused).
-- `FrameSequenceWriter::append`: after resolving the presented frame against
+- `MrecWriter::append`: after resolving the presented frame against
   the carried state, refuse (`MolRsError::Zarr`, naming both blocks, the
   ordinal and both counts) when D5.3/D5.4 fail.
-- `FrameSequence::open`: validate every aligned pair once from the indexes:
+- `MrecReader::open`: validate every aligned pair once from the indexes:
   for each update ordinal of either block, the resolved counts agree (both
   `BlockIndex` searches are `O(log n)`; regular blocks answer in `O(1)`).
 - `molrs-python/src/io/mrec.rs`: `SequenceSchema.declare_aligned(block,
   target)`; `_lib.pyi`.
 - System/trajectory: the record writer (`write_record_store`,
-  `FrameSequenceWriter` with a system) refuses an aligned block named like a
+  `MrecWriter` with a system) refuses an aligned block named like a
   system block.
 
 ### F5.7 Conformance (A)

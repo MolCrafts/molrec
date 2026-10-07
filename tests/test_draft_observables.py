@@ -14,14 +14,15 @@ import numpy as np
 import pytest
 
 import molrec
-from molrec.draft import observables as draft
+from molrec.draft.observables import model as draft
+from molrec.draft.observables.adapter import ObservableAdapter
 from molrec.draft.observables.bindings.jsonl import JsonlObservableCodec, JsonlObservableStore
 from molrec.draft.observables.bindings.zarr import ZarrObservableCodec, ZarrObservableStore
 from molrec.draft.observables.suite import array
 from molrec.safe_name import original_name, safe_name
 
 
-class CodecObservableAdapter(draft.ObservableAdapter):
+class CodecObservableAdapter(ObservableAdapter):
     """Delegates to whichever official codec the backend calls for."""
 
     backends = ("jsonl", "zarr")
@@ -98,8 +99,10 @@ class DropsCoordinatesAdapter(CodecObservableAdapter):
         return super().read(store).model_copy(update={"coordinates": {}})
 
 
-def _impl(name: str, adapter: draft.ObservableAdapter) -> molrec.Implementation:
-    return type(name, (molrec.Implementation,), {"name": name, "version": "0", "obs": adapter})()
+def _impl(name: str, adapter: ObservableAdapter) -> molrec.adapter.Implementation:
+    return type(
+        name, (molrec.adapter.Implementation,), {"name": name, "version": "0", "obs": adapter}
+    )()
 
 
 REFERENCE = _impl("molrec-codec", CodecObservableAdapter())
@@ -110,13 +113,13 @@ def _failed(report):
 
 
 def _run(adapter_name, adapter):
-    return molrec.ConformanceSuite(
+    return molrec.suite.ConformanceSuite(
         _impl(adapter_name, adapter), modules=["draft/observables"]
     ).run()
 
 
 def test_official_codecs_pass_on_both_backends():
-    report = molrec.ConformanceSuite(REFERENCE, modules=["draft/observables"]).run()
+    report = molrec.suite.ConformanceSuite(REFERENCE, modules=["draft/observables"]).run()
     assert report.ok, report.table()
     assert {r.backend for r in report.results} == {"jsonl", "zarr"}
 
@@ -174,7 +177,7 @@ def test_grid_and_scatter_are_distinguishable():
         },
         observables={"e": draft.ObservableModel(values=array(("sample",), [0.0, 0.0]))},
     )
-    assert molrec.diff(grid, scatter) != ()
+    assert molrec.compare.diff(grid, scatter) != ()
 
 
 def test_a_dimension_cannot_be_two_lengths():

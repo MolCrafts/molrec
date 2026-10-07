@@ -20,6 +20,8 @@ from molrec.core.ffsuite import (
 )
 from molrec.core.model import (
     MOLREC_VERSION,
+    UNIT_PRESETS,
+    UNIT_QUANTITIES,
     CollectionMetaModel,
     CollectionModel,
     ColumnModel,
@@ -73,9 +75,7 @@ class TestDocument:
         with pytest.raises(ValidationError, match="disagrees"):
             ForceFieldUnitsModel(preset="lj", length="angstrom")
 
-    @pytest.mark.parametrize(
-        "preset", ["real", "metal", "si", "cgs", "electron", "micro", "nano", "lj"]
-    )
+    @pytest.mark.parametrize("preset", sorted(UNIT_PRESETS))
     def test_every_preset_states_angle_values_in_degrees(self, preset: str) -> None:
         ForceFieldUnitsModel(preset=preset, angle="degree")
         with pytest.raises(ValidationError, match="angle 'radian' disagrees"):
@@ -367,7 +367,7 @@ def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:
     store = ZarrForceFieldStore(tmp_path / "cmap.mrec")
     ZarrForceFieldCodec().write(model, store)
 
-    ff = molrs.ff.forcefield.ForceField.from_section(molrs.io.mrec.read_forcefield(store.path))
+    ff = molrs.ff.forcefield.ForceField.from_section(molrs.io.read_mrec_forcefield(store.path))
     style_ = ff.get_style("cmap", "charmm")
     assert isinstance(style_, molrs.ff.forcefield.CmapStyle)
     types = sorted(style_.types, key=lambda t: t.name)
@@ -386,3 +386,58 @@ def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:
     # And back: molrs's section of the force field holds the same table.
     table_ = ff.to_section().table("cmap", "charmm")
     assert np.asarray(table_["grid"]).tobytes() == grids.tobytes()
+
+
+#: How the record spells each unit molrs's ``UnitPreset`` names by its unit
+#: registry's expression (``None``: a reduced ``lj`` unit, which the record
+#: states no unit for). One record spelling per registry name, so a molrs
+#: preset that changes a unit changes the spelling it is compared as.
+_RECORD_SPELLING: dict[str, str | None] = {
+    "angstrom": "angstrom",
+    "nanometer": "nm",
+    "micrometer": "micrometer",
+    "meter": "m",
+    "centimeter": "cm",
+    "bohr": "bohr",
+    "kilocalorie_per_mole": "kcal/mol",
+    "kilojoule_per_mole": "kJ/mol",
+    "electron_volt": "eV",
+    "joule": "J",
+    "erg": "erg",
+    "hartree": "hartree",
+    "picogram * micrometer ** 2 / microsecond ** 2": "picogram * micrometer**2 / microsecond**2",
+    "attogram * nanometer ** 2 / nanosecond ** 2": "attogram * nm**2 / ns**2",
+    "elementary_charge": "e",
+    "coulomb": "C",
+    "statcoulomb": "statcoulomb",
+    "picocoulomb": "picocoulomb",
+    "gram_per_mole": "dalton",
+    "amu": "dalton",
+    "kilogram": "kg",
+    "gram": "g",
+    "picogram": "picogram",
+    "attogram": "attogram",
+    "femtosecond": "fs",
+    "picosecond": "ps",
+    "nanosecond": "ns",
+    "microsecond": "microsecond",
+    "second": "s",
+    **dict.fromkeys(("lj_sigma", "lj_epsilon", "lj_charge", "lj_mass", "lj_tau")),
+}
+
+
+def test_every_molrs_preset_is_the_molrec_table(molrs) -> None:
+    """molrec's preset table is the implementation-neutral one; every unit
+    preset molrs ships names the same units in it, quantity by quantity
+    (molrs states no angle unit: every preset's angle is the degree)."""
+    names = molrs.units.UnitPreset.names()
+    assert sorted(names) == sorted(UNIT_PRESETS)
+    for name in names:
+        preset = molrs.units.UnitPreset(name)
+        stated = {
+            quantity: _RECORD_SPELLING[getattr(preset, quantity)()]
+            for quantity in UNIT_QUANTITIES
+            if quantity != "angle"
+        }
+        assert stated == {q: u for q, u in UNIT_PRESETS[name].items() if q != "angle"}, name
+        assert UNIT_PRESETS[name]["angle"] == "degree"

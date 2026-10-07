@@ -15,7 +15,7 @@ a reader hands back every value the model holds (a field the model holds as
 ``from_attributes=True``. What it must *not* do is assert -- every assertion
 belongs to the suite.
 
-A negative case is passed only by a *refusal*: a :class:`~molrec.Refusal`, or
+A negative case is passed only by a *refusal*: a :class:`~molrec.refusal.Refusal`, or
 an exception of a type the adapter declares in ``refusal_types``. Any other
 exception is a defect and is reported as ``error``.
 """
@@ -37,7 +37,7 @@ class Adapter(ABC):
     backends: ClassVar[tuple[str, ...]] = ()
     #: The native exception types the implementation refuses malformed input
     #: with (``(ValueError,)`` for most Python bindings). The harness counts
-    #: them, and :class:`~molrec.Refusal`, as a refusal; nothing else.
+    #: them, and :class:`~molrec.refusal.Refusal`, as a refusal; nothing else.
     refusal_types: ClassVar[tuple[type[Exception], ...]] = ()
     #: Case ids this adapter declares out of its implementation's scope, each
     #: with the reason (the API the implementation lacks). The harness reports
@@ -64,7 +64,7 @@ class Implementation:
 
         class Molrs(Implementation):
             name    = "molrs"
-            version = molrs.__version__
+            version = importlib.metadata.version("molcrafts-molrs")
             record  = MolrsRecordAdapter()
     """
 

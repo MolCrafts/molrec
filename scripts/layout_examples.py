@@ -71,9 +71,6 @@ from molrec.core.model import (
     MetaSeriesModel,
     MethodModel,
     NodeModel,
-    ObservableMetaModel,
-    ObservableModel,
-    ObservablesModel,
     RecordModel,
     SequenceBlockModel,
     SequenceColumnModel,
@@ -83,6 +80,11 @@ from molrec.core.model import (
     TrajectoryBoxModel,
     TrajectoryModel,
     parse_style_block_name,
+)
+from molrec.observables.model import (
+    ObservableMetaModel,
+    ObservableModel,
+    ObservablesModel,
 )
 from molrec.safe_name import safe_name
 

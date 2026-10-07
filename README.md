@@ -118,14 +118,14 @@ An implementation is judged by writing one adapter per module it claims —
 two methods, no assertions; every assertion is the suite's. `write` lays a
 model down with your library; `read` hands back anything shaped like the
 model (a dict, a dataclass, your own object). A refusal of malformed input
-is a declared exception type (or `molrec.Refusal`); anything else your code
+is a declared exception type (or `molrec.refusal.Refusal`); anything else your code
 raises is a defect.
 
 ```python
 import molrec
 
 
-class MyRecordAdapter(molrec.RecordAdapter):
+class MyRecordAdapter(molrec.core.adapter.RecordAdapter):
     backends = ("zarr",)
     refusal_types = (ValueError,)
 
@@ -136,13 +136,13 @@ class MyRecordAdapter(molrec.RecordAdapter):
         return from_native(mylib.read_record(store.uri))
 
 
-class MyLib(molrec.Implementation):
+class MyLib(molrec.adapter.Implementation):
     name = "mylib"
     version = mylib.__version__
     record = MyRecordAdapter()
 
 
-report = molrec.ConformanceSuite(MyLib()).run()
+report = molrec.suite.ConformanceSuite(MyLib()).run()
 report.report()
 assert report.ok
 ```

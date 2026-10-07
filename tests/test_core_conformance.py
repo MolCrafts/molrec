@@ -20,7 +20,7 @@ from molrec.core.bindings.zarr import ZarrFrameCodec, ZarrFrameStore
 from molrec.registry import REGISTRY
 
 
-class CodecFrameAdapter(molrec.FrameAdapter):
+class CodecFrameAdapter(molrec.core.adapter.FrameAdapter):
     """Delegates to the official codec -- the self-check."""
 
     backends = ("zarr",)
@@ -28,10 +28,10 @@ class CodecFrameAdapter(molrec.FrameAdapter):
     # ValidationError included).
     refusal_types = (ValueError,)
 
-    def write(self, model: molrec.FrameModel, store: ZarrFrameStore) -> None:
+    def write(self, model: molrec.core.model.FrameModel, store: ZarrFrameStore) -> None:
         ZarrFrameCodec().write(model, store)
 
-    def read(self, store: ZarrFrameStore) -> molrec.FrameModel:
+    def read(self, store: ZarrFrameStore) -> molrec.core.model.FrameModel:
         return ZarrFrameCodec().read(store)
 
 
@@ -40,7 +40,7 @@ class DropsUnknownAdapter(CodecFrameAdapter):
 
     UNRECOGNIZED = "nobody_knows_this_block"
 
-    def read(self, store: ZarrFrameStore) -> molrec.FrameModel:
+    def read(self, store: ZarrFrameStore) -> molrec.core.model.FrameModel:
         model = super().read(store)
         kept = {name: block for name, block in model.blocks.items() if name != self.UNRECOGNIZED}
         return model.model_copy(update={"blocks": kept})
@@ -49,7 +49,7 @@ class DropsUnknownAdapter(CodecFrameAdapter):
 class WidensIntegersAdapter(CodecFrameAdapter):
     """Reads every i32 column back as i64 -- the classic silent widening."""
 
-    def read(self, store: ZarrFrameStore) -> molrec.FrameModel:
+    def read(self, store: ZarrFrameStore) -> molrec.core.model.FrameModel:
         model = super().read(store)
         widened = {
             name: block.model_copy(
@@ -79,7 +79,7 @@ class WidensIntegersAdapter(CodecFrameAdapter):
 class FlattensGridAdapter(CodecFrameAdapter):
     """Loses the structural shape, so a grid reads back unreshapable."""
 
-    def read(self, store: ZarrFrameStore) -> molrec.FrameModel:
+    def read(self, store: ZarrFrameStore) -> molrec.core.model.FrameModel:
         model = super().read(store)
         flattened = {
             name: block.model_copy(update={"structural_shape": None})
@@ -88,56 +88,56 @@ class FlattensGridAdapter(CodecFrameAdapter):
         return model.model_copy(update={"blocks": flattened})
 
 
-class Reference(molrec.Implementation):
+class Reference(molrec.adapter.Implementation):
     name = "molrec-codec"
     version = molrec.__version__
     frame = CodecFrameAdapter()
 
 
-class DropsUnknown(molrec.Implementation):
+class DropsUnknown(molrec.adapter.Implementation):
     name = "drops-unknown"
     version = "0"
     frame = DropsUnknownAdapter()
 
 
-class FlattensGrid(molrec.Implementation):
+class FlattensGrid(molrec.adapter.Implementation):
     name = "flattens-grid"
     version = "0"
     frame = FlattensGridAdapter()
 
 
-class WidensIntegers(molrec.Implementation):
+class WidensIntegers(molrec.adapter.Implementation):
     name = "widens-integers"
     version = "0"
     frame = WidensIntegersAdapter()
 
 
-def _failed_case_ids(report: molrec.Report) -> set[str]:
+def _failed_case_ids(report: molrec.report.Report) -> set[str]:
     return {result.case_id for result in report.failures}
 
 
 def test_official_codec_passes_its_own_suite():
-    report = molrec.ConformanceSuite(Reference(), modules=["core"]).run()
+    report = molrec.suite.ConformanceSuite(Reference(), modules=["core"]).run()
     assert report.ok, report.table()
     assert report.results, "the suite ran nothing"
 
 
 def test_dropping_an_unknown_block_is_caught():
-    report = molrec.ConformanceSuite(DropsUnknown(), modules=["core"]).run()
+    report = molrec.suite.ConformanceSuite(DropsUnknown(), modules=["core"]).run()
     assert _failed_case_ids(report) == {"unknown-names-preserved"}
 
 
 def test_losing_the_structural_shape_is_caught():
-    report = molrec.ConformanceSuite(FlattensGrid(), modules=["core"]).run()
+    report = molrec.suite.ConformanceSuite(FlattensGrid(), modules=["core"]).run()
     assert _failed_case_ids(report) == {"structural-shape"}
 
 
 def test_a_module_without_an_adapter_is_skipped_not_failed():
-    class Nothing(molrec.Implementation):
+    class Nothing(molrec.adapter.Implementation):
         name = "nothing"
         version = "0"
 
-    report = molrec.ConformanceSuite(Nothing(), modules=["core"]).run()
+    report = molrec.suite.ConformanceSuite(Nothing(), modules=["core"]).run()
     assert [r.status for r in report.results] == ["skip"]
     assert not report.failures
     # ...but a run that judged nothing is not a green run either.
@@ -145,13 +145,13 @@ def test_a_module_without_an_adapter_is_skipped_not_failed():
 
 
 def test_silent_integer_widening_is_caught():
-    report = molrec.ConformanceSuite(WidensIntegers(), modules=["core"]).run()
+    report = molrec.suite.ConformanceSuite(WidensIntegers(), modules=["core"]).run()
     # canonical-topology: the image flags ix / iy / iz are i32.
     assert _failed_case_ids(report) == {"every-dtype", "no-silent-widening", "canonical-topology"}
 
 
 def test_both_directions_run_for_every_positive_case():
-    report = molrec.ConformanceSuite(Reference(), modules=["core"]).run()
+    report = molrec.suite.ConformanceSuite(Reference(), modules=["core"]).run()
     directions = {r.direction for r in report.results}
     assert directions == {"write", "read"}
 
@@ -172,7 +172,7 @@ def test_both_directions_run_for_every_positive_case():
 TRAJECTORY_MODULE = "trajectory"
 
 
-class _CodecAdapter(molrec.Adapter):
+class _CodecAdapter(molrec.adapter.Adapter):
     """molrec judged against itself, for whichever module it is bound to.
 
     The codec is fetched from the registry by ``(module, backend)`` rather
@@ -183,26 +183,26 @@ class _CodecAdapter(molrec.Adapter):
     backends: ClassVar[tuple[str, ...]] = ("zarr", "lmdb")
     refusal_types: ClassVar[tuple[type[Exception], ...]] = (ValueError,)
 
-    def _codec(self, store: molrec.Store) -> molrec.Codec:
+    def _codec(self, store: molrec.store.Store) -> molrec.binding.Codec:
         return REGISTRY.bindings_for(self.module)[store.backend]().codec()
 
-    def write(self, model: BaseModel, store: molrec.Store) -> None:
+    def write(self, model: BaseModel, store: molrec.store.Store) -> None:
         self._codec(store).write(model, store)
 
-    def read(self, store: molrec.Store) -> Any:
+    def read(self, store: molrec.store.Store) -> Any:
         return self._codec(store).read(store)
 
 
-def _codec_implementation(module: str) -> molrec.Implementation:
+def _codec_implementation(module: str) -> molrec.adapter.Implementation:
     bound = type(f"{module}CodecAdapter", (_CodecAdapter,), {"module": module})()
     return type(
         "MolrecCodec",
-        (molrec.Implementation,),
+        (molrec.adapter.Implementation,),
         {"name": "molrec-codec", "version": molrec.__version__, "adapter": bound},
     )()
 
 
-def _assert_clean(report: molrec.Report, module: str, implementation: str) -> None:
+def _assert_clean(report: molrec.report.Report, module: str, implementation: str) -> None:
     assert report.results, f"module {module!r} registered no suite -- nothing ran"
     assert [r.status for r in report.results] != ["skip"], (
         f"{implementation} declares no adapter for module {module!r}"
@@ -221,14 +221,14 @@ MOLRS_MATRIX = ["record", TRAJECTORY_MODULE, "forcefield"]
 @pytest.mark.parametrize("module", CODEC_MATRIX)
 def test_the_suite_runs_clean(module: str) -> None:
     """One (suite x molrec-codec) pair, run end to end with zero violations."""
-    report = molrec.ConformanceSuite(_codec_implementation(module), modules=[module]).run()
+    report = molrec.suite.ConformanceSuite(_codec_implementation(module), modules=[module]).run()
     _assert_clean(report, module, "molrec-codec")
 
 
 @pytest.mark.parametrize("module", MOLRS_MATRIX)
-def test_molrs_runs_clean(module: str, molrs_implementation: molrec.Implementation) -> None:
+def test_molrs_runs_clean(module: str, molrs_implementation: molrec.adapter.Implementation) -> None:
     """One (suite x molrs) pair, run end to end with zero violations."""
-    report = molrec.ConformanceSuite(molrs_implementation, modules=[module]).run()
+    report = molrec.suite.ConformanceSuite(molrs_implementation, modules=[module]).run()
     _assert_clean(report, module, "molrs")
 
 
@@ -293,7 +293,7 @@ def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path, molrs) -> None
     box.create_array("origin", shape=(3,), dtype="float64")[...] = np.zeros(3)
     assert "boundary" not in box, "the store under test must not carry the array"
 
-    frame = molrs.io.mrec.read(path)
+    frame = molrs.io.read_mrec(path)
     assert [bool(flag) for flag in np.asarray(frame.box.pbc)] == [True, True, True]
 
 

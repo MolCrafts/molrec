@@ -25,6 +25,7 @@ from molrec.core.model import (
     SpecialBondsModel,
     StyleModel,
 )
+from molrec.core.v1 import DEGREES_PER_RADIAN
 from molrec.registry import REGISTRY
 from molrec.suite import Suite
 
@@ -835,9 +836,6 @@ class ForceFieldSuite(Suite):
             yield Case(id=case_id, exercises=why, expect_violation="bad_forcefield", model=model)
 
 
-#: 180/π as one double: what an angle value in radians is multiplied by.
-DEG = 180.0 / math.pi
-
 #: The units molrs 0.15 stated beside its presets (version 1: the radian).
 V1_REAL = {
     "preset": "real",
@@ -906,14 +904,14 @@ def v1_forcefield() -> tuple[ForceFieldModel, ForceFieldModel]:
             "harmonic",
             triples,
             {"k": [100.0], "theta0": [1.9]},
-            {"k": [50.0], "theta0": [1.9 * DEG]},
+            {"k": [50.0], "theta0": [1.9 * DEGREES_PER_RADIAN]},
         ),
         both(
             "angle",
             "class2",
             triples,
             {"theta0": [2.0], "k2": [50.0], "k3": [-12.0], "k4": [4.0]},
-            {"theta0": [2.0 * DEG], "k2": [50.0], "k3": [-12.0], "k4": [4.0]},
+            {"theta0": [2.0 * DEGREES_PER_RADIAN], "k2": [50.0], "k3": [-12.0], "k4": [4.0]},
         ),
         both(
             "dihedral",
@@ -930,10 +928,10 @@ def v1_forcefield() -> tuple[ForceFieldModel, ForceFieldModel]:
             {
                 "k1": [0.5],
                 "periodicity1": [1.0],
-                "phase1": [math.pi * DEG],
+                "phase1": [math.pi * DEGREES_PER_RADIAN],
                 "k2": [0.2],
                 "periodicity2": [2.0],
-                "phase2": [0.3 * DEG],
+                "phase2": [0.3 * DEGREES_PER_RADIAN],
             },
         ),
         both(
@@ -941,28 +939,33 @@ def v1_forcefield() -> tuple[ForceFieldModel, ForceFieldModel]:
             "charmm",
             quads,
             {"k": [0.4], "periodicity": [3.0], "phase": [0.2], "w": [0.5]},
-            {"k": [0.4], "periodicity": [3.0], "phase": [0.2 * DEG], "w": [0.5]},
+            {"k": [0.4], "periodicity": [3.0], "phase": [0.2 * DEGREES_PER_RADIAN], "w": [0.5]},
         ),
         both(
             "dihedral",
             "class2",
             quads,
             {"k1": [0.02], "phi1": [0.1], "k3": [0.005], "phi3": [-0.4]},
-            {"k1": [0.02], "phi1": [0.1 * DEG], "k3": [0.005], "phi3": [-0.4 * DEG]},
+            {
+                "k1": [0.02],
+                "phi1": [0.1 * DEGREES_PER_RADIAN],
+                "k3": [0.005],
+                "phi3": [-0.4 * DEGREES_PER_RADIAN],
+            },
         ),
         both(
             "improper",
             "harmonic",
             quads,
             {"k": [12.0], "chi0": [0.11]},
-            {"k": [12.0], "chi0": [0.11 * DEG]},
+            {"k": [12.0], "chi0": [0.11 * DEGREES_PER_RADIAN]},
         ),
         both(
             "improper",
             "periodic",
             quads,
             {"k": [1.1], "periodicity": [2.0], "phase": [math.pi]},
-            {"k": [1.1], "periodicity": [2.0], "phase": [math.pi * DEG]},
+            {"k": [1.1], "periodicity": [2.0], "phase": [math.pi * DEGREES_PER_RADIAN]},
         ),
         both(
             "improper",
@@ -1038,11 +1041,20 @@ def v1_lj_fourier() -> tuple[ForceFieldModel, ForceFieldModel]:
             atom,
             (
                 angle,
-                table(["t"], itom=["A"], jtom=["A"], ktom=["A"], k=[20.0], theta0=[2.0 * DEG]),
+                table(
+                    ["t"],
+                    itom=["A"],
+                    jtom=["A"],
+                    ktom=["A"],
+                    k=[20.0],
+                    theta0=[2.0 * DEGREES_PER_RADIAN],
+                ),
             ),
             (
                 style("dihedral", "periodic"),
-                table(["t"], **quads, k1=[0.5], periodicity1=[1.0], phase1=[0.7 * DEG]),
+                table(
+                    ["t"], **quads, k1=[0.5], periodicity1=[1.0], phase1=[0.7 * DEGREES_PER_RADIAN]
+                ),
             ),
         ],
         name="v1",
@@ -1126,7 +1138,6 @@ def v1_refusals() -> list[tuple[str, str, ForceFieldModel]]:
 
 
 __all__ = [
-    "DEG",
     "V1_REAL",
     "ForceFieldSuite",
     "as_version",

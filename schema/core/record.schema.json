@@ -729,7 +729,8 @@
                 "electron",
                 "micro",
                 "nano",
-                "lj"
+                "lj",
+                "openmm"
               ],
               "type": "string"
             },
@@ -1705,7 +1706,7 @@
       ]
     }
   ],
-  "description": "The record root.\n\n``meta`` is always present (an empty document is a valid one), plus at\nleast one of ``frame``, ``system``, ``trajectory``, ``forcefield`` or\n``status`` -- a record of ``meta`` and ``forcefield`` alone is a\nforce-field package. Each of\nthose is a valid **sole** section beside ``meta``: a trajectory-only\nrecord is conforming and a reader must not require a frame beside it,\nbecause frames may embed full blocks including topology.\n\n``observables`` is the v1 section (:class:`ObservablesModel`). ``metrics``\n-- the catalog document, the dense series and the live WAL of\n``docs/spec/metrics.md`` -- is carried verbatim as a :class:`NodeModel`:\nmolrec does not interpret run-local monitoring, it only never loses it.",
+  "description": "The record root.\n\n``meta`` is always present (an empty document is a valid one), plus at\nleast one of ``frame``, ``system``, ``trajectory``, ``forcefield`` or\n``status`` -- a record of ``meta`` and ``forcefield`` alone is a\nforce-field package. Each of\nthose is a valid **sole** section beside ``meta``: a trajectory-only\nrecord is conforming and a reader must not require a frame beside it,\nbecause frames may embed full blocks including topology.\n\n``observables`` is the v1 section\n(:class:`molrec.observables.model.ObservablesModel`). ``metrics``\n-- the catalog document, the dense series and the live WAL of\n``docs/spec/metrics.md`` -- is carried verbatim as a :class:`NodeModel`:\nmolrec does not interpret run-local monitoring, it only never loses it.",
   "properties": {
     "forcefield": {
       "anyOf": [
