@@ -87,7 +87,7 @@ a red PR.
 
 - **pre-commit** (staged files, cheap, in place): file hygiene
   (whitespace, EOF, yaml/toml/json, merge markers, large files) and ruff.
-- **pre-push**: the same hygiene hooks on `--all-files` (as ci.yml `checks`
+- **pre-push**: the same hygiene hooks on `--all-files` (as lint.yml `lint / hooks`
   runs them); `scripts/partners.py check` (every partner in
   `.github/partners.env` resolves, no path source CI cannot resolve, no
   workflow spelling a partner commit of its own); `uv lock --check` and the
@@ -110,8 +110,8 @@ a red PR.
 
 On `dev`, partners are tracked, not pinned. `.github/partners.env` names
 molrs's branch (`MOLRS_REF=dev`), and `scripts/partners.py` resolves it -- for
-CI (`partners.py resolve`, appended to `$GITHUB_ENV`) and for the hooks
-(`partners.py run`) alike -- to the first of:
+CI (`partners.py fetch`, into `../molrs`) and for the hooks (`partners.py
+run`) alike -- to the first of:
 
 1. molrs's branch named like the one being built (CI: the pushed branch or a
    pull request's head branch; locally: the checked-out branch), looked up
@@ -126,9 +126,8 @@ A change to the contract between molrec and molrs (molrs's adapter, the
 conformance suite) lands as two same-named branches, never by skipping a gate:
 create the same branch (say `converge/x`) in both checkouts; push both to
 your forks, never to MolCrafts (the first push's gates take the partner's
-branch from the sibling clone, the second's from your fork); run CI on the
-forks by opening each branch as a pull request inside its fork -- each run
-resolves the other's branch on your fork; only once both forks are green, open
+branch from the sibling clone, the second's from your fork); each push runs
+the full CI tier on your fork, and each run resolves the other's branch there; only once both forks are green, open
 the pull requests into MolCrafts `dev`, merge both once green (never a red
 one), and delete the branches. A `dev` push whose partner's `dev` has not
 caught up yet is re-run once both have landed.
@@ -161,3 +160,23 @@ molrs; `dev` keeps `MOLRS_REF=dev` when `master` is merged back.
 - Keep section chapters aligned with `docs/spec/storage.md` and
   `docs/spec/zarr.md`: documents are Zarr group attributes; metrics JSONL
   is an append buffer.
+
+## CI
+
+One workflow per kind of work. Every push of any branch runs `lint`, `test`
+and `docs`, on a fork as on MolCrafts. A pull request into `dev` or `master`
+runs them again only when it comes from another repository (a pull request
+inside a fork was already built by its push). molrec publishes nothing, so
+there is no `release.yml` or `nightly.yml`.
+
+| workflow | feature-branch push to MolCrafts | everything else: `dev`/`master`, pull requests, any push to a fork | upstream only |
+| --- | --- | --- | --- |
+| `lint.yml` | `lint / hooks` (commit hooks on every file, partners, `uv lock --check`) | same | — |
+| `test.yml` | fast: `test / python (ubuntu-latest)` (bare import + the full suite against molrs) | full: `test / python` on Linux, macOS and Windows | — |
+| `docs.yml` | `docs / build` (zensical `--strict`) | same | Cloudflare Pages deploys the site from MolCrafts |
+
+So a fork branch gets the full tier on its push: push to your fork, wait for
+green, then open the pull request into MolCrafts `dev`. The
+`require-green-ci` (`dev`) and `protect-master` rulesets require the full
+tier's jobs. Shared setup lives in `.github/actions/` (`setup-rust`,
+`setup-python`, `setup-partners`).
