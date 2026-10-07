@@ -37,8 +37,9 @@ from pydantic import (
 )
 
 from molrec import jsonvalue
-from molrec.arrays import NDArray, arrays_equal, arrays_identical
+from molrec.arrays import NdArray, arrays_equal, arrays_identical
 from molrec.precision import PRECISION_MAX, PRECISION_MIN, quantize
+from molrec.safe_name import percent_decode, percent_encode
 
 
 class DocumentModel(BaseModel):
@@ -214,7 +215,7 @@ def coerce_meta_value(tag: str, value: Any) -> Any:
     as ``1`` is ``1.0``; an integer given as ``1.0`` is refused, not
     rounded), a vector a list of exactly its width, a ``json`` value a plain
     finite JSON document. What a writer stores is what this returns, so two
-    implementations that were handed the same Python value store the same
+    implementations that were handed the same Python value storage the same
     thing.
     """
     if tag == "json":
@@ -311,7 +312,7 @@ def decode_typed_meta(attrs: dict[str, Any], where: str) -> tuple[dict[str, Any]
     """A stored meta document (with its ``_meta_types``) as values and tags.
 
     A tagged key is decoded under its tag and any other form is refused; an
-    untagged key gets the tag it is inferred as (a store written before
+    untagged key gets the tag it is inferred as (a storage written before
     ``_meta_types``); a tag whose key is absent is ignored.
     """
     tags = attrs.pop(META_TYPES_ATTR, {})
@@ -357,14 +358,14 @@ STORED: dict[str, bool] = {"stored": True}
 
 
 def _stored(info: ValidationInfo | None) -> bool:
-    """Whether a model is being built from a store (:data:`STORED`)."""
+    """Whether a model is being built from a storage (:data:`STORED`)."""
     return bool(info is not None and info.context and info.context.get("stored"))
 
 
 def _as_stored(model: BaseModel, info: ValidationInfo | None) -> bool:
     """Whether ``model`` holds stored values that must not be rounded again.
 
-    Built from a store (:data:`STORED`), or already rounded once: pydantic
+    Built from a storage (:data:`STORED`), or already rounded once: pydantic
     runs a model's after-validators again whenever the instance is handed to
     another model, so the first verdict is remembered on the instance.
     """
@@ -402,7 +403,7 @@ class ColumnModel(BaseModel):
     ``BoxModel`` materializing its defaults, a validated model holds the
     **stored** values -- rounded to the precision's binary grid
     (:func:`molrec.precision.quantize`) -- which is what a writer stores and
-    a reader hands back. A model built from a store (:data:`STORED`) keeps
+    a reader hands back. A model built from a storage (:data:`STORED`) keeps
     the values exactly as stored.
     """
 
@@ -412,8 +413,8 @@ class ColumnModel(BaseModel):
 
     dtype: DType
     shape: tuple[int, ...] = Field(min_length=1)
-    values: NDArray | None = None
-    validity: Annotated[NDArray, WithJsonSchema(_MASK)] | None = None
+    values: NdArray | None = None
+    validity: Annotated[NdArray, WithJsonSchema(_MASK)] | None = None
     precision: Precision | None = None
     _as_stored: bool = PrivateAttr(default=False)
 
@@ -677,8 +678,8 @@ class CellModel(BaseModel):
 
     model_config = ConfigDict(frozen=True, from_attributes=True)
 
-    vectors: Annotated[NDArray, WithJsonSchema(_MATRIX3)]
-    origin: Annotated[NDArray, WithJsonSchema(_VECTOR3)] | None = None
+    vectors: Annotated[NdArray, WithJsonSchema(_MATRIX3)]
+    origin: Annotated[NdArray, WithJsonSchema(_VECTOR3)] | None = None
     boundary: Annotated[tuple[bool, ...], WithJsonSchema(_FLAGS3)] | None = None
 
     @model_validator(mode="after")
@@ -711,7 +712,7 @@ class CellModel(BaseModel):
 def resolve_cell(cell: CellModel, defined: bool) -> dict[str, Any]:
     """A cell's parts with the normative meaning of every absence filled in.
 
-    Two readers that default an absent part differently turn one store into
+    Two readers that default an absent part differently turn one storage into
     two physical systems, so absence is resolved here, once:
 
     * an absent ``origin`` is the coordinate origin;
@@ -899,7 +900,7 @@ class MetaSeriesModel(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _fill_arrives_in_its_json_form(cls, data: Any) -> Any:
-        """A fill read from a store is in the typed JSON form; one built in
+        """A fill read from a storage is in the typed JSON form; one built in
         Python is already a value. Both reach the same coerced value."""
         if isinstance(data, dict) and "fill" in data and isinstance(data.get("dtype"), str):
             tag, fill = data["dtype"], data["fill"]
@@ -1024,9 +1025,6 @@ class SequenceSchemaModel(DocumentModel):
     lifetime. ``blocks`` mirrors the frame blocks; ``meta`` declares each
     per-step key as ``{dtype, fill?}`` -- the tag the array's ``meta_dtype``
     attribute repeats, and the fill an omitting frame is completed with.
-
-    The attribute carries no version of its own; the record's
-    ``meta["molrec_version"]`` covers it.
     """
 
     blocks: dict[str, SequenceBlockModel] = Field(default_factory=dict)
@@ -1077,7 +1075,9 @@ def same_cell(left: CellModel, right: CellModel) -> bool:
 
 
 class BlockState(StrEnum):
-    """What a block *is* at one frame ordinal -- the three states of S1.
+    """What a block *is* at one frame ordinal.
+
+    The three states of ``docs/spec/ragged.md#the-three-states-of-a-block``:
 
     * ``PRESENT``: the most recent update at or before this ordinal has rows.
     * ``EMPTY``: the most recent update is a zero-row update -- the block is
@@ -1154,7 +1154,7 @@ class TrajectoryModel(BaseModel):
     This is the *logical* content, the thing a reader hands back. The physical
     form is the binding's: one CSR row range per section update, a sparse
     index of the ordinals a section changed at, and each section written again
-    only when it changed. Two conforming stores of one trajectory are expected
+    only when it changed. Two conforming records of one trajectory are expected
     to differ byte for byte, so none of that appears here.
 
     Two integers index a trajectory and they are not the same one. A frame's
@@ -1238,7 +1238,7 @@ class TrajectoryModel(BaseModel):
 
         A frame may present a **subset** of the declaration, never anything
         outside it. A run that decides halfway through to record a new block
-        or column needs a new store, so a frame that invents one is refused
+        or column needs a new storage, so a frame that invents one is refused
         here rather than half-written there. Reserved names are refused at
         declaration for the same reason.
         """
@@ -1322,9 +1322,11 @@ class TrajectoryModel(BaseModel):
                     declared[name] = pinned = pinned.model_copy(
                         update={"targets": presented.targets}
                     )
-                # S4: a grid block's row count is fixed. ``BlockModel`` already
-                # holds each presentation to ``count == prod(structural_shape)``,
-                # so pinning the shape pins the count.
+                # A grid block's row count is fixed
+                # (docs/spec/ragged.md#per-block-sparse-updates-csr). ``BlockModel``
+                # already holds each presentation to
+                # ``count == prod(structural_shape)``, so pinning the shape pins
+                # the count.
                 if presented.structural_shape != pinned.structural_shape:
                     raise ValueError(
                         f"block {name!r} has structural shape {presented.structural_shape} at "
@@ -1346,7 +1348,7 @@ class TrajectoryModel(BaseModel):
         Every frame holds the stored values -- rounded to its column's
         declared precision -- and neither its columns' precision nor its
         blocks' ``targets``: the declaration states both for the run. A model
-        built from a store (:data:`STORED`) keeps the values exactly as
+        built from a storage (:data:`STORED`) keeps the values exactly as
         stored.
         """
         declared = self.blocks or {}
@@ -1381,7 +1383,9 @@ class TrajectoryModel(BaseModel):
 
     @model_validator(mode="after")
     def _omission_carries_forward(self) -> TrajectoryModel:
-        """Resolve S1 once, so the frames are what a reader hands back.
+        """Resolve the block states once, so the frames are what a reader hands back.
+
+        The states are ``docs/spec/ragged.md#the-three-states-of-a-block``'s.
 
         A frame that omits a declared block carries no update for it: the
         block at that ordinal is its most recent update, rows included (or
@@ -1582,10 +1586,11 @@ class AuthorModel(DocumentModel):
 
 
 class ModuleModel(DocumentModel):
-    """A shared interpretation beyond this specification, keyed by name under
-    ``meta/modules``: a major/minor ``version`` plus module-specific keys."""
+    """A shared interpretation beyond this specification that the record uses,
+    keyed by its name under ``meta/modules``: optionally the URL of its
+    specification, plus module-specific keys."""
 
-    version: tuple[int, int]
+    spec: str | None = None
 
 
 def _rfc3339(value: str) -> str:
@@ -1606,22 +1611,6 @@ Timestamp = Annotated[
     WithJsonSchema({"type": "string", "format": "date-time"}),
 ]
 
-#: The contract version this package speaks. Every writer stamps it on
-#: ``meta``; a reader validates a present key and refuses a newer one.
-MOLREC_VERSION = 1
-
-#: ``meta["molrec_version"]``: absent, or an integer in ``1..=MOLREC_VERSION``.
-#: Strict -- ``"1"``, ``1.0`` and ``true`` are not versions -- and never
-#: ``null``: present means validated.
-MolrecVersion = Annotated[StrictInt, Field(ge=1, le=MOLREC_VERSION)]
-
-_VERSION_SCHEMA = {
-    "type": "integer",
-    "minimum": 1,
-    "maximum": MOLREC_VERSION,
-    "description": "Absent on a store written before version 1; never null.",
-}
-
 
 def revalidated[M: BaseModel](model: M) -> M:
     """``model`` run through its validators again.
@@ -1635,35 +1624,18 @@ def revalidated[M: BaseModel](model: M) -> M:
     return type(model).model_validate(model.model_dump(exclude_unset=True))
 
 
-def stamp_version(document: dict[str, Any]) -> dict[str, Any]:
-    """``document`` with ``molrec_version`` stamped in when the producer gave none.
-
-    Every writer -- molrec's own codecs included -- emits the version it
-    writes; a producer that set the key keeps its value.
-    """
-    return {"molrec_version": MOLREC_VERSION, **document}
-
-
 class MetaModel(DocumentModel):
     """The record's identity document.
 
     ``extra="allow"`` is not convenience -- it is the preserve-the-unknown
     invariant: a reader must keep keys it does not recognize.
 
-    ``molrec_version`` is stamped by every writer (:func:`stamp_version`). A
-    reader validates it only when present: absent is a store written before
-    version 1, read best-effort; present must be an integer in
-    ``1..=MOLREC_VERSION`` -- ``null``, ``0``, a string, a float or a newer
-    version is refused. Identity of a record is the ``*.mrec`` path suffix
-    plus a Zarr root, not this key.
+    Identity of a record is the ``*.mrec`` path suffix plus a Zarr root.
 
     ``record_id`` and ``content_hash`` are optional provenance, like
     ``creator``, ``author``, ``created_at`` and ``source``.
     """
 
-    molrec_version: Annotated[MolrecVersion, WithJsonSchema(_VERSION_SCHEMA)] = Field(
-        default=None, json_schema_extra=lambda schema: schema.pop("default", None)
-    )
     creator: CreatorModel | None = None
     author: AuthorModel | None = None
     created_at: Timestamp | None = None
@@ -1716,59 +1688,6 @@ class MethodModel(DocumentModel):
     stages: dict[str, MethodModel] | None = None
 
 
-# ---------------------------------------------------------------------------
-# The v1 observables section (docs/spec/observables.md)
-#
-# Each observable is a pair -- a metadata document and one data array -- and
-# the pair is mandatory. ``kind`` says how the array is read: ``scalar`` (one
-# value per sample) or ``vector`` (an ordered tuple of components per
-# sample), with ``axes`` naming trailing axes for higher-rank data. A kind
-# this version does not define is **carried through unchanged**, and so is
-# every metadata key it does not name. The dims-based redesign is the draft
-# in :mod:`molrec.draft.observables`, not part of version 1.
-# ---------------------------------------------------------------------------
-
-#: The kinds version 1 defines. Others are carried through, never refused.
-KNOWN_KINDS: tuple[str, ...] = ("scalar", "vector")
-
-#: The child of ``observables/`` that holds the metadata groups. An
-#: observable cannot take the name.
-OBSERVABLES_META_GROUP = "meta"
-
-
-def check_observable_name(name: str) -> None:
-    """An observable is one array and one metadata group named ``name``: a
-    single Zarr node name that is not the reserved ``meta``."""
-    if (
-        not name
-        or name in (".", "..", OBSERVABLES_META_GROUP)
-        or "/" in name
-        or name.startswith("__")
-    ):
-        raise ValueError(
-            f"observable name {name!r} is not a single node name (non-empty, no '/', not "
-            f"'.', '..' or {OBSERVABLES_META_GROUP!r}, no leading '__')"
-        )
-
-
-class ObservableMetaModel(DocumentModel):
-    """The ``observables/meta/<name>`` document.
-
-    ``kind``, ``description`` and ``time_dependent`` are required; the rest
-    are written only when set. Every other key is a producer's and is kept
-    verbatim (``extra="allow"``).
-    """
-
-    kind: Annotated[str, Field(min_length=1)]
-    description: str
-    time_dependent: bool
-    unit: str | None = None
-    axes: list[str] | None = None
-    sampling: str | None = None
-    domain: str | None = None
-    target: str | None = None
-
-
 class ArrayModel(BaseModel):
     """One typed array of any shape, a 0-d one included."""
 
@@ -1776,7 +1695,7 @@ class ArrayModel(BaseModel):
 
     dtype: DType
     shape: tuple[int, ...] = ()
-    values: NDArray | None = None
+    values: NdArray | None = None
 
     @model_validator(mode="after")
     def _values_match_declaration(self) -> ArrayModel:
@@ -1798,39 +1717,6 @@ class ArrayModel(BaseModel):
         )
 
     __hash__ = None  # type: ignore[assignment]
-
-
-class ObservableModel(BaseModel):
-    """One named result: its metadata document and its data array -- the two
-    halves the layout stores side by side."""
-
-    model_config = ConfigDict(frozen=True, from_attributes=True)
-
-    meta: ObservableMetaModel
-    data: ArrayModel
-
-    @model_validator(mode="after")
-    def _time_runs_along_the_leading_axis(self) -> ObservableModel:
-        if self.meta.time_dependent and not self.data.shape:
-            raise ValueError(
-                "a time-dependent observable's leading axis is the trajectory axis; a 0-d "
-                "array has none"
-            )
-        return self
-
-
-class ObservablesModel(BaseModel):
-    """The section: every named observable of the record."""
-
-    model_config = ConfigDict(frozen=True, from_attributes=True)
-
-    observables: dict[str, ObservableModel] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def _names_are_node_names(self) -> ObservablesModel:
-        for name in self.observables:
-            check_observable_name(name)
-        return self
 
 
 class ArrayNodeModel(ArrayModel):
@@ -1881,9 +1767,15 @@ CATEGORY_ARITY: dict[str, int] = {
     "cmap": 5,
 }
 
-#: The one parameter column with trailing axes: a ``cmap`` row's correction
-#: table, ``f64[T, N, N]`` (``docs/spec/forcefield.md``, rows and columns).
+#: A ``cmap`` row's correction map, ``f64[T, N, N]`` with ``N >= 2``: the
+#: array parameter whose shape the chapter pins further (``docs/spec/
+#: forcefield.md``, rows and columns). Every other array parameter is any
+#: ``f64[T, S...]``.
 CMAP_GRID = "grid"
+
+#: The values ``pair.lj/charmm``'s style parameter ``one_four`` may take: at
+#: which parameters a ``special_bonds`` 1-4 pair is priced.
+ONE_FOUR_VALUES: tuple[str, ...] = ("regular", "epsilon14")
 
 #: Annotation columns of a style table: ``string``, nullable.
 ANNOTATION_COLUMNS: frozenset[str] = frozenset(
@@ -1891,15 +1783,23 @@ ANNOTATION_COLUMNS: frozenset[str] = frozenset(
 )
 
 #: Bytes of a style name kept verbatim in its table's block name.
-_UNRESERVED = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+STYLE_UNRESERVED: frozenset[int] = frozenset(
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+)
 
 #: The combining rules a van-der-Waals pair style may name.
 MIXING_RULES: tuple[str, ...] = ("arithmetic", "geometric", "sixthpower")
 
+#: 180/π, the one rounding of it every implementation multiplies by: an angle
+#: in radians times this is the same double everywhere.
+DEGREES_PER_RADIAN = 180.0 / math.pi
+
 #: The unit presets and the unit of each quantity in them; ``None`` is a
-#: quantity the preset gives no unit (reduced ``lj``). The angle is a degree
-#: in every preset, as in LAMMPS: it is the unit of angle *values* (theta0,
-#: phases); a force constant is per radian whatever it says.
+#: quantity the preset gives no unit (reduced ``lj``). The presets are the
+#: LAMMPS ``units`` styles plus ``openmm`` (OpenMM's and GROMACS's nm, kJ/mol,
+#: ps). The angle is a degree in every preset, as in LAMMPS: it is the unit of
+#: angle *values* (theta0, phases); a force constant is per radian whatever it
+#: says.
 UNIT_QUANTITIES: tuple[str, ...] = ("length", "energy", "angle", "charge", "mass", "time")
 UNIT_PRESETS: dict[str, dict[str, str | None]] = {
     "real": dict(
@@ -1937,16 +1837,16 @@ UNIT_PRESETS: dict[str, dict[str, str | None]] = {
         )
     ),
     "lj": {**dict.fromkeys(UNIT_QUANTITIES), "angle": "degree"},
+    "openmm": dict(
+        zip(UNIT_QUANTITIES, ("nm", "kJ/mol", "degree", "e", "dalton", "ps"), strict=True)
+    ),
 }
 
 
 def style_block_name(category: str, style: str) -> str:
     """The block a style's table lives at: ``<category>.<encoded style>``, every
     byte of the UTF-8 style outside ``A-Z a-z 0-9 - _`` written ``%XX``."""
-    encoded = "".join(
-        chr(byte) if byte in _UNRESERVED else f"%{byte:02X}" for byte in style.encode("utf-8")
-    )
-    return f"{category}.{encoded}"
+    return f"{category}.{percent_encode(style, STYLE_UNRESERVED)}"
 
 
 def parse_style_block_name(name: str) -> tuple[str, str]:
@@ -1955,22 +1855,7 @@ def parse_style_block_name(name: str) -> tuple[str, str]:
     category, dot, encoded = name.partition(".")
     if not dot or not category:
         raise ValueError(f"{name!r} is no style table name (<category>.<style>)")
-    raw = bytearray()
-    i = 0
-    while i < len(encoded):
-        char = encoded[i]
-        if char == "%":
-            digits = encoded[i + 1 : i + 3]
-            if len(digits) != 2 or not all(c in "0123456789ABCDEF" for c in digits):
-                raise ValueError(f"{name!r}: {encoded[i : i + 3]!r} is no %XX escape")
-            raw.append(int(digits, 16))
-            i += 3
-            continue
-        if ord(char) not in _UNRESERVED:
-            raise ValueError(f"{name!r}: {char!r} is written as a %XX escape")
-        raw.append(ord(char))
-        i += 1
-    style = raw.decode("utf-8")
+    style = percent_decode(encoded, STYLE_UNRESERVED)
     if style_block_name(category, style) != name:
         raise ValueError(f"{name!r} escapes a byte it keeps verbatim")
     return category, style
@@ -2024,7 +1909,9 @@ class ForceFieldUnitsModel(DocumentModel):
         }
     )
 
-    preset: Literal["real", "metal", "si", "cgs", "electron", "micro", "nano", "lj"] | None = None
+    preset: (
+        Literal["real", "metal", "si", "cgs", "electron", "micro", "nano", "lj", "openmm"] | None
+    ) = None
     length: str | None = None
     energy: str | None = None
     angle: str | None = None
@@ -2089,6 +1976,15 @@ class StyleModel(DocumentModel):
         mixing = self.params.get("mixing")
         if mixing is not None and mixing not in MIXING_RULES:
             raise ValueError(f"params.mixing is one of {MIXING_RULES}, found {mixing!r}")
+        one_four = self.params.get("one_four")
+        if (
+            (self.category, self.style) == ("pair", "lj/charmm")
+            and one_four is not None
+            and one_four not in ONE_FOUR_VALUES
+        ):
+            raise ValueError(
+                f"pair.lj/charmm params.one_four is one of {ONE_FOUR_VALUES}, found {one_four!r}"
+            )
         return self
 
     @model_serializer(mode="wrap")
@@ -2122,8 +2018,10 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
     name = table.columns.get("name")
     if name is None:
         raise ValueError(f"{where} has no name column")
-    if name.dtype != "string" or name.validity is not None:
-        raise ValueError(f"{where}: name is a string never null, found {name.dtype}")
+    if name.dtype != "string" or name.validity is not None or name.shape[1:]:
+        raise ValueError(
+            f"{where}: name is a string[T] never null, found {name.dtype}{list(name.shape[1:])}"
+        )
     names = [] if name.values is None else [str(value) for value in name.values.tolist()]
     if len(set(names)) != len(names):
         raise ValueError(f"{where}: type names are unique, found {sorted(names)}")
@@ -2145,8 +2043,8 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
         raise ValueError(f"{where}: endpoint columns {present} are no prefix of itom..mtom")
     for endpoint in present:
         column = table.columns[endpoint]
-        if column.dtype != "string" or column.validity is not None:
-            raise ValueError(f"{where}: endpoint {endpoint} is a string never null")
+        if column.dtype != "string" or column.validity is not None or column.shape[1:]:
+            raise ValueError(f"{where}: endpoint {endpoint} is a string[T] never null")
 
     for column_name, column in table.columns.items():
         if column_name == "name" or column_name in ENDPOINT_COLUMNS:
@@ -2161,6 +2059,9 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
             allowed = (canonical,)
         else:
             allowed = ("f64", "string")
+            if column.dtype == "f64" and column.shape[1:]:
+                _check_array_param(where, column_name, column)
+                continue
         if column.dtype not in allowed or column.shape[1:] or column.precision is not None:
             raise ValueError(
                 f"{where}: parameter {column_name!r} is {' or '.join(allowed)}[T], exact, found "
@@ -2176,8 +2077,35 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
         _check_pair_restatements(where, table, names)
 
 
+def _check_array_param(where: str, name: str, column: ColumnModel) -> None:
+    """An array parameter: ``f64[T, S...]``, every trailing axis at least 1
+    long, no precision, every value of a non-null row finite. One shape for
+    every row -- a column has one shape."""
+    trailing = column.shape[1:]
+    if column.dtype != "f64" or not all(axis >= 1 for axis in trailing):
+        raise ValueError(
+            f"{where}: array parameter {name!r} is f64[T, S...] with every S >= 1, found "
+            f"{column.dtype}{list(trailing)}"
+        )
+    if column.precision is not None:
+        raise ValueError(f"{where}: array parameter {name!r} is exact, found a declared precision")
+    _check_finite_rows(where, f"array parameter {name!r}", column)
+
+
+def _check_finite_rows(where: str, what: str, column: ColumnModel) -> None:
+    """Every value of a non-null row of an array column is finite."""
+    if column.values is None:
+        return
+    values = np.asarray(column.values)
+    rows = np.isfinite(values).reshape(values.shape[0], -1).all(axis=1)
+    if column.validity is not None:
+        rows |= ~np.asarray(column.validity)
+    if not rows.all():
+        raise ValueError(f"{where}: {what} of row {int(np.argmin(rows))} holds a non-finite value")
+
+
 def _check_cmap_grid(where: str, column: ColumnModel) -> None:
-    """The trailing-axis exception: a ``cmap`` table's grid is ``f64[T, N, N]``,
+    """A ``cmap`` table's grid: an array parameter of shape ``f64[T, N, N]``,
     ``N >= 2``, with no precision, every value of a non-null row finite."""
     trailing = column.shape[1:]
     square = len(trailing) == 2 and trailing[0] == trailing[1] and trailing[0] >= 2
@@ -2187,15 +2115,7 @@ def _check_cmap_grid(where: str, column: ColumnModel) -> None:
             f"{column.dtype}{list(trailing)}"
             + (" with a declared precision" if column.precision is not None else "")
         )
-    if column.values is None:
-        return
-    rows = np.isfinite(np.asarray(column.values)).all(axis=(1, 2))
-    if column.validity is not None:
-        rows |= ~np.asarray(column.validity)
-    if not rows.all():
-        raise ValueError(
-            f"{where}: the cmap grid of row {int(np.argmin(rows))} holds a non-finite value"
-        )
+    _check_finite_rows(where, "the cmap grid", column)
 
 
 def _cells(column: ColumnModel, count: int) -> list[Any]:
@@ -2290,7 +2210,8 @@ class RecordModel(BaseModel):
     record is conforming and a reader must not require a frame beside it,
     because frames may embed full blocks including topology.
 
-    ``observables`` is the v1 section (:class:`ObservablesModel`). ``metrics``
+    ``observables`` is the section
+    (:class:`molrec.observables.model.ObservablesModel`). ``metrics``
     -- the catalog document, the dense series and the live WAL of
     ``docs/spec/metrics.md`` -- is carried verbatim as a :class:`NodeModel`:
     molrec does not interpret run-local monitoring, it only never loses it.
@@ -2316,11 +2237,11 @@ class RecordModel(BaseModel):
     status: StatusModel | None = None
     method: MethodModel | None = None
     metrics: NodeModel | None = None
-    observables: ObservablesModel | None = None
+    observables: _observables.ObservablesModel | None = None
 
     @model_validator(mode="after")
     def _unknown_sections_are_subtrees(self) -> RecordModel:
-        """An extra key is a root section this version does not define: a
+        """An extra key is a root section the contract does not define: a
         group, kept as the :class:`NodeModel` it was read as."""
         extra = self.__pydantic_extra__ or {}
         for name, value in extra.items():
@@ -2426,9 +2347,6 @@ class CollectionMetaModel(DocumentModel):
     """
 
     units: dict[str, str]
-    molrec_version: Annotated[MolrecVersion, WithJsonSchema(_VERSION_SCHEMA)] = Field(
-        default=None, json_schema_extra=lambda schema: schema.pop("default", None)
-    )
 
 
 class CollectionModel(BaseModel):
@@ -2560,3 +2478,13 @@ class CollectionModel(BaseModel):
         if reserved:
             raise ValueError(f"index columns {reserved} are reserved for the binding")
         return self
+
+
+# The record root holds the observables section, which
+# :mod:`molrec.observables.model` owns. That module builds on this one
+# (``DocumentModel``, ``ArrayModel``), so it is imported once this one is
+# complete and the two models that reach the section are finished here.
+from molrec.observables import model as _observables  # noqa: E402
+
+RecordModel.model_rebuild()
+CollectionModel.model_rebuild()

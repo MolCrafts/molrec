@@ -14,17 +14,16 @@ import zarr
 
 from molrec.core.bindings.zarr import (
     PRECISION_ATTR,
-    PackedRecordStore,
+    PackedRecordStorage,
     ZarrFrameCodec,
-    ZarrFrameStore,
+    ZarrFrameStorage,
     ZarrRecordCodec,
-    ZarrRecordStore,
+    ZarrRecordStorage,
     ZarrTrajectoryCodec,
-    ZarrTrajectoryStore,
+    ZarrTrajectoryStorage,
     pack,
 )
 from molrec.core.model import (
-    MOLREC_VERSION,
     STORED,
     BlockModel,
     ColumnModel,
@@ -115,12 +114,12 @@ class TestModels:
                 )
             }
         )
-        store = ZarrTrajectoryStore(tmp_path / "t.mrec")
+        storage = ZarrTrajectoryStorage(tmp_path / "t.mrec")
         ZarrTrajectoryCodec().write(
-            TrajectoryModel(frames=[frame], step=[0], blocks=declared), store
+            TrajectoryModel(frames=[frame], step=[0], blocks=declared), storage
         )
-        zarr.open_group(store=store.path, mode="r+")["trajectory/atoms/x"][...] = [0.1234]
-        read = ZarrTrajectoryCodec().read(store)
+        zarr.open_group(store=storage.path, mode="r+")["trajectory/atoms/x"][...] = [0.1234]
+        read = ZarrTrajectoryCodec().read(storage)
         assert read.frames[0].blocks["atoms"].columns["x"].values.tolist() == [0.1234]
         record = RecordModel(meta=MetaModel(), trajectory=read)
         assert record.trajectory.frames[0].blocks["atoms"].columns["x"].values.tolist() == [0.1234]
@@ -173,12 +172,12 @@ class TestModels:
 
 
 def test_the_frame_path_stores_the_attribute_and_the_pipeline(tmp_path) -> None:
-    store = ZarrFrameStore(tmp_path / "f.mrec")
+    storage = ZarrFrameStorage(tmp_path / "f.mrec")
     column = ColumnModel(dtype="f64", shape=(4,), values=np.linspace(0, 1, 4), precision=1e-3)
     ZarrFrameCodec().write(
-        FrameModel(blocks={"atoms": BlockModel(count=4, columns={"x": column})}), store
+        FrameModel(blocks={"atoms": BlockModel(count=4, columns={"x": column})}), storage
     )
-    array = zarr.open_group(store=store.path, mode="r")["atoms/x"]
+    array = zarr.open_group(store=storage.path, mode="r")["atoms/x"]
     assert array.attrs[PRECISION_ATTR] == 1e-3
     names = [codec["name"] for codec in array.metadata.to_dict()["codecs"]]
     assert names == ["bytes", "numcodecs.shuffle", "zstd", "crc32c"]
@@ -194,10 +193,10 @@ def test_a_sub_quantum_change_writes_one_update(tmp_path) -> None:
     }
     q = quantum(1e-3)
     model = TrajectoryModel(frames=[frame(0.5), frame(0.5 + 0.4 * q)], step=[0, 1], blocks=declared)
-    store = ZarrTrajectoryStore(tmp_path / "t.mrec")
-    ZarrTrajectoryCodec().write(model, store)
-    assert zarr.open_group(store=store.path, mode="r")["trajectory/atoms/x"].shape == (1,)
-    assert ZarrTrajectoryCodec().read(store) == model
+    storage = ZarrTrajectoryStorage(tmp_path / "t.mrec")
+    ZarrTrajectoryCodec().write(model, storage)
+    assert zarr.open_group(store=storage.path, mode="r")["trajectory/atoms/x"].shape == (1,)
+    assert ZarrTrajectoryCodec().read(storage) == model
 
 
 def _bytes_per_atom_frame(tmp_path, precision: float | None) -> float:
@@ -220,11 +219,11 @@ def _bytes_per_atom_frame(tmp_path, precision: float | None) -> float:
             columns={axis: SequenceColumnModel(dtype="f64", precision=precision) for axis in "xyz"}
         )
     }
-    store = ZarrTrajectoryStore(tmp_path / f"density-{precision}.mrec")
+    storage = ZarrTrajectoryStorage(tmp_path / f"density-{precision}.mrec")
     ZarrTrajectoryCodec().write(
-        TrajectoryModel(frames=frames, step=list(range(nframes)), blocks=declared), store
+        TrajectoryModel(frames=frames, step=list(range(nframes)), blocks=declared), storage
     )
-    root = zarr.open_group(store=store.path, mode="r")
+    root = zarr.open_group(store=storage.path, mode="r")
     stored = 0
     for axis in "xyz":
         array = root[f"trajectory/atoms/{axis}"]
@@ -234,7 +233,7 @@ def _bytes_per_atom_frame(tmp_path, precision: float | None) -> float:
         index = 16 * (array.shards[0] // array.chunks[0]) + 4
         shards = [
             path
-            for path in (store.path / "trajectory" / "atoms" / axis).rglob("*")
+            for path in (storage.path / "trajectory" / "atoms" / axis).rglob("*")
             if path.is_file() and path.name != "zarr.json"
         ]
         stored += sum(path.stat().st_size - index for path in shards)
@@ -254,7 +253,7 @@ def test_density_bytes_per_atom_per_frame(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# fixtures/precision.mrec.zip -- a store another implementation wrote, for
+# fixtures/precision.mrec.zip -- a storage another implementation wrote, for
 # molrs's readers (the wasm32 build included) to decode: numcodecs.shuffle +
 # zstd on the frame path and the trajectory path. Regenerate with
 # ``python tests/test_precision.py``.
@@ -289,7 +288,7 @@ def precision_fixture_model() -> RecordModel:
         )
     }
     return RecordModel(
-        meta=MetaModel(molrec_version=MOLREC_VERSION),
+        meta=MetaModel(),
         frame=FrameModel(blocks={"atoms": coordinates(positions, 1e-3)}),
         trajectory=TrajectoryModel(frames=frames, step=[0, 10, 20, 30], blocks=declared),
     )
@@ -297,7 +296,7 @@ def precision_fixture_model() -> RecordModel:
 
 def test_the_precision_fixture_is_what_the_reference_writer_emits() -> None:
     model = precision_fixture_model()
-    assert ZarrRecordCodec().read(PackedRecordStore(FIXTURE)) == model
+    assert ZarrRecordCodec().read(PackedRecordStorage(FIXTURE)) == model
     with zipfile.ZipFile(FIXTURE) as zf:
         names = zf.namelist()
         assert all(info.compress_type == zipfile.ZIP_STORED for info in zf.infolist())
@@ -311,7 +310,7 @@ if __name__ == "__main__":
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
-        live = ZarrRecordStore(Path(tmp) / "precision.mrec")
+        live = ZarrRecordStorage(Path(tmp) / "precision.mrec")
         ZarrRecordCodec().write(precision_fixture_model(), live)
         FIXTURE.unlink(missing_ok=True)
         pack(live.path, FIXTURE)

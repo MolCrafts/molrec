@@ -2,9 +2,9 @@
 
 Two methods per module, and both directions are exercised:
 
-* ``write(model, store)`` -- build your own object from the model, serialize
-  it your way. The suite then reads the store back with the official codec.
-* ``read(store)`` -- the suite wrote a canonical store with the official
+* ``write(model, storage)`` -- build your own object from the model, serialize
+  it your way. The suite then reads the storage back with the official codec.
+* ``read(storage)`` -- the suite wrote a canonical storage with the official
   codec; hand back something shaped like the model.
 
 ``read`` may return anything duck-compatible: a dict, a dataclass, your own
@@ -15,7 +15,7 @@ a reader hands back every value the model holds (a field the model holds as
 ``from_attributes=True``. What it must *not* do is assert -- every assertion
 belongs to the suite.
 
-A negative case is passed only by a *refusal*: a :class:`~molrec.Refusal`, or
+A negative case is passed only by a *refusal*: a :class:`~molrec.refusal.Refusal`, or
 an exception of a type the adapter declares in ``refusal_types``. Any other
 exception is a defect and is reported as ``error``.
 """
@@ -27,7 +27,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel
 
-from molrec.store import Store
+from molrec.storage import Storage
 
 
 class Adapter(ABC):
@@ -37,7 +37,7 @@ class Adapter(ABC):
     backends: ClassVar[tuple[str, ...]] = ()
     #: The native exception types the implementation refuses malformed input
     #: with (``(ValueError,)`` for most Python bindings). The harness counts
-    #: them, and :class:`~molrec.Refusal`, as a refusal; nothing else.
+    #: them, and :class:`~molrec.refusal.Refusal`, as a refusal; nothing else.
     refusal_types: ClassVar[tuple[type[Exception], ...]] = ()
     #: Case ids this adapter declares out of its implementation's scope, each
     #: with the reason (the API the implementation lacks). The harness reports
@@ -47,12 +47,12 @@ class Adapter(ABC):
     unsupported: ClassVar[dict[str, str]] = {}
 
     @abstractmethod
-    def write(self, model: BaseModel, store: Store) -> None:
-        """Serialize ``model`` into ``store`` using the implementation."""
+    def write(self, model: BaseModel, storage: Storage) -> None:
+        """Serialize ``model`` into ``storage`` using the implementation."""
 
     @abstractmethod
-    def read(self, store: Store) -> Any:
-        """Read ``store`` and return something shaped like the module's model."""
+    def read(self, storage: Storage) -> Any:
+        """Read ``storage`` and return something shaped like the module's model."""
 
 
 class Implementation:
@@ -64,7 +64,7 @@ class Implementation:
 
         class Molrs(Implementation):
             name    = "molrs"
-            version = molrs.__version__
+            version = importlib.metadata.version("molcrafts-molrs")
             record  = MolrsRecordAdapter()
     """
 

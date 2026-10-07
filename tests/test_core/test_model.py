@@ -1,4 +1,4 @@
-"""The models' own rules: the optional version key, the per-step tag set, and
+"""The models' own rules: the meta document, the per-step tag set, and
 the three block states of a trajectory.
 
 Mirrors ``src/molrec/core/model.py``.
@@ -12,7 +12,6 @@ from pydantic import ValidationError
 
 from molrec.core.model import (
     META_TAGS,
-    MOLREC_VERSION,
     BlockModel,
     BlockState,
     ColumnModel,
@@ -26,7 +25,6 @@ from molrec.core.model import (
     TrajectoryModel,
     coerce_meta_value,
     meta_tag_parts,
-    stamp_version,
 )
 
 
@@ -52,26 +50,6 @@ def _bonds(count: int) -> BlockModel:
 
 
 class TestMetaModel:
-    def test_an_absent_version_is_a_pre_1_store(self) -> None:
-        assert MetaModel().molrec_version is None
-        assert MetaModel.model_validate({}).molrec_version is None
-
-    def test_accepts_version_one(self) -> None:
-        assert MetaModel(molrec_version=1).molrec_version == 1
-
-    @pytest.mark.parametrize("bad", [0, 2, None, "1", 1.0, True])
-    def test_a_present_version_is_validated(self, bad: object) -> None:
-        with pytest.raises(ValidationError, match="molrec_version"):
-            MetaModel.model_validate({"molrec_version": bad})
-
-    def test_writers_stamp_the_version_and_keep_a_producer_one(self) -> None:
-        assert stamp_version({}) == {"molrec_version": MOLREC_VERSION}
-        assert stamp_version({"molrec_version": 1, "x": 2}) == {"molrec_version": 1, "x": 2}
-
-    def test_the_published_schema_forbids_null(self) -> None:
-        schema = MetaModel.model_json_schema()["properties"]["molrec_version"]
-        assert schema["type"] == "integer" and "default" not in schema
-
     def test_preserves_unknown_keys(self) -> None:
         meta = MetaModel.model_validate({"x_vendor_local": "kept"})
         assert meta.model_extra == {"x_vendor_local": "kept"}
@@ -80,11 +58,11 @@ class TestMetaModel:
         meta = MetaModel.model_validate(
             {
                 "creator": {"name": "molrs", "version": "0.14"},
-                "modules": {"qm": {"version": [1, 0]}},
+                "modules": {"qm": {"spec": "https://example.org/qm"}},
             }
         )
         assert meta.creator is not None and meta.creator.name == "molrs"
-        assert meta.modules is not None and meta.modules["qm"].version == (1, 0)
+        assert meta.modules is not None and meta.modules["qm"].spec == "https://example.org/qm"
 
 
 class TestRecordModel:
@@ -188,7 +166,10 @@ class TestMetaTags:
 
 
 class TestBlockStates:
-    """S1: present / empty / absent, with omission carrying forward."""
+    """Present / empty / absent, with omission carrying forward.
+
+    ``docs/spec/ragged.md#the-three-states-of-a-block``.
+    """
 
     def test_omitted_block_carries_forward(self) -> None:
         trajectory = TrajectoryModel(
@@ -246,7 +227,10 @@ class TestBlockStates:
             )
 
     def test_structural_shape_fixes_the_row_count(self) -> None:
-        """S4: the shape is pinned, and BlockModel pins the count to the shape."""
+        """A grid's row count is fixed: the shape is pinned, and BlockModel pins the count to it.
+
+        ``docs/spec/ragged.md#per-block-sparse-updates-csr``.
+        """
         grid = BlockModel(
             count=8,
             structural_shape=(2, 2, 2),
@@ -390,8 +374,8 @@ class TestPreservation:
     def test_a_document_keeps_a_null_valued_unknown_key(self) -> None:
         from molrec.core.model import document
 
-        meta = MetaModel.model_validate({"molrec_version": 1, "x_reviewed": None})
-        assert document(meta) == {"molrec_version": 1, "x_reviewed": None}
+        meta = MetaModel.model_validate({"x_vendor": 1, "x_reviewed": None})
+        assert document(meta) == {"x_vendor": 1, "x_reviewed": None}
         assert document(MetaModel()) == {}
 
     def test_a_document_refuses_nan(self) -> None:

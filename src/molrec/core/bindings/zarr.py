@@ -89,12 +89,11 @@ from molrec.core.model import (
     encode_typed_meta,
     revalidated,
     same_bits,
-    stamp_version,
 )
-from molrec.core.store import ForceFieldStore, FrameStore, RecordStore, TrajectoryStore
+from molrec.core.storage import ForceFieldStorage, FrameStorage, RecordStorage, TrajectoryStorage
 from molrec.precision import check_precision, quantize
 from molrec.registry import REGISTRY
-from molrec.store import Store
+from molrec.storage import Storage
 
 BOX_GROUP = "box"
 
@@ -230,10 +229,10 @@ def _create_column(
     )
 
 
-class ZarrStore(Store):
+class ZarrStorage(Storage):
     """A Zarr V3 root on the filesystem -- a ``*.mrec/`` directory.
 
-    The one store every Zarr binding hands an adapter: ``uri`` / ``path`` for
+    The one storage every Zarr binding hands an adapter: ``uri`` / ``path`` for
     an implementation that takes a path (PyO3, the C ABI, a CLI), ``root``
     for one already speaking zarr-python.
     """
@@ -262,35 +261,35 @@ class ZarrStore(Store):
 def pack(directory: Path, archive: Path) -> None:
     """``<stem>.mrec/`` -> ``<stem>.mrec.zip``, the at-rest form (``docs/spec/chunking.md``).
 
-    One *stored* entry (compression method 0) per file of the directory store,
+    One *stored* entry (compression method 0) per file of the directory storage,
     named by its path relative to the record root with ``/`` separators, ZIP64
     whenever a size or offset needs it, and no directory entries. Entries are
-    written in sorted path order, so packing one store twice gives one archive.
+    written in sorted path order, so packing one storage twice gives one archive.
     """
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as zf:
         for path in sorted(p for p in Path(directory).rglob("*") if p.is_file()):
             zf.write(path, path.relative_to(directory).as_posix())
 
 
-class ZarrFrameStore(ZarrStore, FrameStore):
+class ZarrFrameStorage(ZarrStorage, FrameStorage):
     """A Zarr V3 root holding one bare frame (its attributes are the frame's meta)."""
 
 
 class ZarrFrameCodec(Codec):
     """The official translation. Kept thin -- it is the arbiter."""
 
-    def write(self, model: FrameModel, store: ZarrFrameStore) -> None:
-        store.clear()
-        self.write_into(store.root(mode="w"), model)
+    def write(self, model: FrameModel, storage: ZarrFrameStorage) -> None:
+        storage.clear()
+        self.write_into(storage.root(mode="w"), model)
 
-    def read(self, store: ZarrFrameStore) -> FrameModel:
-        return self.read_from(store.root(mode="r"))
+    def read(self, storage: ZarrFrameStorage) -> FrameModel:
+        return self.read_from(storage.root(mode="r"))
 
     def write_into(self, root: zarr.Group, model: FrameModel) -> None:
         """Lay a frame out under an already-opened group.
 
         Split out so the record codec reuses it: a frame section inside a
-        record and a bare frame at a store root are the same bytes, and one
+        record and a bare frame at a storage root are the same bytes, and one
         description of that is better than two that can drift.
         """
         root.attrs.update(encode_typed_meta(model.meta, model.meta_types))
@@ -455,7 +454,7 @@ def _read_masks(block: zarr.Group, rows: int | None) -> dict[str, np.ndarray]:
     """The arrays of ``<block>/_validity``: absent means every row is valid.
 
     A mask that is not ``bool``, or does not carry exactly ``rows`` flags, is a
-    corrupt store and is refused -- padding or truncating it would invent the
+    corrupt storage and is refused -- padding or truncating it would invent the
     very answer a mask exists to give. ``rows`` of ``None`` skips the length
     check (a trajectory section's masks are cut per update by the caller).
     """
@@ -484,10 +483,10 @@ class ZarrFrameBinding(Binding):
     module: ClassVar[str] = "core"
     backend: ClassVar[str] = "zarr"
 
-    def new_store(self, workdir: Path) -> ZarrFrameStore:
-        store = ZarrFrameStore(workdir.with_suffix(".mrec"))
-        store.clear()
-        return store
+    def new_storage(self, workdir: Path) -> ZarrFrameStorage:
+        storage = ZarrFrameStorage(workdir.with_suffix(".mrec"))
+        storage.clear()
+        return storage
 
     def codec(self) -> ZarrFrameCodec:
         return ZarrFrameCodec()
@@ -521,11 +520,11 @@ STEP_PROGRESSION_ATTR = "step_progression"
 TIME_PROGRESSION_ATTR = "time_progression"
 
 
-class ZarrTrajectoryStore(ZarrStore, TrajectoryStore):
+class ZarrTrajectoryStorage(ZarrStorage, TrajectoryStorage):
     """A Zarr V3 root holding one trajectory, under ``trajectory/``.
 
     The sequence sits under its section name rather than at the root, so the
-    tree a bare trajectory store holds and the tree a record's ``trajectory/``
+    tree a bare trajectory storage holds and the tree a record's ``trajectory/``
     section holds are the same bytes. An implementation needs one door for
     both, not two that can drift.
     """
@@ -560,23 +559,25 @@ class ZarrTrajectoryCodec(Codec):
     array per column and nothing else: no index arrays, no ``step`` array, no
     ``box/`` arrays.
 
-    Three states per block and frame (S1). A frame that omits a block writes
-    no update, so the block carries forward; a zero-row update means present
+    Three states per block and frame
+    (``docs/spec/ragged.md#the-three-states-of-a-block``). A frame that omits
+    a block writes no update, so the block carries forward; a zero-row update means present
     and empty from that ordinal on; no update at or before an ordinal means
     absent. Row counts are never stored: they are ``diff(offset)``, computed
     with checked subtraction, and a non-monotonic ``offset`` is refused.
     """
 
-    def write(self, model: TrajectoryModel, store: ZarrTrajectoryStore) -> None:
-        store.clear()
-        root = store.root(mode="w")
-        # Root, then ``meta/`` (stamped with the contract version), then the
-        # sequence -- the creation order every writer follows.
-        root.create_group(RECORD_META).attrs.update(stamp_version({}))
+    def write(self, model: TrajectoryModel, storage: ZarrTrajectoryStorage) -> None:
+        storage.clear()
+        root = storage.root(mode="w")
+        # Root, then ``meta/``, then the sequence -- the creation order every
+        # writer follows.
+        root.create_group(RECORD_META)
         self.write_into(root.create_group(TRAJECTORY_GROUP), model)
 
-    def read(self, store: ZarrTrajectoryStore) -> TrajectoryModel:
-        return self.read_from(store.root(mode="r")[TRAJECTORY_GROUP])
+    def read(self, storage: ZarrTrajectoryStorage) -> TrajectoryModel:
+        root = storage.root(mode="r")
+        return self.read_from(root[TRAJECTORY_GROUP])
 
     # -- write -------------------------------------------------------------
 
@@ -584,7 +585,7 @@ class ZarrTrajectoryCodec(Codec):
         """Lay a trajectory out under an already-opened group.
 
         Split out so the record codec reuses it: a trajectory section inside a
-        record and a bare trajectory store are the same bytes.
+        record and a bare trajectory storage are the same bytes.
 
         The codec refuses what the contract refuses. A model built around the
         validators (``model_construct``) is validated again here, so the one
@@ -786,6 +787,7 @@ class ZarrTrajectoryCodec(Codec):
     # -- read --------------------------------------------------------------
 
     def read_from(self, group: zarr.Group) -> TrajectoryModel:
+        """The sequence at ``group``."""
         nstep = self._nstep(group)
         step = self._series(group, STEP_PROGRESSION_ATTR, STEP_ARRAY, nstep, int)
         if step is None:
@@ -824,7 +826,7 @@ class ZarrTrajectoryCodec(Codec):
         With a pin, exactly the declared blocks -- ``sequence_schema.blocks``
         is the authoritative list, a declared block whose group is missing is
         absent at every ordinal, and a child group the pin does not name is
-        not a block of this sequence. Without one (a foreign store), every
+        not a block of this sequence. Without one (a foreign storage), every
         child group outside the reserved names.
         """
         if declaration is None:
@@ -844,10 +846,10 @@ class ZarrTrajectoryCodec(Codec):
 
     def _nstep(self, group: zarr.Group) -> int:
         """The commit marker: the ``nstep`` attribute, else ``len(step)`` for
-        a store from a writer that kept no marker attribute.
+        a storage from a writer that kept no marker attribute.
 
         A progression attribute is only ever written together with the
-        marker, so one without it is a malformed store, not an old one.
+        marker, so one without it is malformed.
         """
         marker = group.attrs.get(NSTEP_ATTR)
         if marker is not None:
@@ -896,7 +898,7 @@ class ZarrTrajectoryCodec(Codec):
     def _declaration(self, group: zarr.Group) -> SequenceSchemaModel | None:
         """The pinned declaration, when the writer left one.
 
-        The reference writer always does. A store without it is still read --
+        The reference writer always does. A storage without it is still read --
         the declaration is then derived from the groups -- but anything the
         attribute names is held to.
         """
@@ -911,7 +913,7 @@ class ZarrTrajectoryCodec(Codec):
         past, never into. ``step_index`` is held to strictly ascending and
         ``offset`` to ``offset[0] == 0`` and non-decreasing -- the row count of
         update ``j`` is ``offset[j+1] - offset[j]`` with checked subtraction,
-        so a store where that would go negative is refused rather than
+        so a storage where that would go negative is refused rather than
         wrapped.
         """
         if OFFSET_ARRAY not in group:
@@ -1184,10 +1186,10 @@ class ZarrTrajectoryBinding(Binding):
     module: ClassVar[str] = "trajectory"
     backend: ClassVar[str] = "zarr"
 
-    def new_store(self, workdir: Path) -> ZarrTrajectoryStore:
-        store = ZarrTrajectoryStore(workdir.with_suffix(".mrec"))
-        store.clear()
-        return store
+    def new_storage(self, workdir: Path) -> ZarrTrajectoryStorage:
+        storage = ZarrTrajectoryStorage(workdir.with_suffix(".mrec"))
+        storage.clear()
+        return storage
 
     def codec(self) -> ZarrTrajectoryCodec:
         return ZarrTrajectoryCodec()
@@ -1196,9 +1198,9 @@ class ZarrTrajectoryBinding(Binding):
 FORCEFIELD_GROUP = "forcefield"
 
 
-class ZarrForceFieldStore(ZarrStore, ForceFieldStore):
+class ZarrForceFieldStorage(ZarrStorage, ForceFieldStorage):
     """A Zarr V3 root holding one force field under ``forcefield/``, beside a
-    stamped ``meta/`` -- the same bytes as a record's section, and a valid
+    ``meta/`` -- the same bytes as a record's section, and a valid
     record on its own (a force-field package)."""
 
 
@@ -1217,14 +1219,15 @@ class ZarrForceFieldCodec(Codec):
     document is plain JSON and carries no ``_meta_types``.
     """
 
-    def write(self, model: ForceFieldModel, store: ZarrForceFieldStore) -> None:
-        store.clear()
-        root = store.root(mode="w")
-        root.create_group(RECORD_META).attrs.update(stamp_version({}))
+    def write(self, model: ForceFieldModel, storage: ZarrForceFieldStorage) -> None:
+        storage.clear()
+        root = storage.root(mode="w")
+        root.create_group(RECORD_META)
         self.write_into(root.create_group(FORCEFIELD_GROUP), model)
 
-    def read(self, store: ZarrForceFieldStore) -> ForceFieldModel:
-        return self.read_from(store.root(mode="r")[FORCEFIELD_GROUP])
+    def read(self, storage: ZarrForceFieldStorage) -> ForceFieldModel:
+        root = storage.root(mode="r")
+        return self.read_from(root[FORCEFIELD_GROUP])
 
     def write_into(self, group: zarr.Group, model: ForceFieldModel) -> None:
         group.attrs.update(model.document())
@@ -1232,12 +1235,13 @@ class ZarrForceFieldCodec(Codec):
             write_block(group, name, table)
 
     def read_from(self, group: zarr.Group) -> ForceFieldModel:
+        """The section at ``group``."""
         tables = {
             name: read_block(member)
             for name, member in group.members()
             if isinstance(member, zarr.Group)
         }
-        return ForceFieldModel.model_validate({**dict(group.attrs), "tables": tables})
+        return ForceFieldModel.model_validate({**group.attrs, "tables": tables})
 
 
 @REGISTRY.binding
@@ -1245,10 +1249,10 @@ class ZarrForceFieldBinding(Binding):
     module: ClassVar[str] = "forcefield"
     backend: ClassVar[str] = "zarr"
 
-    def new_store(self, workdir: Path) -> ZarrForceFieldStore:
-        store = ZarrForceFieldStore(workdir.with_suffix(".mrec"))
-        store.clear()
-        return store
+    def new_storage(self, workdir: Path) -> ZarrForceFieldStorage:
+        storage = ZarrForceFieldStorage(workdir.with_suffix(".mrec"))
+        storage.clear()
+        return storage
 
     def codec(self) -> ZarrForceFieldCodec:
         return ZarrForceFieldCodec()
@@ -1262,7 +1266,7 @@ RECORD_METHOD = "method"
 RECORD_OBSERVABLES = "observables"
 RECORD_METRICS = "metrics"
 
-#: The root sections this version interprets; any other root group is
+#: The root sections the contract interprets; any other root group is
 #: preserved as a :class:`~molrec.core.model.NodeModel`.
 RECORD_SECTIONS = frozenset(
     {
@@ -1313,18 +1317,18 @@ def read_node(group: zarr.Group) -> NodeModel:
     )
 
 
-class ZarrRecordStore(ZarrStore, RecordStore):
+class ZarrRecordStorage(ZarrStorage, RecordStorage):
     """A Zarr V3 root holding a whole record.
 
-    This is the shape a real producer writes. A bare frame at a store root is
+    This is the shape a real producer writes. A bare frame at a storage root is
     a useful unit to pin down on its own, but nothing ships one -- an
     implementation writes a record, and the frame is a section inside it.
     """
 
 
-class PackedRecordStore(ZarrRecordStore):
+class PackedRecordStorage(ZarrRecordStorage):
     """A packed record -- a ``*.mrec.zip`` written by :func:`pack` -- opened
-    read-only through zarr's zip store. A packed record is at rest: it is read,
+    read-only through zarr's zip storage. A packed record is at rest: it is read,
     never appended to."""
 
     def root(self, mode: str = "r") -> zarr.Group:
@@ -1344,9 +1348,8 @@ class ZarrRecordCodec(Codec):
     for those. Frame-shaped sections delegate to the frame codec, so there is
     exactly one description of how blocks are laid out.
 
-    ``meta/`` is always written, first, and carries ``molrec_version``: a
-    writer stamps the version it writes when the producer's document has
-    none. A root without ``meta/`` reads as an empty document.
+    ``meta/`` is always written, first. A root without ``meta/`` reads as an
+    empty document.
     """
 
     def __init__(self) -> None:
@@ -1354,10 +1357,10 @@ class ZarrRecordCodec(Codec):
         self._trajectories = ZarrTrajectoryCodec()
         self._forcefields = ZarrForceFieldCodec()
 
-    def write(self, model: RecordModel, store: ZarrRecordStore) -> None:
-        store.clear()
-        root = store.root(mode="w")
-        root.create_group(RECORD_META).attrs.update(stamp_version(document(model.meta)))
+    def write(self, model: RecordModel, storage: ZarrRecordStorage) -> None:
+        storage.clear()
+        root = storage.root(mode="w")
+        root.create_group(RECORD_META).attrs.update(document(model.meta))
         for name, section in ((RECORD_STATUS, model.status), (RECORD_METHOD, model.method)):
             if section is not None:
                 root.create_group(name).attrs.update(document(section))
@@ -1365,7 +1368,7 @@ class ZarrRecordCodec(Codec):
             write_node(root.create_group(RECORD_METRICS), model.metrics)
         if model.observables is not None:
             self._observables().write_into(root.create_group(RECORD_OBSERVABLES), model.observables)
-        # Sections this version does not define go back exactly as they came.
+        # Sections the contract does not define go back exactly as they came.
         for name, node in (model.model_extra or {}).items():
             write_node(root.create_group(name), node)
         for name, frame in (
@@ -1376,15 +1379,15 @@ class ZarrRecordCodec(Codec):
                 self._frames.write_into(root.create_group(name), frame)
 
         # The section's name is the trajectory group's own name -- one
-        # constant, so a record's `trajectory/` and a bare trajectory store
+        # constant, so a record's `trajectory/` and a bare trajectory storage
         # cannot drift apart.
         if model.trajectory is not None:
             self._trajectories.write_into(root.create_group(TRAJECTORY_GROUP), model.trajectory)
         if model.forcefield is not None:
             self._forcefields.write_into(root.create_group(FORCEFIELD_GROUP), model.forcefield)
 
-    def read(self, store: ZarrRecordStore) -> RecordModel:
-        root = store.root(mode="r")
+    def read(self, storage: ZarrRecordStorage) -> RecordModel:
+        root = storage.root(mode="r")
         meta = dict(root[RECORD_META].attrs) if RECORD_META in root else {}
         return RecordModel(
             meta=MetaModel.model_validate(meta),
@@ -1415,15 +1418,13 @@ class ZarrRecordCodec(Codec):
 
     @staticmethod
     def _observables() -> Codec:
-        """The v1 observables codec, which builds on this module's helpers."""
+        """The observables codec, which builds on this module's helpers."""
         from molrec.observables.bindings.zarr import ZarrObservablesCodec
 
         return ZarrObservablesCodec()
 
     def _section(self, root: zarr.Group, name: str) -> FrameModel | None:
-        if name not in root:
-            return None
-        return self._frames.read_from(root[name])
+        return self._frames.read_from(root[name]) if name in root else None
 
 
 @REGISTRY.binding
@@ -1431,10 +1432,10 @@ class ZarrRecordBinding(Binding):
     module: ClassVar[str] = "record"
     backend: ClassVar[str] = "zarr"
 
-    def new_store(self, workdir: Path) -> ZarrRecordStore:
-        store = ZarrRecordStore(workdir.with_suffix(".mrec"))
-        store.clear()
-        return store
+    def new_storage(self, workdir: Path) -> ZarrRecordStorage:
+        storage = ZarrRecordStorage(workdir.with_suffix(".mrec"))
+        storage.clear()
+        return storage
 
     def codec(self) -> ZarrRecordCodec:
         return ZarrRecordCodec()

@@ -1,11 +1,11 @@
 """Observables: a named quantity as a function of its coordinates.
 
-**DRAFT (v2 proposal), not the v1 record contract.** The normative v1
+**DRAFT (a proposal), not the record contract.** The normative
 ``observables/`` section is the kind-based layout in
 ``docs/spec/observables.md`` (``kind`` / ``time_dependent`` / ``axes`` /
 ``target`` metadata beside a data array), implemented by molrs. This module
 is the dims-based redesign; its schemas publish under ``schema/draft/`` and
-adopting it is a normative change that requires a ``molrec_version`` bump.
+adopting it is a normative change to the ``observables/`` section.
 
 Everything a run measures or an analysis computes is a function -- a training
 loss over steps, a temperature over wall-clock time, an RDF over distance, a
@@ -27,7 +27,7 @@ The third line is why a training curve needs no special case: ``step`` and
 fact rather than a convention.
 
 Coordinates are held once for the whole section, as in an xarray ``Dataset``,
-so a hundred curves sharing one axis store that axis once.
+so a hundred curves sharing one axis storage that axis once.
 
 What is deliberately absent:
 
@@ -49,7 +49,7 @@ from collections.abc import Iterator
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from molrec.arrays import NDArray, arrays_equal
+from molrec.arrays import NdArray, arrays_equal
 from molrec.core.model import DocumentModel, DType, values_dtype
 from molrec.ref import Ref
 
@@ -62,7 +62,7 @@ class Array(BaseModel):
     dims: tuple[str, ...] = ()
     dtype: DType
     shape: tuple[int, ...] = ()
-    data: NDArray
+    data: NdArray
     unit: str | None = None
 
     @model_validator(mode="after")

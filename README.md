@@ -65,10 +65,8 @@ optional. A record also includes **at least one of** `frame`, `system`,
 `trajectory`, `forcefield`, or `status`. A **Run**-shaped record (`meta` + `status`) is
 valid on its own; a trajectory-only record (`meta` + `trajectory`) is
 equally valid, and trajectory may omit `system/`. The cell is **Box**.
-Every writer stamps `meta["molrec_version"]` (currently `1`); readers
-validate it only when present — an absent key marks a store written before
-version 1. A record is identified by its `*.mrec` path suffix plus its Zarr
-root. See the [format specification](docs/spec/specification.md).
+A record is identified by its `*.mrec` path suffix plus its Zarr root; a
+reader keeps every `meta` key it does not name, verbatim. See the [format specification](docs/spec/specification.md).
 
 ## Key design principles
 
@@ -77,12 +75,10 @@ root. See the [format specification](docs/spec/specification.md).
 - **System and state.** `system/` defines the system; coordinates live on `frame` / `trajectory`.
 - **Run surface.** Training and jobs use `status` + `metrics` + `method` as one surface.
 - **Box.** The cell contract name is `Box` / `box`.
-- **One schema version.** Writers stamp `meta["molrec_version"]` (integer, currently 1); readers validate it when present and refuse a newer one.
 - **Zarr + metrics WAL.** One Zarr V3 root holds arrays and document sections (group attributes). Closed metrics densify to Zarr series; live metrics use an append-only JSONL WAL (`metrics/metrics.jsonl`). The trajectory encoding is the [ragged CSR layout](docs/spec/ragged.md).
-- **Hard cut.** Writers emit the current keys (`sequence_schema`, `meta_dtype`, no vendor prefixes); migrate older files offline.
 - **Collections.** Named blocks carry any entity set.
 - **Preserve the unknown.** Readers keep sections, blocks, and columns they do not interpret.
-- **Backend-neutral.** Semantics are independent of the store; the Zarr root + JSONL buffer is the reference binding.
+- **Backend-neutral.** Semantics are independent of the storage backend; the Zarr root + JSONL buffer is the reference binding.
 
 ## Documentation
 
@@ -117,31 +113,31 @@ An implementation is judged by writing one adapter per module it claims —
 two methods, no assertions; every assertion is the suite's. `write` lays a
 model down with your library; `read` hands back anything shaped like the
 model (a dict, a dataclass, your own object). A refusal of malformed input
-is a declared exception type (or `molrec.Refusal`); anything else your code
+is a declared exception type (or `molrec.refusal.Refusal`); anything else your code
 raises is a defect.
 
 ```python
 import molrec
 
 
-class MyRecordAdapter(molrec.RecordAdapter):
+class MyRecordAdapter(molrec.core.adapter.RecordAdapter):
     backends = ("zarr",)
     refusal_types = (ValueError,)
 
-    def write(self, model, store):
-        mylib.write_record(store.uri, to_native(model))
+    def write(self, model, storage):
+        mylib.write_record(storage.uri, to_native(model))
 
-    def read(self, store):
-        return from_native(mylib.read_record(store.uri))
+    def read(self, storage):
+        return from_native(mylib.read_record(storage.uri))
 
 
-class MyLib(molrec.Implementation):
+class MyLib(molrec.adapter.Implementation):
     name = "mylib"
     version = mylib.__version__
     record = MyRecordAdapter()
 
 
-report = molrec.ConformanceSuite(MyLib()).run()
+report = molrec.suite.ConformanceSuite(MyLib()).run()
 report.report()
 assert report.ok
 ```
@@ -156,7 +152,7 @@ the adapter for molrs.
 its containers and its Zarr reader and writer implement the binding this
 repository specifies. The binding itself is the specification, not molrs's
 code. Other packages **consume** the contract; they must not ship a parallel
-store product name for the same layout.
+product name for the same layout.
 
 ## MolCrafts ecosystem
 

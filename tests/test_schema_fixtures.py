@@ -33,7 +33,7 @@ def _fixtures(schema: str, kind: str) -> list[Path]:
 
 
 def _validator(schema: str) -> jsonschema.protocols.Validator:
-    document = json.loads((SCHEMA / schema).read_text())
+    document = json.loads((SCHEMA / schema).read_text(encoding="utf-8"))
     validator = jsonschema.validators.validator_for(document)
     validator.check_schema(document)
     return validator(document)
@@ -55,7 +55,7 @@ def test_the_schema_accepts_its_valid_fixtures(schema: str) -> None:
     assert valid, f"{schema} has no valid fixture"
     validator = _validator(schema)
     for path in valid:
-        errors = list(validator.iter_errors(json.loads(path.read_text())))
+        errors = list(validator.iter_errors(json.loads(path.read_text(encoding="utf-8"))))
         assert not errors, f"{path.name}: {errors[0].message}"
 
 
@@ -65,7 +65,9 @@ def test_the_schema_refuses_its_invalid_fixtures(schema: str) -> None:
     assert invalid, f"{schema} has no invalid fixture"
     validator = _validator(schema)
     for path in invalid:
-        assert not validator.is_valid(json.loads(path.read_text())), f"{path.name} was accepted"
+        assert not validator.is_valid(json.loads(path.read_text(encoding="utf-8"))), (
+            f"{path.name} was accepted"
+        )
 
 
 @pytest.mark.parametrize(
@@ -73,5 +75,18 @@ def test_the_schema_refuses_its_invalid_fixtures(schema: str) -> None:
     [("meta.json", "core/meta.schema.json"), ("status.json", "core/status.schema.json")],
 )
 def test_the_run_minimal_documents_are_valid(document: str, schema: str) -> None:
-    instance = json.loads((REPO / "fixtures/run-minimal/attrs" / document).read_text())
+    instance = json.loads(
+        (REPO / "fixtures/run-minimal/attrs" / document).read_text(encoding="utf-8")
+    )
     _validator(schema).validate(instance)
+
+
+def test_fixtures_readme_lists_only_fixtures_that_exist() -> None:
+    text = (REPO / "fixtures/README.md").read_text(encoding="utf-8")
+    listed = {
+        line.split("`")[1].removeprefix("fixtures/").strip("/")
+        for line in text.splitlines()
+        if line.startswith("| `fixtures/")
+    }
+    on_disk = {p.name for p in (REPO / "fixtures").iterdir() if p.name != "README.md"}
+    assert listed == on_disk

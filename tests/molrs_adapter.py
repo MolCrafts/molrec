@@ -4,25 +4,25 @@ Two methods per module and no assertions. The conversions report what molrs
 actually returns -- they never repair it. An adapter that quietly fixed up a
 narrowed integer or a widened float would turn a red suite green while the
 files on disk stayed wrong, which is the one failure mode this whole harness
-exists to prevent. For the same reason nothing here touches the store behind
-molrs's back: the store molrs is asked to read is exactly the one the codec
+exists to prevent. For the same reason nothing here touches the storage behind
+molrs's back: the storage molrs is asked to read is exactly the one the codec
 wrote.
 
-The molrs surface used here is molrs 0.15's: the whole-record doors at
-``molrs.io`` -- ``write_mrec`` / ``write_mrec_system`` (both taking
-``forcefield=``) and ``write_mrec_forcefield`` to write a record,
-``mrec_sections`` / ``read_mrec`` / ``read_mrec_system`` / ``read_mrec_meta``
-/ ``read_mrec_forcefield`` to read one back; a force field travels as a
-``molrs.io.mrec.ForceFieldSection`` (the document plus one ``Block`` per
-style table, kept whole) -- and, for a trajectory, ``molrs.io.mrec.SequenceSchema``
-(``declare_*``, ``declare_meta_with_fill``) plus
-``molrs.io.mrec.TrajectoryWriter(path, schema)`` (``flush_every`` /
-``compression`` / ``durable`` left at their defaults: durable,
-spec-following) for the streaming writing door and
-``molrs.io.read_mrec_trajectory`` for the eager reading door.
+The molrs surface used here: the whole-record doors are
+functions at the top of ``molrs.io`` -- ``write_mrec_frame`` / ``write_mrec_system``
+(both taking ``forcefield=``) and ``write_mrec_forcefield`` to write a record,
+``read_mrec_frame`` / ``read_mrec_system`` / ``read_mrec_meta`` /
+``read_mrec_forcefield`` to read one back, and ``read_mrec_trajectory`` for
+the eager trajectory read -- and the storage's own classes are
+``molrs.io.mrec``'s: ``section_names`` lists a record's sections, a force
+field travels as a ``ForceFieldSection`` (the document plus one ``Block`` per
+style table, kept whole), and a trajectory is declared by a
+``SequenceSchema`` (``declare_*``, ``declare_meta_with_fill``) and streamed
+through ``MrecWriter(path, schema)`` (``flush_every`` / ``compression`` /
+``durable`` left at their defaults: durable, spec-following).
 
 molrs refuses malformed input with ``ValueError`` (every ``MolRsError``), and
-an array it cannot store as a column with ``molrs.BlockDtypeError``; those are
+an array it cannot storage as a column with ``molrs.core.BlockDtypeError``; those are
 the adapters' declared refusals. Anything else molrs or the adapter raises is
 a defect and the suite reports it as an error.
 """
@@ -38,130 +38,24 @@ import molrs
 import numpy as np
 
 import molrec
-from molrec.core.model import NUMPY_DTYPE, document
+from molrec.core.model import NUMPY_DTYPE, CellModel, document, same_cell
 
 #: ``Block.dtype`` names the domain scalars by role; every other column dtype
 #: is already spelled as the contract spells it.
 _MOLRS_DTYPE = {"float": "f64", "int": "i32", "uint": "u64"}
 
 #: What molrs refuses malformed input with.
-_REFUSALS: tuple[type[Exception], ...] = (ValueError, molrs.BlockDtypeError)
-
-# ---------------------------------------------------------------------------
-# What molrs cannot run yet -- the one place it is declared.
-#
-# Each entry names the molrs API a group of cases needs, whether this molrs
-# build has it, and the cases, per conformance module. A case whose API is
-# present is judged like any other (so it goes red, not skipped, the moment
-# molrs lands the API with a defect); one whose API is absent is reported as
-# a skip carrying the missing API's name. Nothing here is an xfail.
-# ---------------------------------------------------------------------------
-
-_MREC = molrs.io.mrec
-
-#: Whether this molrs build carries a block's row references (molrec F4).
-_HAS_TARGETS = hasattr(molrs.Block, "set_target") and hasattr(molrs.Block, "targets")
+_REFUSALS: tuple[type[Exception], ...] = (ValueError, molrs.core.BlockDtypeError)
 
 
-def _refuses_pair_conflicts() -> bool:
-    """Whether this molrs build refuses, on reading a section, a pair table that
-    restates ``{A, B}`` as ``B``-``A`` with another epsilon (molrec forcefield
-    rule 3). molrs 0.15.1 refuses it only when it compiles the kernel."""
-    if not hasattr(_MREC, "ForceFieldSection"):
-        return False
-    rows = molrs.Block()
-    rows.resize(2)
-    for column, values in {
-        "name": ["A-B", "B-A"],
-        "itom": ["A", "B"],
-        "jtom": ["B", "A"],
-        "epsilon": [0.9, 0.8],
-        "sigma": [2.0, 2.0],
-    }.items():
-        rows.insert(column, np.array(values))
-    document = {
-        "name": "probe",
-        "units": {"preset": "real"},
-        "styles": [{"category": "pair", "style": "lj/cut"}],
-    }
-    try:
-        _MREC.ForceFieldSection(document, {"pair.lj%2Fcut": rows}).validate()
-    except _REFUSALS:
-        return True
-    return False
-
-
-_PENDING: tuple[tuple[str, bool, dict[str, tuple[str, ...]]], ...] = (
-    (
-        "molrs.Block.set_target / Block.targets (row references, molrec F4)",
-        _HAS_TARGETS,
-        {
-            "record": (
-                "frame/targets-declared",
-                "frame/reject-target-out-of-range",
-                "frame/reject-target-missing-block",
-                "frame/reject-target-not-u64",
-                "targets-absolute",
-                "reject-target-absolute-out-of-range",
-                "reject-target-into-trajectory",
-            ),
-        },
-    ),
-    (
-        "molrs.io.mrec.SequenceSchema.declare_target (row references, molrec F4)",
-        hasattr(_MREC.SequenceSchema, "declare_target"),
-        {"trajectory": ("targets-pinned", "reject-target-out-of-range-resolved")},
-    ),
-    (
-        "molrs.io.mrec.ForceFieldSection.validate refusing conflicting pair rows "
-        "(molrec forcefield rule 3)",
-        _refuses_pair_conflicts(),
-        {"forcefield": ("reject-ff-pair-conflict",)},
-    ),
-    (
-        "molrs.ff.CmapStyle (the cmap category and its f64[T, N, N] grid)",
-        hasattr(molrs.ff, "CmapStyle"),
-        {"forcefield": ("ff-cmap-grid",)},
-    ),
-    (
-        "molrs.io.mrec.SequenceSchema.declare_aligned (aligned blocks, molrec F5)",
-        hasattr(_MREC.SequenceSchema, "declare_aligned"),
-        {
-            "trajectory": (
-                "aligned-carries-forward",
-                "aligned-restated-on-growth",
-                "aligned-absent-then-present",
-                "aligned-empty-target",
-                "reject-aligned-not-restated",
-                "reject-aligned-count-mismatch",
-                "reject-aligned-target-undeclared",
-                "reject-aligned-chain",
-                "reject-aligned-shared-column",
-                "reject-aligned-target-absent",
-            ),
-        },
-    ),
-)
-
-
-def _unsupported(module: str) -> dict[str, str]:
-    """``module``'s cases whose molrs API this build lacks, each with the API."""
-    return {
-        case: f"molrs lacks {api}"
-        for api, available, cases in _PENDING
-        if not available
-        for case in cases.get(module, ())
-    }
-
-
-def _dtype_of(native: molrs.Block, column: str) -> str:
+def _dtype_of(native: molrs.core.Block, column: str) -> str:
     """The contract dtype of a stored column, as molrs reports it -- never guessed."""
     dtype = native.dtype(column)
     return _MOLRS_DTYPE.get(dtype, dtype)
 
 
-def _to_box(box: molrec.CellModel, cell_defined: bool) -> molrs.Box:
-    return molrs.Box(
+def _to_box(box: CellModel, cell_defined: bool) -> molrs.core.Box:
+    return molrs.core.Box(
         box.vectors,
         box.origin,
         None if box.boundary is None else np.array(box.boundary),
@@ -169,7 +63,7 @@ def _to_box(box: molrec.CellModel, cell_defined: bool) -> molrs.Box:
     )
 
 
-def _from_box(box: molrs.Box) -> dict[str, Any]:
+def _from_box(box: molrs.core.Box) -> dict[str, Any]:
     return {
         "vectors": np.asarray(box.h),
         "origin": np.asarray(box.origin),
@@ -178,9 +72,9 @@ def _from_box(box: molrs.Box) -> dict[str, Any]:
     }
 
 
-def _to_block(block: molrec.BlockModel) -> molrs.Block:
+def _to_block(block: molrec.core.model.BlockModel) -> molrs.core.Block:
     """One block as a molrs block: columns, masks, precision, shape, targets."""
-    native = molrs.Block()
+    native = molrs.core.Block()
     native.resize(block.count)
     for column, payload in block.columns.items():
         # The values as the producer handed them: rounding to a declared
@@ -197,7 +91,9 @@ def _to_block(block: molrec.BlockModel) -> molrs.Block:
     return native
 
 
-def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -> molrs.Frame:
+def _to_frame(
+    model: molrec.core.model.FrameModel, tags: Mapping[str, str] | None = None
+) -> molrs.core.Frame:
     """The model as a molrs frame.
 
     Every meta key is written as a ``MetaValue`` of its tag -- the frame's
@@ -206,18 +102,20 @@ def _to_frame(model: molrec.FrameModel, tags: Mapping[str, str] | None = None) -
     bools is not obviously ``bool3``, a ``1`` not obviously ``i32``). A key
     with no tag at all (a model built around the validators) is written plain.
     """
-    frame = molrs.Frame()
+    frame = molrs.core.Frame()
     for name, block in model.blocks.items():
         frame[name] = _to_block(block)
     if model.box is not None:
         frame.box = _to_box(model.box, bool(model.box.cell_defined))
     tags = {**(getattr(model, "meta_types", None) or {}), **(tags or {})}
     for key, value in model.meta.items():
-        frame.meta[key] = molrs.MetaValue(tags[key], value) if key in tags else value
+        frame.meta[key] = molrs.core.MetaValue(tags[key], value) if key in tags else value
     return frame
 
 
-def _from_frame(frame: molrs.Frame | None, *, in_trajectory: bool = False) -> dict[str, Any] | None:
+def _from_frame(
+    frame: molrs.core.Frame | None, *, in_trajectory: bool = False
+) -> dict[str, Any] | None:
     """The frame as molrec's duck.
 
     A column's declared precision is reported for a frame-shaped section; a
@@ -242,7 +140,7 @@ def _from_frame(frame: molrs.Frame | None, *, in_trajectory: bool = False) -> di
     }
 
 
-def _from_block(native: molrs.Block, *, in_trajectory: bool = False) -> dict[str, Any]:
+def _from_block(native: molrs.core.Block, *, in_trajectory: bool = False) -> dict[str, Any]:
     """One molrs block as molrec's duck: what molrs returned, column by column."""
     columns = {}
     for column in native.keys():  # noqa: SIM118 (molrs Block has no __iter__)
@@ -257,19 +155,17 @@ def _from_block(native: molrs.Block, *, in_trajectory: bool = False) -> dict[str
         }
     structural = native.structural_shape
     block: dict[str, Any] = {
-        "count": native.nrows,
+        "count": native.n_rows,
         "columns": columns,
         "structural_shape": tuple(structural) if structural is not None else None,
     }
-    if _HAS_TARGETS and not in_trajectory:
+    if not in_trajectory:
         # On a trajectory the declaration states a block's targets.
-        targets = native.targets
-        targets = dict(targets() if callable(targets) else targets)
-        block["targets"] = targets or None
+        block["targets"] = dict(native.targets()) or None
     return block
 
 
-def _to_section(model: molrec.ForceFieldModel) -> molrs.io.mrec.ForceFieldSection:
+def _to_section(model: molrec.core.model.ForceFieldModel) -> molrs.io.mrec.ForceFieldSection:
     """The force field as molrs's section: the document and every table, whole."""
     tables = {name: _to_block(table) for name, table in model.tables.items()}
     return molrs.io.mrec.ForceFieldSection(model.document(), tables)
@@ -292,7 +188,7 @@ def _tag(dtype: Any) -> str:
     return str(getattr(dtype, "value", dtype))
 
 
-def _nullable_columns(model: molrec.TrajectoryModel) -> dict[str, dict[str, Any]]:
+def _nullable_columns(model: molrec.core.model.TrajectoryModel) -> dict[str, dict[str, Any]]:
     """Block -> nullable column -> its declaration, as the model pins it.
 
     Stated, the declaration's ``nullable`` flags; unstated, the union over the
@@ -309,13 +205,13 @@ def _nullable_columns(model: molrec.TrajectoryModel) -> dict[str, dict[str, Any]
         for name, block in frame.blocks.items():
             for column, payload in block.columns.items():
                 if payload.validity is not None:
-                    found.setdefault(name, {})[column] = molrec.SequenceColumnModel(
+                    found.setdefault(name, {})[column] = molrec.core.model.SequenceColumnModel(
                         dtype=payload.dtype, trailing=list(payload.shape[1:]), nullable=True
                     )
     return found
 
 
-def _with_nullable(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSchema:
+def _with_nullable(model: molrec.core.model.TrajectoryModel) -> molrs.io.mrec.SequenceSchema:
     """An empty declaration that already pins the model's nullable columns.
 
     molrs's Python ``SequenceSchema`` has no door that declares a column
@@ -329,7 +225,7 @@ def _with_nullable(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSchem
     shapes = {name: block.structural_shape for name, block in (model.blocks or {}).items()}
     for name, columns in _nullable_columns(model).items():
         rows = int(np.prod(shapes.get(name) or (1,)))
-        native = molrs.Block()
+        native = molrs.core.Block()
         native.resize(rows)
         for column, declared in columns.items():
             dtype = _tag(declared.dtype)
@@ -341,7 +237,7 @@ def _with_nullable(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSchem
             )
             native.insert(column, values)
             native.set_validity(column, np.zeros(rows, dtype=bool))
-        frame = molrs.Frame()
+        frame = molrs.core.Frame()
         frame[name] = native
         frames.append(frame)
     if not frames:
@@ -349,7 +245,7 @@ def _with_nullable(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSchem
     return molrs.io.mrec.SequenceSchema.from_frames(frames)
 
 
-def _declared_schema(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSchema:
+def _declared_schema(model: molrec.core.model.TrajectoryModel) -> molrs.io.mrec.SequenceSchema:
     """The pinned declaration molrs is asked to hold the frames to.
 
     ``blocks`` stated on the model is the declaration; left unstated, the
@@ -400,20 +296,19 @@ def _declared_schema(model: molrec.TrajectoryModel) -> molrs.io.mrec.SequenceSch
     return schema
 
 
-class MolrsRecordAdapter(molrec.RecordAdapter):
+class MolrsRecordAdapter(molrec.core.adapter.RecordAdapter):
     """The whole record -- composed from the primitive doors."""
 
     backends = ("zarr",)
     refusal_types = _REFUSALS
-    unsupported = _unsupported("record")
 
-    def write(self, model: molrec.RecordModel, store) -> None:
-        path = Path(store.uri)
+    def write(self, model: molrec.core.model.RecordModel, storage) -> None:
+        path = Path(storage.uri)
         meta = document(model.meta)
         forcefield = None if model.forcefield is None else _to_section(model.forcefield)
         if model.frame is not None:
             system = None if model.system is None else _to_frame(model.system)
-            molrs.io.write_mrec(
+            molrs.io.write_mrec_frame(
                 path, _to_frame(model.frame), system=system, meta=meta, forcefield=forcefield
             )
             return
@@ -430,10 +325,10 @@ class MolrsRecordAdapter(molrec.RecordAdapter):
             "molrs writes a record with a frame, a system or a forcefield section"
         )
 
-    def read(self, store) -> Any:
-        path = Path(store.uri)
-        present = molrs.io.mrec_sections(path)
-        frame = _from_frame(molrs.io.read_mrec(path)) if "frame" in present else None
+    def read(self, storage) -> Any:
+        path = Path(storage.uri)
+        present = molrs.io.mrec.section_names(path)
+        frame = _from_frame(molrs.io.read_mrec_frame(path)) if "frame" in present else None
         system = _from_frame(molrs.io.read_mrec_system(path)) if "system" in present else None
         return {
             "meta": molrs.io.read_mrec_meta(path),
@@ -443,7 +338,7 @@ class MolrsRecordAdapter(molrec.RecordAdapter):
         }
 
 
-def _resolved_cells(model: molrec.TrajectoryModel) -> list[molrs.Box | None]:
+def _resolved_cells(model: molrec.core.model.TrajectoryModel) -> list[molrs.core.Box | None]:
     """The cell each frame resolves to.
 
     molrec states the cell once per change and indexes it by ordinal; molrs
@@ -453,8 +348,8 @@ def _resolved_cells(model: molrec.TrajectoryModel) -> list[molrs.Box | None]:
     """
     updates = {} if model.box is None else {u.step_index: u.box for u in model.box.updates}
     defined = model.box is None or bool(model.box.cell_defined)
-    cells: list[molrs.Box | None] = []
-    current: molrs.Box | None = None
+    cells: list[molrs.core.Box | None] = []
+    current: molrs.core.Box | None = None
     for ordinal in range(len(model.frames)):
         if ordinal in updates:
             current = _to_box(updates[ordinal], defined)
@@ -462,7 +357,7 @@ def _resolved_cells(model: molrec.TrajectoryModel) -> list[molrs.Box | None]:
     return cells
 
 
-def _cell_section(frames: list[molrs.Frame]) -> dict[str, Any] | None:
+def _cell_section(frames: list[molrs.core.Frame]) -> dict[str, Any] | None:
     """The frames' cells folded back into updates at the ordinals they changed.
 
     The inverse of :func:`_resolved_cells`, and lossy in exactly the way the
@@ -470,19 +365,20 @@ def _cell_section(frames: list[molrs.Frame]) -> dict[str, Any] | None:
     from one that stated it once, which is what makes a fixed cell one update.
     """
     updates: list[dict[str, Any]] = []
-    previous: dict[str, Any] | None = None
+    previous: CellModel | None = None
     defined: bool | None = None
     for ordinal, frame in enumerate(frames):
         if frame.box is None:
             continue
         if defined is None:
             defined = bool(frame.box.cell_defined)
-        current = {
-            "vectors": np.asarray(frame.box.h),
-            "origin": np.asarray(frame.box.origin),
-            "boundary": tuple(bool(flag) for flag in np.asarray(frame.box.pbc)),
-        }
-        if previous is not None and _same_cell(previous, current):
+        current = CellModel(
+            vectors=np.asarray(frame.box.h),
+            origin=np.asarray(frame.box.origin),
+            boundary=tuple(bool(flag) for flag in np.asarray(frame.box.pbc)),
+        )
+        # Bit for bit: the layout's own rule for what earns the section an update.
+        if previous is not None and same_cell(previous, current):
             continue
         updates.append({"step_index": ordinal, "box": current})
         previous = current
@@ -491,16 +387,7 @@ def _cell_section(frames: list[molrs.Frame]) -> dict[str, Any] | None:
     return {"updates": updates, "cell_defined": defined}
 
 
-def _same_cell(left: dict[str, Any], right: dict[str, Any]) -> bool:
-    """Bitwise, like the layout's own rule for what earns a section an update."""
-    return (
-        np.array_equal(left["vectors"], right["vectors"])
-        and np.array_equal(left["origin"], right["origin"])
-        and left["boundary"] == right["boundary"]
-    )
-
-
-def _meta_series(frames: list[molrs.Frame]) -> dict[str, dict[str, Any]]:
+def _meta_series(frames: list[molrs.core.Frame]) -> dict[str, dict[str, Any]]:
     """The per-step meta declaration molrs hands back: the tag on each value.
 
     molrs carries the tag beside the value (``frame.meta.dtype(key)``), so the
@@ -517,45 +404,51 @@ def _meta_series(frames: list[molrs.Frame]) -> dict[str, dict[str, Any]]:
     return declared
 
 
-class MolrsForceFieldAdapter(molrec.ForceFieldAdapter):
+class MolrsForceFieldAdapter(molrec.core.adapter.ForceFieldAdapter):
     """A force-field package: ``meta`` and the ``forcefield`` section alone.
 
-    Written through ``write_mrec_forcefield`` and read through
-    ``read_mrec_forcefield``, which carry the section whole -- every document
+    Written through ``molrs.io.write_mrec_forcefield`` and read through
+    ``molrs.io.read_mrec_forcefield``, which carry the section whole -- every document
     key, every table, units as stated -- so a section molrs could not compile
     (``nm`` units, smirks keys, an unknown category) is still judged on what
-    molrs stores. Turning it into a ``molrs.ff.ForceField`` is
-    ``ForceField.from_section``, which this format-level suite does not ask
-    for.
+    molrs stores. Turning it into a ``molrs.ff.forcefield.ForceField`` is
+    ``ForceFieldSection.to_forcefield``, which this format-level suite does not
+    ask for.
     """
 
     backends = ("zarr",)
     refusal_types = _REFUSALS
-    unsupported = _unsupported("forcefield")
 
-    def write(self, model: molrec.ForceFieldModel, store: molrec.ForceFieldStore) -> None:
-        molrs.io.write_mrec_forcefield(Path(store.uri), _to_section(model))
+    def write(
+        self,
+        model: molrec.core.model.ForceFieldModel,
+        storage: molrec.core.storage.ForceFieldStorage,
+    ) -> None:
+        molrs.io.write_mrec_forcefield(Path(storage.uri), _to_section(model))
 
-    def read(self, store: molrec.ForceFieldStore) -> Any:
-        return _from_section(molrs.io.read_mrec_forcefield(Path(store.uri)))
+    def read(self, storage: molrec.core.storage.ForceFieldStorage) -> Any:
+        return _from_section(molrs.io.read_mrec_forcefield(Path(storage.uri)))
 
 
-class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
+class MolrsTrajectoryAdapter(molrec.core.adapter.TrajectoryAdapter):
     """A sequence of frames: written through the streaming door, read eagerly.
 
-    Writing goes frame by frame through ``TrajectoryWriter`` so that every
+    Writing goes frame by frame through ``MrecWriter`` so that every
     rule the layout places on the writer -- a reserved name refused at
     declaration, a step that does not increase, a ``time`` that comes and
     goes -- is molrs's to refuse, not the adapter's. Reading goes through
-    ``read_mrec_trajectory``, which yields the resolved frames with ``step`` /
+    ``molrs.io.read_mrec_trajectory``, which yields the resolved frames with ``step`` /
     ``time`` beside them.
     """
 
     backends = ("zarr",)
     refusal_types = _REFUSALS
-    unsupported = _unsupported("trajectory")
 
-    def write(self, model: molrec.TrajectoryModel, store: molrec.TrajectoryStore) -> None:
+    def write(
+        self,
+        model: molrec.core.model.TrajectoryModel,
+        storage: molrec.core.storage.TrajectoryStorage,
+    ) -> None:
         tags = {key: _tag(series.dtype) for key, series in model.meta.items()}
         frames = []
         for frame, cell in zip(model.frames, _resolved_cells(model), strict=True):
@@ -567,12 +460,12 @@ class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
         schema = _declared_schema(model)
 
         times = model.time if model.time is not None else [None] * len(frames)
-        with molrs.io.mrec.TrajectoryWriter(Path(store.uri), schema) as writer:
+        with molrs.io.mrec.MrecWriter(Path(storage.uri), schema) as writer:
             for native, step, time in zip(frames, model.step, times, strict=True):
                 writer.append(native, step=int(step), time=None if time is None else float(time))
 
-    def read(self, store: molrec.TrajectoryStore) -> Any:
-        trajectory = molrs.io.read_mrec_trajectory(Path(store.uri))
+    def read(self, storage: molrec.core.storage.TrajectoryStorage) -> Any:
+        trajectory = molrs.io.read_mrec_trajectory(Path(storage.uri))
         frames = list(trajectory.frames)
         described = []
         for frame in frames:
@@ -580,7 +473,7 @@ class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
             # refuses a trajectory whose frames carry one of their own.
             described.append({**_from_frame(frame, in_trajectory=True), "box": None})
 
-        # A store with no committed frame reads back with no step series at
+        # A storage with no committed frame reads back with no step series at
         # all; that is the empty sequence. Step numbers missing beside frames
         # are reported as they are, for the suite to judge.
         step = trajectory.step
@@ -599,20 +492,17 @@ class MolrsTrajectoryAdapter(molrec.TrajectoryAdapter):
 
 
 def _installed_version() -> str:
-    version = getattr(molrs, "__version__", None)
-    if version:
-        return str(version)
     try:
         return metadata.version("molcrafts-molrs")
     except metadata.PackageNotFoundError:
         return "unknown"
 
 
-class Molrs(molrec.Implementation):
+class Molrs(molrec.adapter.Implementation):
     name = "molrs"
     version = _installed_version()
-    # Frame cases run inside records: molrs.io.write_mrec writes a Structure
-    # (meta + frame/), not a bare frame at the store root.
+    # Frame cases run inside records: molrs.io.write_mrec_frame writes a Structure
+    # (meta + frame/), not a bare frame at the storage root.
     record = MolrsRecordAdapter()
     trajectory = MolrsTrajectoryAdapter()
     forcefield = MolrsForceFieldAdapter()

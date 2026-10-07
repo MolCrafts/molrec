@@ -31,7 +31,7 @@ def _serialize(value: np.ndarray) -> list:
     return value.tolist()
 
 
-class _NDArrayAnnotation:
+class _NdArrayAnnotation:
     """Teaches pydantic how to validate, serialize, and describe an ndarray."""
 
     @classmethod
@@ -56,7 +56,7 @@ class _NDArrayAnnotation:
         return {"type": "array", "items": {}}
 
 
-NDArray = Annotated[np.ndarray, _NDArrayAnnotation]
+NdArray = Annotated[np.ndarray, _NdArrayAnnotation]
 
 
 def arrays_equal(left: np.ndarray | None, right: np.ndarray | None) -> bool:

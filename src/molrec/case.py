@@ -24,17 +24,16 @@ class Case[M: BaseModel](BaseModel):
     increase.
 
     ``tamper`` runs after the codec has written a read-direction case, on the
-    store itself. It is how something the models cannot express -- a
-    non-monotonic ``offset``, a ``meta`` without ``molrec_version`` -- reaches
+    storage itself. It is how something the models cannot express -- a
+    non-monotonic ``offset``, a float column narrowed to binary32 -- reaches
     the reader under test.
 
-    ``expected`` is what a conforming reader hands back from the store this
-    case lays down, when that is not ``model`` itself: a writer stamps
-    ``molrec_version`` on a ``meta`` that carried none, and a tamper may
-    remove what the codec wrote. ``None`` means ``model``.
+    ``expected`` is what a conforming reader hands back from the storage this
+    case lays down, when that is not ``model`` itself: a tamper may remove
+    what the codec wrote. ``None`` means ``model``.
 
     ``directions`` scopes a positive case to the directions it can honestly
-    run in: a store only a tamper can produce has no write direction.
+    run in: a storage only a tamper can produce has no write direction.
 
     ``backends`` scopes a case to the backends it can honestly run on. Not
     every backend carries every payload -- a dense numeric series cannot hold

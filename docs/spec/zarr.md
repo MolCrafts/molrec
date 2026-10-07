@@ -24,8 +24,8 @@ the top of that directory.
 
 ## What V3 gives a record
 
-- **A store of keys.** Each chunk or shard is one object. Cloud object stores
-  speak GET/PUT, so they hold *closed* records (read with ranged GETs); a
+- **A store of keys.** Each chunk or shard is one object. Cloud object storage
+  speaks GET/PUT, so they hold *closed* records (read with ranged GETs); a
   live trajectory append is a positional write at the tail of a shard plus
   an atomic rename, which needs a POSIX-like filesystem
   ([Chunking and packing](chunking.md#normative)).
@@ -40,7 +40,7 @@ the top of that directory.
 - **One codec pipeline.** A single `codecs` list (endian, transpose, gzip,
   sharding, …). The contract names a small must-decode set — `bytes`,
   `gzip`, `zstd`, `numcodecs.shuffle`, `crc32c`, `vlen-utf8`,
-  `sharding_indexed`, `transpose` — that every reader of these stores,
+  `sharding_indexed`, `transpose` — that every reader of these records,
   wasm32 included, decodes. Nothing lossy: a declared precision rounds
   values before they are encoded. See [Chunking](chunking.md#normative).
 - **Rust and wasm.** molrs is a Rust implementation. zarrs, zarr-python, and
@@ -51,9 +51,7 @@ the top of that directory.
 
 The scientific path brand is `*.mrec/` (packed: `*.mrec.zip`). Discovery of
 a record is that suffix plus a Zarr root at the top of the directory. The
-path *is* the brand; `meta["molrec_version"]` (stamped by every writer,
-validated by a reader when present) says which version of the contract
-wrote it.
+path *is* the brand ([Metadata](overview.md#metadata)).
 
 Host metrics use the filename-gated `*.mlp.*` surface (live WAL
 `*.mlp.jsonl`). They are a separate concern from the record.

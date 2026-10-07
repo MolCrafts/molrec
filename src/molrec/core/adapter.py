@@ -13,31 +13,31 @@ from molrec.core.model import (
     RecordModel,
     TrajectoryModel,
 )
-from molrec.core.store import (
-    CollectionStore,
-    ForceFieldStore,
-    FrameStore,
-    RecordStore,
-    TrajectoryStore,
+from molrec.core.storage import (
+    CollectionStorage,
+    ForceFieldStorage,
+    FrameStorage,
+    RecordStorage,
+    TrajectoryStorage,
 )
 
 
 class FrameAdapter(Adapter):
     """Implement this to have your frame serialization judged.
 
-        class MyFrameAdapter(molrec.FrameAdapter):
+        class MyFrameAdapter(molrec.core.adapter.FrameAdapter):
             backends = ("zarr",)
             refusal_types = (ValueError,)
 
-            def write(self, model, store):
-                mylib.write_frame(self._build(model), store.uri)
+            def write(self, model, storage):
+                mylib.write_mrec_frame(self._build(model), storage.uri)
 
-            def read(self, store):
-                return self._describe(mylib.read_frame(store.uri))
+            def read(self, storage):
+                return self._describe(mylib.read_mrec_frame(storage.uri))
 
     ``read`` may return any duck shaped like ``FrameModel``. This door is a
-    bare frame at a store root; an implementation that only writes whole
-    records (molrs: ``molrs.io.write_mrec`` / ``read_mrec``) is judged on the
+    bare frame at a storage root; an implementation that only writes whole
+    records (molrs: ``molrs.io.write_mrec_frame`` / ``read_mrec_frame``) is judged on the
     same frame cases through :class:`RecordAdapter`, which runs each of them
     inside a record.
     """
@@ -45,10 +45,10 @@ class FrameAdapter(Adapter):
     module: ClassVar[str] = "core"
 
     @abstractmethod
-    def write(self, model: FrameModel, store: FrameStore) -> None: ...
+    def write(self, model: FrameModel, storage: FrameStorage) -> None: ...
 
     @abstractmethod
-    def read(self, store: FrameStore) -> Any: ...
+    def read(self, storage: FrameStorage) -> Any: ...
 
 
 class TrajectoryAdapter(Adapter):
@@ -62,10 +62,10 @@ class TrajectoryAdapter(Adapter):
     module: ClassVar[str] = "trajectory"
 
     @abstractmethod
-    def write(self, model: TrajectoryModel, store: TrajectoryStore) -> None: ...
+    def write(self, model: TrajectoryModel, storage: TrajectoryStorage) -> None: ...
 
     @abstractmethod
-    def read(self, store: TrajectoryStore) -> Any: ...
+    def read(self, storage: TrajectoryStorage) -> Any: ...
 
 
 class RecordAdapter(Adapter):
@@ -74,10 +74,10 @@ class RecordAdapter(Adapter):
     module: ClassVar[str] = "record"
 
     @abstractmethod
-    def write(self, model: RecordModel, store: RecordStore) -> None: ...
+    def write(self, model: RecordModel, storage: RecordStorage) -> None: ...
 
     @abstractmethod
-    def read(self, store: RecordStore) -> Any: ...
+    def read(self, storage: RecordStorage) -> Any: ...
 
 
 class CollectionAdapter(Adapter):
@@ -86,10 +86,10 @@ class CollectionAdapter(Adapter):
     module: ClassVar[str] = "collection"
 
     @abstractmethod
-    def write(self, model: CollectionModel, store: CollectionStore) -> None: ...
+    def write(self, model: CollectionModel, storage: CollectionStorage) -> None: ...
 
     @abstractmethod
-    def read(self, store: CollectionStore) -> Any: ...
+    def read(self, storage: CollectionStorage) -> Any: ...
 
 
 class ForceFieldAdapter(Adapter):
@@ -99,7 +99,7 @@ class ForceFieldAdapter(Adapter):
     module: ClassVar[str] = "forcefield"
 
     @abstractmethod
-    def write(self, model: ForceFieldModel, store: ForceFieldStore) -> None: ...
+    def write(self, model: ForceFieldModel, storage: ForceFieldStorage) -> None: ...
 
     @abstractmethod
-    def read(self, store: ForceFieldStore) -> Any: ...
+    def read(self, storage: ForceFieldStorage) -> Any: ...

@@ -27,7 +27,6 @@ from molrec.core.model import (
     ENDPOINTS,
     META_TAGS,
     META_TYPES_ATTR,
-    MOLREC_VERSION,
     NUMPY_DTYPE,
     STORED,
     BlockModel,
@@ -71,14 +70,14 @@ def _column(
 def _replace_array(path: str, values: np.ndarray) -> Any:
     """A tamper that replaces the array at ``path`` with ``values``.
 
-    How a store whose content the models cannot express -- a mask of the wrong
+    How a storage whose content the models cannot express -- a mask of the wrong
     length, a mask that is not ``bool`` -- reaches the reader under test.
     """
 
-    def tamper(store: Any) -> None:
+    def tamper(storage: Any) -> None:
         import zarr
 
-        root = zarr.open_group(store=store.path, mode="r+")
+        root = zarr.open_group(store=storage.path, mode="r+")
         parent, name = path.rsplit("/", 1)
         group = root[parent]
         del group[name]
@@ -120,10 +119,10 @@ def _set_array(path: str, values: np.ndarray) -> Any:
     """A tamper that overwrites the values of the array at ``path`` in place,
     keeping its attributes and codecs."""
 
-    def tamper(store: Any) -> None:
+    def tamper(storage: Any) -> None:
         import zarr
 
-        zarr.open_group(store=store.path, mode="r+")[path][...] = values
+        zarr.open_group(store=storage.path, mode="r+")[path][...] = values
 
     return tamper
 
@@ -146,7 +145,7 @@ class FrameSuite(Suite):
     def rooted(self, prefix: str) -> Iterable[Case]:
         """The cases, with every tamper addressing the frame group at ``prefix``.
 
-        A bare frame lives at the store root; a record's frame lives under
+        A bare frame lives at the storage root; a record's frame lives under
         ``frame/``. The cases are the same claims either way, so the record
         suite runs them again through this door rather than dropping the ones
         that tamper.
@@ -357,7 +356,7 @@ class FrameSuite(Suite):
             exercises="box names the cell; a block taking it must be refused, not silently lost",
             expect_violation="reserved_block_name",
             # A write-direction rule: no layout can hold a block named box
-            # beside the cell, so there is no malformed store to hand a
+            # beside the cell, so there is no malformed storage to hand a
             # reader -- the writer is the door that must refuse.
             rejects_on="write",
             model=FrameModel(
@@ -664,12 +663,12 @@ def _frame_precision_cases(prefix: str) -> Iterable[Case]:
 
 def _edit_attrs(path: str, edit: Any) -> Any:
     """A tamper that rewrites the attributes of the group at ``path`` (``""``
-    is the store root) with ``edit(attrs) -> attrs``."""
+    is the storage root) with ``edit(attrs) -> attrs``."""
 
-    def tamper(store: Any) -> None:
+    def tamper(storage: Any) -> None:
         import zarr
 
-        root = zarr.open_group(store=store.path, mode="r+")
+        root = zarr.open_group(store=storage.path, mode="r+")
         group = root[path.rstrip("/")] if path else root
         attrs = edit(dict(group.attrs))
         group.attrs.clear()
@@ -751,7 +750,7 @@ def _frame_typed_meta_cases(prefix: str) -> Iterable[Case]:
     )
     yield Case(
         id="untyped-meta-infers",
-        exercises="a store without _meta_types reads with inferred tags: an integer i64, any "
+        exercises="a storage without _meta_types reads with inferred tags: an integer i64, any "
         "other number f64 (2.0 included), a string string, a bool bool, anything else json",
         model=tagged,
         expected=_typed_frame(
@@ -829,7 +828,7 @@ _ALIGNED = {
 }
 
 
-def _types(*names: str) -> BlockModel:
+def _atom_types_block(*names: str) -> BlockModel:
     return BlockModel(count=len(names), columns={"type": _column("string", list(names))})
 
 
@@ -844,7 +843,7 @@ def _aligned_run(
         FrameModel(
             blocks={
                 **({} if xs is None else {"atoms": _atoms(*xs)}),
-                **({} if types is None else {"atom_types": _types(*types)}),
+                **({} if types is None else {"atom_types": _atom_types_block(*types)}),
             }
         )
         for xs, types in frames
@@ -863,10 +862,10 @@ def _drop_last_row(path: str, update: int) -> Any:
     """A tamper that moves ``offset[update]`` of the block at ``path`` one row
     back, so the update before it holds one row fewer."""
 
-    def tamper(store: Any) -> None:
+    def tamper(storage: Any) -> None:
         import zarr
 
-        offset = zarr.open_group(store=store.path, mode="r+")[f"{path}/offset"]
+        offset = zarr.open_group(store=storage.path, mode="r+")[f"{path}/offset"]
         values = offset[...]
         values[update] -= 1
         offset[...] = values
@@ -931,7 +930,7 @@ def _aligned_cases() -> Iterable[Case]:
 
     yield Case(
         id="reject-aligned-count-mismatch",
-        exercises="a reader refuses a store whose aligned block holds another row count than "
+        exercises="a reader refuses a storage whose aligned block holds another row count than "
         "its target at a resolved frame",
         expect_violation="aligned_count_mismatch",
         backends=("zarr",),
@@ -1222,8 +1221,8 @@ def _trajectory_target_cases() -> Iterable[Case]:
     )
 
 
-def _break_offset(store: Any) -> None:
-    """Make ``atoms/offset`` non-monotonic in a store the codec just wrote.
+def _break_offset(storage: Any) -> None:
+    """Make ``atoms/offset`` non-monotonic in a storage the codec just wrote.
 
     The models cannot express this -- row counts are never stored, they are
     ``diff(offset)`` -- so the malformation is applied to the bytes, after the
@@ -1231,7 +1230,7 @@ def _break_offset(store: Any) -> None:
     """
     import zarr
 
-    offset = zarr.open_group(store=store.path, mode="r+")["trajectory/atoms/offset"]
+    offset = zarr.open_group(store=storage.path, mode="r+")["trajectory/atoms/offset"]
     values = offset[...]
     values[1], values[2] = values[2], values[1]
     offset[...] = values
@@ -1245,10 +1244,10 @@ def _narrow(path: str, dtype: str = "float32") -> Any:
     column dtype.
     """
 
-    def tamper(store: Any) -> None:
+    def tamper(storage: Any) -> None:
         import zarr
 
-        root = zarr.open_group(store=store.path, mode="r+")
+        root = zarr.open_group(store=storage.path, mode="r+")
         parent, name = path.rsplit("/", 1)
         values = root[path][...]
         group = root[parent]
@@ -1291,7 +1290,7 @@ class TrajectorySuite(Suite):
     frames, in order, with their step numbers, their per-step meta and their
     cell. What no case looks at is how any of it was indexed on disk. A
     conforming reader hands these frames back whatever it wrote, and two
-    conforming stores of one trajectory are expected to differ byte for byte.
+    conforming records of one trajectory are expected to differ byte for byte.
 
     The cases are chosen for what the indexing has to *survive*: ragged
     frames, a section that never changes, the three states of a block
@@ -2004,37 +2003,11 @@ class TrajectorySuite(Suite):
         )
 
 
-#: Marks a key a tamper removes rather than sets.
-_DELETE = object()
-
-
-def _set_record_meta(key: str, value: Any) -> Any:
-    """A tamper that sets (or, with :data:`_DELETE`, removes) one ``meta/`` attribute.
-
-    What a writer of another contract version -- or a broken one -- would have
-    left there; molrec's own codec always stamps a valid version.
-    """
-
-    def tamper(store: Any) -> None:
-        import zarr
-
-        group = zarr.open_group(store=store.path, mode="r+")["meta"]
-        attrs = dict(group.attrs)
-        if value is _DELETE:
-            attrs.pop(key, None)
-        else:
-            attrs[key] = value
-        group.attrs.clear()
-        group.attrs.update(attrs)
-
-    return tamper
-
-
 @REGISTRY.suite
 class RecordSuite(Suite):
     """The record root -- the shape a real producer actually writes.
 
-    A bare frame at a store root is worth pinning down on its own, but nothing
+    A bare frame at a storage root is worth pinning down on its own, but nothing
     ships one. What crosses between tools is a record: a meta document plus
     frame-shaped sections. These cases exist so an implementation is judged on
     the thing it emits.
@@ -2050,13 +2023,13 @@ class RecordSuite(Suite):
     def _frames_inside_a_record(self) -> Iterable[Case]:
         """Every frame case again, this time where frames actually live.
 
-        A bare frame at a store root is a clean unit to specify, but no
+        A bare frame at a storage root is a clean unit to specify, but no
         implementation has a door for one -- what ships is a record with a
         frame section. Running the frame cases through a record is what puts
         them in front of a real implementation instead of only in front of
         molrec's own codec.
         """
-        meta = MetaModel(molrec_version=MOLREC_VERSION)
+        meta = MetaModel()
         for case in FrameSuite().rooted("frame/"):
             yield Case(
                 id=f"frame/{case.id}",
@@ -2085,45 +2058,7 @@ class RecordSuite(Suite):
             }
         )
 
-        meta = MetaModel(molrec_version=MOLREC_VERSION)
-
-        yield Case(
-            id="writer-stamps-version",
-            exercises="a writer stamps molrec_version on a meta document that carries none",
-            model=RecordModel(meta=MetaModel(), frame=atoms),
-            expected=RecordModel(meta=meta, frame=atoms),
-        )
-
-        yield Case(
-            id="version-present",
-            exercises="a store carrying molrec_version 1 validates and hands it back",
-            model=RecordModel(meta=meta, frame=atoms),
-        )
-
-        yield Case(
-            id="absent-version-opens",
-            exercises="a store written before version 1 has no molrec_version: no version "
-            "check, read best-effort, and nothing is invented",
-            model=RecordModel(meta=meta, frame=atoms),
-            expected=RecordModel(meta=MetaModel(), frame=atoms),
-            directions=("read",),
-            tamper=_set_record_meta("molrec_version", _DELETE),
-        )
-
-        for case_id, value, why in (
-            ("reject-version-zero", 0, "an integer >= 1"),
-            ("reject-version-newer", MOLREC_VERSION + 1, "no newer than the reader supports"),
-            ("reject-version-null", None, "never null: present means validated"),
-            ("reject-version-string", "1", "an integer, not a string"),
-            ("reject-version-float", 1.0, "an integer, not a float"),
-        ):
-            yield Case(
-                id=case_id,
-                exercises=f"molrec_version, when present, is {why}",
-                expect_violation="bad_version",
-                model=RecordModel(meta=meta, frame=atoms),
-                tamper=_set_record_meta("molrec_version", value),
-            )
+        meta = MetaModel()
 
         yield Case(
             id="system-and-frame",
@@ -2153,7 +2088,6 @@ class RecordSuite(Suite):
             exercises="record identity and content hash survive the round trip",
             model=RecordModel(
                 meta=MetaModel(
-                    molrec_version=MOLREC_VERSION,
                     record_id="8f14e45f-ea8f-4b6d-9c1a-000000000001",
                     content_hash="sha256:0000000000000000000000000000000000000000000000000000000000000000",
                 ),
@@ -2163,12 +2097,13 @@ class RecordSuite(Suite):
 
         yield Case(
             id="meta-unknown-keys-preserved",
-            exercises="a reader must keep meta keys it does not recognize",
+            exercises="a reader must keep meta keys it does not recognize, and a module entry "
+            "(its spec URL and its own keys) as given",
             model=RecordModel(
                 meta=MetaModel.model_validate(
                     {
-                        "molrec_version": MOLREC_VERSION,
                         "creator": {"name": "molrec-suite", "version": "0.1.0"},
+                        "modules": {"qm": {"spec": "https://example.org/qm", "basis": "def2-svp"}},
                         "x_vendor_local": {"anything": [1, 2, 3]},
                     }
                 ),
@@ -2403,11 +2338,11 @@ def _typed_system() -> FrameModel:
     )
 
 
-def _break_first_frame(store: Any) -> None:
+def _break_first_frame(storage: Any) -> None:
     """Rewrite the index so ``first_frame`` is no longer the prefix sum."""
     from molrec.core.bindings.lmdb import INDEX_BLOCK, INDEX_KEY, decode_frame, encode_frame
 
-    env = store.open(write=True)
+    env = storage.open(write=True)
     try:
         with env.begin(write=True) as txn:
             block = decode_frame(txn.get(INDEX_KEY)).blocks[INDEX_BLOCK]
@@ -2480,14 +2415,7 @@ class CollectionSuite(Suite):
             meta=schema_meta,
         )
         record = RecordModel(meta=MetaModel(), system=system, trajectory=relaxation)
-        meta = CollectionMetaModel(units=self.UNITS, molrec_version=MOLREC_VERSION)
-
-        yield Case(
-            id="writer-stamps-version",
-            exercises="the collection document carries molrec_version, stamped by the writer",
-            model=CollectionModel(meta=CollectionMetaModel(units=self.UNITS), records=[record]),
-            expected=CollectionModel(meta=meta, records=[record]),
-        )
+        meta = CollectionMetaModel(units=self.UNITS)
 
         yield Case(
             id="topology-once-state-per-frame",
@@ -2830,7 +2758,9 @@ class CollectionSuite(Suite):
                 records=[
                     RecordModel.model_construct(
                         meta=MetaModel(),
-                        system=FrameModel(blocks={"atom_types": _types("CT", "HC", "HC")}),
+                        system=FrameModel(
+                            blocks={"atom_types": _atom_types_block("CT", "HC", "HC")}
+                        ),
                         trajectory=_aligned_run(([0.0, 1.0, 2.0], three)),
                         frame=None,
                     )

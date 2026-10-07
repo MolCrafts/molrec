@@ -6,18 +6,16 @@ guessing private layouts. It covers molecular systems, snapshots and
 trajectories, scientific observables, and run logs (status, metrics, method).
 
 MolRec names layout and semantics. Implementations expose their own APIs
-(the reference implementation's are `molrs.io.write_mrec`,
-`write_mrec_trajectory` and the streaming `molrs.io.mrec.TrajectoryWriter`);
+(the reference implementation's are `molrs.io.write_mrec_frame`,
+`write_mrec_trajectory` and the streaming `molrs.io.mrec.MrecWriter`);
 the contract is the structure in the chapters that follow.
 
 The unit of interchange is the *record*. A `frame` section *is* a frame; a
 `trajectory` section *is* an ordered series of frames. Time-dependent data is
 a record section.
 
-Every writer stamps `meta["molrec_version"]` (currently `1`); a reader
-validates it only when present, and an absent key marks a store written
-before version 1 (see [Metadata](overview.md#metadata)). A record is
-identified by its `*.mrec` path suffix and its Zarr root.
+A record is identified by its `*.mrec` path suffix and its Zarr root (see
+[Metadata](overview.md#metadata)).
 
 ## Storage format
 
@@ -104,8 +102,8 @@ the reference models and describe the same documents for other languages:
 | Directory | Describes |
 |-----------|-----------|
 | `schema/core/` | the record, its documents (`meta`, `status`, `method`), frames, blocks, columns, cells, trajectories, collections |
-| `schema/observables/` | the v1 [observables](observables.md) section |
+| `schema/observables/` | the [observables](observables.md) section |
 | `schema/binding/` | the trajectory group's pinned `sequence_schema` attribute |
 | `schema/ref/` | a pointer from one record into another (`uri`, optional content `hash`), used by the draft observables' provenance |
 | `schema/report/` | one conformance violation — the closed vocabulary a conformance report names failures with, so implementations in other languages report the same names |
-| `schema/draft/observables/` | the dims-based observables **draft**; not part of version 1 |
+| `schema/draft/observables/` | the dims-based observables **draft**; not part of the contract |

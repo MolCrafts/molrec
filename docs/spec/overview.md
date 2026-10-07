@@ -68,7 +68,7 @@ A packed snapshot is `meta` + `frame`. An MD package is `meta` + `system` +
 
 **Unknown siblings stay.** A reader preserves sections and keys it does not
 recognise. That is how new content enters the ecosystem: add a sibling, and
-older tools carry it through.
+a tool that does not know it carries it through.
 
 **Conventional names, new names.** If the data *is* atoms, bonds, a box, use
 the [standardized identifiers](conventions.md). If it is something else —
@@ -82,8 +82,8 @@ columns. The parameters that *define* the energy model live in the
 `method`.
 
 **Modules name extra rules.** A shared interpretation beyond this
-specification is declared under `meta/modules/<name>` with a major/minor
-version. Custom `method` types and custom metric types point there.
+specification is declared under `meta/modules/<name>`, which names the
+module the record uses. Custom `method` types and custom metric types point there.
 
 ## Adding your own content
 
@@ -94,8 +94,8 @@ Four places, in increasing size of the addition:
 2. **Extra columns or blocks** on `frame`, `system`, or `trajectory`. Same
    containers; your names. Readers preserve them.
 3. **A new sibling section** at the root. Same four kinds: document,
-   frame-shaped, array, or sequence. Older tools ignore the name and keep
-   the group.
+   frame-shaped, array, or sequence. A reader that does not know the name
+   keeps the group.
 4. **A module** under `meta/modules` when independent tools must agree on
    what that extra content means.
 
@@ -117,7 +117,6 @@ contents are group attributes (one JSON object):
 
 ```text
 meta
- +-- molrec_version: i64[]           (absent only on a pre-1 store)
  +-- (creator)
  |    +-- name: string[]
  |    +-- (version: string[])
@@ -128,26 +127,16 @@ meta
  +-- (source: string[])
  \-- (modules)
       \-- <module1>
-           +-- version: i64[2]
+           +-- (spec: string[])          URL of the module's specification
 ```
 
-`molrec_version`
+Every key of `meta` is optional; an empty document is a valid one. A
+record's identity is the path brand `*.mrec/` / `*.mrec.zip` plus a Zarr
+root, not any key of `meta`.
 
-The integer version of this contract the package was written against. It
-covers the whole package — layout, containers, dtypes, and the trajectory
-sequence declaration. The current version is `1`.
-
-- **Writers always emit it.** A writer stamps `molrec_version: 1` on every
-  record it writes (a producer that supplied its own valid value keeps it).
-- **Readers validate it only when present.** An absent key marks a store
-  written before version 1; a reader opens it best-effort and performs no
-  version check. A present key must be a JSON integer in
-  `1 ..= <newest the reader supports>`. `null`, `0`, a string, a float, a
-  boolean, or a newer version is refused — present means validated.
-
-Identity of a record is the path brand `*.mrec/` / `*.mrec.zip` plus a Zarr
-root, not this key. A bump indicates a change to a normative rule. Additive
-content that older readers can carry through unrecognised needs no bump.
+**Unknown keys.** A key this chapter does not name is the producer's: a
+reader keeps it verbatim (a `null`-valued one included) and never interprets
+or refuses it, and a writer of the record writes it back as it was.
 
 `record_id`, `content_hash`
 
@@ -155,10 +144,11 @@ Optional provenance: a producer-chosen identifier and a content digest.
 
 `creator`, `author`, `created_at`, `source`
 
-Optional provenance. Producers may add any other keys; a reader preserves
-keys it does not recognise.
+Optional provenance.
 
 `modules`
 
-Each module is a subgroup keyed by name, holding a major/minor `version`
-pair and any module-specific information.
+Each module is an entry keyed by its name: the module the record uses. It
+may carry `spec`, the URL of the module's specification, and any
+module-specific information. A module entry carries no version and no
+compatibility rule.

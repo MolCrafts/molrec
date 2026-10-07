@@ -180,7 +180,7 @@ to target:
 - A referencing column is `u64`; a null row (validity) references nothing.
 - A same-container target **MUST** exist wherever the referencing block has
   rows, and every non-null value **MUST** be below its row count; a reader
-  refuses a store that breaks either. An absolute target is checked the same
+  refuses a record that breaks either. An absolute target is checked the same
   way when that section is present; a trajectory block is never a target
   (its row count is not fixed).
 - A `u64` column that is neither an endpoint nor declared is a plain number
@@ -251,5 +251,5 @@ The cell applies to the whole frame. For a trajectory, each frame carries
 its own box, so fixed-cell and variable-cell runs are both natural.
 
 Absence of optional parts has a fixed meaning: two readers that default them
-differently turn one store into two different physical systems, so the
+differently turn one record into two different physical systems, so the
 defaults above are normative.

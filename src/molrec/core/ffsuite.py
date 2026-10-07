@@ -8,6 +8,7 @@ malformed section down and the reader must refuse it.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from typing import Any, ClassVar
 
@@ -119,7 +120,7 @@ def _unvalidated(model: ForceFieldModel, **changes: Any) -> ForceFieldModel:
 
 def round_trip_forcefield() -> ForceFieldModel:
     """The ``ff-round-trip`` field: every common category, two pair styles,
-    in the registry's conventions (LAMMPS's un-halved ``K``, degrees)."""
+    as the force-field IR defines them (LAMMPS's un-halved ``K``, degrees)."""
     types = ["CT", "HC", "OH"]
     return forcefield(
         [
@@ -366,7 +367,8 @@ class ForceFieldSuite(Suite):
         yield Case(
             id="ff-unknown-category",
             exercises="a category outside the chapter's table is preserved; its arity is its "
-            "endpoint prefix",
+            "endpoint prefix, and its expression (compound functions of its points) survives "
+            "byte for byte",
             model=forcefield(
                 [
                     (
@@ -379,7 +381,61 @@ class ForceFieldSuite(Suite):
                             ltom=["C"],
                             coefficients=["0.1,0.2"],
                         ),
-                    )
+                    ),
+                    (
+                        style(
+                            "urey_bradley",
+                            "harmonic",
+                            expression="k_ub*(distance(p1,p3)-r_ub)^2",
+                        ),
+                        table(
+                            ["HA-CT1-HA"],
+                            itom=["HA"],
+                            jtom=["CT1"],
+                            ktom=["HA"],
+                            k_ub=[5.4],
+                            r_ub=[1.802],
+                        ),
+                    ),
+                ]
+            ),
+        )
+
+        yield Case(
+            id="ff-array-params",
+            exercises="any parameter may be an f64[T, S...] array column of one shape: a "
+            "tabulated torsion's f64[T, 12] table with a null row, and an f64[T, 2, 3] "
+            "parameter of a bond style, come back bit for bit",
+            model=forcefield(
+                [
+                    (
+                        style("dihedral", "table/linear"),
+                        table(
+                            ["CT-CT-CT-CT", "X-CT-CT-X"],
+                            itom=["CT", ""],
+                            jtom=["CT", "CT"],
+                            ktom=["CT", "CT"],
+                            ltom=["CT", ""],
+                            table=ColumnModel(
+                                dtype="f64",
+                                shape=(2, 12),
+                                values=np.vstack(
+                                    [np.cos(np.arange(12) * math.pi / 6) / 3.0, np.zeros(12)]
+                                ),
+                                validity=np.array([True, False]),
+                            ),
+                        ),
+                    ),
+                    (
+                        style("bond", "spline"),
+                        table(
+                            ["CT-HC"],
+                            itom=["CT"],
+                            jtom=["HC"],
+                            knots=_grids(np.arange(6, dtype="float64").reshape(1, 2, 3) / 7.0),
+                            r0=[1.09],
+                        ),
+                    ),
                 ]
             ),
         )
@@ -437,13 +493,23 @@ class ForceFieldSuite(Suite):
 
         yield Case(
             id="ff-pair-lj-charmm",
-            exercises="pair lj/charmm: self rows that carry or leave null epsilon14/sigma14, and "
-            "a cross row that carries only them (a GROMACS [ pairtypes ] row)",
+            exercises="pair lj/charmm: self rows that carry or leave null epsilon14/sigma14, "
+            "a cross row that carries only them (a GROMACS [ pairtypes ] row), and the style "
+            "parameter one_four",
             model=forcefield(
                 [
                     atoms(["CT1", "HA", "NH1"], mass=[12.011, 1.008, 14.007]),
                     (
-                        style("pair", "lj/charmm", params={"mixing": "arithmetic", "cutoff": 12.0}),
+                        style(
+                            "pair",
+                            "lj/charmm",
+                            params={
+                                "mixing": "arithmetic",
+                                "inner": 10.0,
+                                "cutoff": 12.0,
+                                "one_four": "epsilon14",
+                            },
+                        ),
                         table(
                             ["CT1", "HA", "NH1", "CT1-NH1-14"],
                             itom=["CT1", "HA", "NH1", "CT1"],
@@ -580,8 +646,9 @@ class ForceFieldSuite(Suite):
             ),
             (
                 "reject-ff-radian-angle-unit",
-                "every preset's angle is the degree: angle radian beside preset real is refused "
-                "(a section in the radian convention says so, and is not read as degrees)",
+                "every preset's angle is the degree: angle radian beside "
+                "preset real is refused (a section holding radians says so, and is not read as "
+                "degrees)",
                 _unvalidated(
                     base,
                     units=ForceFieldUnitsModel.model_construct(
@@ -688,12 +755,43 @@ class ForceFieldSuite(Suite):
                 ),
             ),
             (
-                "reject-ff-grid-outside-cmap",
-                "only a cmap table's grid has trailing axes: a bond table's f64[T, 2, 2] grid "
-                "is refused",
+                "reject-ff-array-param-nonfinite",
+                "every value of a non-null row of an array parameter is finite: a NaN in a "
+                "bond table's f64[T, 2, 2] parameter is refused",
                 _unvalidated(
                     base,
-                    tables=broken_table(**bonds.columns, grid=_grids(np.zeros((1, 2, 2)))),
+                    tables=broken_table(**bonds.columns, knots=_grids(nonfinite)),
+                ),
+            ),
+            (
+                "reject-ff-array-param-string",
+                "only an f64 parameter has trailing axes: a string[T, 2] column is refused",
+                _unvalidated(
+                    base,
+                    tables=broken_table(
+                        **bonds.columns,
+                        labels=ColumnModel(
+                            dtype="string", shape=(1, 2), values=np.array([["a", "b"]])
+                        ),
+                    ),
+                ),
+            ),
+            (
+                "reject-ff-lj-charmm-one-four",
+                "pair lj/charmm's one_four is regular or epsilon14: another value is refused",
+                _unvalidated(
+                    base,
+                    styles=[
+                        *base.styles,
+                        StyleModel.model_construct(
+                            category="pair",
+                            style="lj/charmm",
+                            params={"one_four": "both"},
+                            expression=None,
+                            endpoint_key="type",
+                        ),
+                    ],
+                    tables={**base.tables, "pair.lj%2Fcharmm": no_rows(2)},
                 ),
             ),
         ]

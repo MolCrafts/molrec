@@ -56,32 +56,27 @@
     },
     "ModuleModel": {
       "additionalProperties": true,
-      "description": "A shared interpretation beyond this specification, keyed by name under\n``meta/modules``: a major/minor ``version`` plus module-specific keys.",
+      "description": "A shared interpretation beyond this specification that the record uses,\nkeyed by its name under ``meta/modules``: optionally the URL of its\nspecification, plus module-specific keys.",
       "properties": {
-        "version": {
-          "maxItems": 2,
-          "minItems": 2,
-          "prefixItems": [
+        "spec": {
+          "anyOf": [
             {
-              "type": "integer"
+              "type": "string"
             },
             {
-              "type": "integer"
+              "type": "null"
             }
           ],
-          "title": "Version",
-          "type": "array"
+          "default": null,
+          "title": "Spec"
         }
       },
-      "required": [
-        "version"
-      ],
       "title": "ModuleModel",
       "type": "object"
     }
   },
   "additionalProperties": true,
-  "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.\n\n``molrec_version`` is stamped by every writer (:func:`stamp_version`). A\nreader validates it only when present: absent is a store written before\nversion 1, read best-effort; present must be an integer in\n``1..=MOLREC_VERSION`` -- ``null``, ``0``, a string, a float or a newer\nversion is refused. Identity of a record is the ``*.mrec`` path suffix\nplus a Zarr root, not this key.\n\n``record_id`` and ``content_hash`` are optional provenance, like\n``creator``, ``author``, ``created_at`` and ``source``.",
+  "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.\n\nIdentity of a record is the ``*.mrec`` path suffix plus a Zarr root.\n\n``record_id`` and ``content_hash`` are optional provenance, like\n``creator``, ``author``, ``created_at`` and ``source``.",
   "properties": {
     "author": {
       "anyOf": [
@@ -144,13 +139,6 @@
       ],
       "default": null,
       "title": "Modules"
-    },
-    "molrec_version": {
-      "description": "Absent on a store written before version 1; never null.",
-      "maximum": 1,
-      "minimum": 1,
-      "title": "Molrec Version",
-      "type": "integer"
     },
     "record_id": {
       "anyOf": [

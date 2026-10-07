@@ -1,7 +1,7 @@
 # Chunking and packing
 
 How an array is cut up is a backend choice. A conforming reader opens any
-chunking, and two stores of the same data are expected to differ byte for
+chunking, and two records of the same data are expected to differ byte for
 byte. This chapter separates the few rules that are **normative** — what a
 reader must be able to decode, and how a writer commits — from the
 **reference writer's choices** for extents and codecs, and ends with the
@@ -19,7 +19,7 @@ decodes every array whose codec pipeline is drawn from
 bytes   gzip   zstd   numcodecs.shuffle   crc32c   vlen-utf8   sharding_indexed   transpose
 ```
 
-and a conforming writer uses no codec outside this set unless the store is
+and a conforming writer uses no codec outside this set unless the record is
 for a reader known to have it. `numcodecs.shuffle` is the byte shuffle of the
 Zarr extension registry (configuration `{"elementsize": n}`). **No lossy codec
 is admitted**: a [declared precision](frame.md#declared-precision) is a
@@ -43,29 +43,29 @@ commit marker. Explicit `flush()` and `close()` are durable; an automatic
 flush (see below) does not `fsync`.
 
 **What the protocol guarantees, and where.** The guarantee is scoped to the
-kind of failure and the kind of store:
+kind of failure and the kind of storage:
 
 - *Process crash* (the writer dies, the machine keeps running): after any
-  flush, automatic or explicit, the store opens at the last `nstep` the
+  flush, automatic or explicit, the record opens at the last `nstep` the
   operating system received; uncommitted tails are read past.
 - *Power loss or kernel crash*: only an **explicit** `flush()` / `close()`
   is durable. Frames landed by automatic flushes since the last explicit one
   may be lost, and an `nstep` the disk never received reads as the previous
-  one — never as a store that claims frames it lacks.
-- *One writer, no concurrent readers.* A store has exactly one writer at a
-  time. A reader that opens a store while it is being written may observe a
-  half-replaced metadata file on a store without atomic rename; reading a
-  live store is a convenience of POSIX filesystems, not a guarantee of the
+  one — never as a record that claims frames it lacks.
+- *One writer, no concurrent readers.* A record has exactly one writer at a
+  time. A reader that opens a record while it is being written may observe a
+  half-replaced metadata file on storage without atomic rename; reading a
+  live record is a convenience of POSIX filesystems, not a guarantee of the
   format.
-- *Live append needs a POSIX-like store*: positional writes into a shard,
-  atomic rename, `fsync`. An object store (S3, GCS) has none of these, so it
+- *Live append needs POSIX-like storage*: positional writes into a shard,
+  atomic rename, `fsync`. Object storage (S3, GCS) has none of these, so it
   holds **closed** records — written elsewhere, then uploaded, or packed into
   `*.mrec.zip` — and is read, never appended to.
 
-**Reopen rule.** A writer reopening a store to append, and a reader opening
+**Reopen rule.** A writer reopening a record to append, and a reader opening
 one, are bound by `nstep`:
 
-- `nstep` is the trajectory group attribute (`len(step)` for a store that
+- `nstep` is the trajectory group attribute (`len(step)` for a record that
   kept no marker attribute);
 - for every block with an index, `n_updates` is the length of the prefix of
   `step_index` whose entries are `< nstep`; `offset` has logical length
@@ -183,8 +183,8 @@ is available at any time and is durable.
 
 ## At-rest form: `*.mrec.zip`
 
-A closed store may be packed into a single file: a zip of the directory
-store. The chunks arrived already encoded, so packing is concatenation plus
+A closed record may be packed into a single file: a zip of its directory
+Zarr store. The chunks arrived already encoded, so packing is concatenation plus
 a central directory, and an entry read out of the archive is bit-identical
 to the file it replaced. The archive follows fixed rules, so any zip-backed
 Zarr store can open any packed record:

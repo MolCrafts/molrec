@@ -171,7 +171,7 @@
     }
   },
   "additionalProperties": true,
-  "description": "The ``trajectory/`` group attribute ``sequence_schema``.\n\nThe set of blocks, columns, dtypes, trailing shapes and per-step meta keys\na trajectory may carry, declared when it is created and fixed for its\nlifetime. ``blocks`` mirrors the frame blocks; ``meta`` declares each\nper-step key as ``{dtype, fill?}`` -- the tag the array's ``meta_dtype``\nattribute repeats, and the fill an omitting frame is completed with.\n\nThe attribute carries no version of its own; the record's\n``meta[\"molrec_version\"]`` covers it.",
+  "description": "The ``trajectory/`` group attribute ``sequence_schema``.\n\nThe set of blocks, columns, dtypes, trailing shapes and per-step meta keys\na trajectory may carry, declared when it is created and fixed for its\nlifetime. ``blocks`` mirrors the frame blocks; ``meta`` declares each\nper-step key as ``{dtype, fill?}`` -- the tag the array's ``meta_dtype``\nattribute repeats, and the fill an omitting frame is completed with.",
   "properties": {
     "blocks": {
       "additionalProperties": {

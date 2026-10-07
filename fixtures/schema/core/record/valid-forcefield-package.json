@@ -36,7 +36,5 @@
       "preset": "real"
     }
   },
-  "meta": {
-    "molrec_version": 1
-  }
+  "meta": {}
 }

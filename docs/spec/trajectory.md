@@ -28,6 +28,10 @@ This is the logical picture; the full on-disk tree, with the elisions that
 make the common run cost one array per column, is
 [Ragged trajectory](ragged.md#layout).
 
+Every writer writes `nstep`, the commit marker; a reader that finds a
+trajectory without it reads `len(step)` frames
+([The commit marker](ragged.md#the-commit-marker-nstep)).
+
 `step`
 
 The producer's iteration counter at each committed frame, strictly
@@ -100,5 +104,5 @@ types that do not change in time belong in [system](system.md).
 The reference binding stores each block as a sparse update series (an
 append-first CSR layout). That encoding is specified under
 [Ragged trajectory](ragged.md); the reference streaming writer is
-`molrs.io.mrec.TrajectoryWriter`, the whole-sequence doors
+`molrs.io.mrec.MrecWriter`, the whole-sequence doors
 `molrs.io.write_mrec_trajectory` / `read_mrec_trajectory`.

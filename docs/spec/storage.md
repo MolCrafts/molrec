@@ -69,13 +69,10 @@ metrics so UIs (molplot) activate from those names:
  \-- executions/<id>/artifacts/
  |    \-- <stem>.mlp.jsonl     # live JSONL WAL — the metrics persist surface
  |    \-- (<name>.mlp.vl.json) # optional Vega-Lite plot artifact
- \-- (<stem>.mlp.zarr/)        # leftover dense store; ignored, never a surface
- \-- (<stem>.mlp.index.json)   # leftover host cache; never a UI trigger
 ```
 
 Default writer stem is `metrics` → `artifacts/metrics.mlp.jsonl`. Discovery
-and plugin activation match `*.mlp.jsonl` only; leftover `*.mlp.zarr/` and
-`*.mlp.index.json` are recognised solely so they can be ignored.
+and plugin activation match `*.mlp.jsonl` only.
 
 A scientific record that lands *under* the host (typically `artifacts/`) is
 still one Zarr root, named `*.mrec/` and discovered by that suffix plus the
@@ -109,7 +106,7 @@ No pure-JSON filesystem package is part of the reference binding.
 | `status` | Lifecycle snapshot | Zarr group attributes on `status/` |
 | `method` | Scientific / training context | Zarr group attributes on `method/` |
 | `metrics` (live) | Append-only events | JSONL WAL — Record: `metrics/metrics.jsonl`; host: `artifacts/<stem>.mlp.jsonl` |
-| `metrics` (closed) | Dense series catalog | Zarr arrays — Record: `metrics/`. A host keeps only the WAL; leftover `*.mlp.zarr/` is ignored |
+| `metrics` (closed) | Dense series catalog | Zarr arrays — Record: `metrics/`. A host keeps only the WAL |
 | `system` | Definition (topology, types) | a [frame-shaped group](#frame-shaped-group) |
 | `frame` | Instantaneous snapshot | a [frame-shaped group](#frame-shaped-group) |
 | `trajectory` | Ordered frames | Zarr array groups; [CSR + `step_index`, elided while regular](ragged.md) |
@@ -131,15 +128,14 @@ JSON: a document cannot carry NaN or infinity.
 
 | Section | Group path | Required keys when group exists |
 |---------|------------|----------------------------------|
-| `meta` | `meta/` | `molrec_version`, stamped by every writer (absent only on a pre-1 store; see [Metadata](overview.md#metadata)) |
+| `meta` | `meta/` | none (see [Metadata](overview.md#metadata)) |
 | `status` | `status/` | `state` |
 | `method` | `method/` | `type`, `description`, `engine.name` |
 
 Identity of a scientific record is the path suffix `*.mrec/` plus the Zarr
 root itself. Writers **MUST** create the root group `zarr.json` and the
-`meta/` group first — the caller's document with `molrec_version` stamped
-in — and only then the sections. A reader treats a missing `meta/` as an
-empty document (a pre-1 store: no version check).
+`meta/` group first — the caller's document, as given — and only then the
+sections. A reader treats a missing `meta/` as an empty document.
 
 ## Frame-shaped group
 
@@ -165,7 +161,7 @@ frame-shaped — share one normative layout:
 - **The group's attributes are the frame's `meta` document**, exactly: every
   key a writer puts there is a meta key, and a reader hands every key back
   as one — except `_meta_types`. The frame group carries no other
-  attributes (no version, no layout tag).
+  attributes.
 - **The meta document is typed.** The attribute `_meta_types` maps every key
   of the document to its [tag](ragged.md#per-step-metadata), and each value
   is in the [typed JSON form](conventions.md#typed-json-values) of that tag
@@ -222,11 +218,11 @@ Each [column dtype](frame.md#data-types) is stored as exactly one Zarr V3
 
 ## Array groups
 
-Reference implementation: molrs — `molrs.io.write_mrec` /
+Reference implementation: molrs — `molrs.io.write_mrec_frame` /
 `write_mrec_system` / `write_mrec_trajectory` and the streaming
-`molrs.io.mrec.TrajectoryWriter`, with `read_mrec` / `read_mrec_system` /
-`read_mrec_trajectory` / `read_mrec_meta` (and `mrec_sections`) on the way
-back.
+`molrs.io.mrec.MrecWriter`, with `read_mrec_frame` / `read_mrec_system` /
+`read_mrec_trajectory` / `read_mrec_meta` (and
+`molrs.io.mrec.section_names`) on the way back.
 
 - A frame-shaped section (`frame/`, `system/`) is a
   [frame-shaped group](#frame-shaped-group).
@@ -255,11 +251,9 @@ back.
 4. Array sections use Zarr array groups. Trajectory uses the
    [ragged CSR layout](ragged.md).
 5. Preserve unknown sections and keys.
-6. Writers create `meta/` and stamp `meta["molrec_version"]`. A reader
-   validates the key only when present: absent means a pre-1 store and no
-   version check; present means a JSON integer `>= 1`, no greater than the
-   newest the reader supports, never `null`. Scientific paths use
-   `*.mrec/` / `*.mrec.zip`.
+6. Writers create `meta/`, holding the producer's document as given; a
+   reader hands `meta` back as stored. Scientific paths use `*.mrec/` /
+   `*.mrec.zip`.
 7. Data precede metadata. A writer lands chunk bytes before it replaces an
    array's `zarr.json` (atomically), and the trajectory group's `nstep`
    attribute — the commit marker — last of all; a reader is bound by it

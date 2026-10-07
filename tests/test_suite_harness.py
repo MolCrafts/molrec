@@ -8,6 +8,7 @@ lean on the models to fill in what they dropped, writers that change a width.
 
 from __future__ import annotations
 
+import types
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, ClassVar
@@ -17,7 +18,7 @@ import pytest
 from pydantic import BaseModel
 
 import molrec
-from molrec.core.bindings.zarr import ZarrFrameBinding, ZarrFrameCodec, ZarrFrameStore
+from molrec.core.bindings.zarr import ZarrFrameBinding, ZarrFrameCodec, ZarrFrameStorage
 from molrec.core.model import NUMPY_DTYPE, BlockModel, ColumnModel, FrameModel
 from molrec.core.suite import FrameSuite
 from molrec.refusal import as_refusal
@@ -27,38 +28,38 @@ from molrec.report import Violation
 MODULES = ["core", "record", "trajectory", "collection", "forcefield", "observables"]
 
 
-def _codec(module: str, store: molrec.Store) -> molrec.Codec:
-    return REGISTRY.bindings_for(module)[store.backend]().codec()
+def _codec(module: str, storage: molrec.storage.Storage) -> molrec.binding.Codec:
+    return REGISTRY.bindings_for(module)[storage.backend]().codec()
 
 
-class CodecAdapter(molrec.Adapter):
+class CodecAdapter(molrec.adapter.Adapter):
     """The official codec, for whichever module a subclass binds it to."""
 
     backends: ClassVar[tuple[str, ...]] = ("zarr", "lmdb")
     refusal_types: ClassVar[tuple[type[Exception], ...]] = (ValueError,)
 
-    def write(self, model: BaseModel, store: molrec.Store) -> None:
-        _codec(self.module, store).write(model, store)
+    def write(self, model: BaseModel, storage: molrec.storage.Storage) -> None:
+        _codec(self.module, storage).write(model, storage)
 
-    def read(self, store: molrec.Store) -> Any:
-        return _codec(self.module, store).read(store)
+    def read(self, storage: molrec.storage.Storage) -> Any:
+        return _codec(self.module, storage).read(storage)
 
 
-def _run(module: str, adapter_type: type[molrec.Adapter]) -> molrec.Report:
+def _run(module: str, adapter_type: type[molrec.adapter.Adapter]) -> molrec.report.Report:
     adapter = type(f"{adapter_type.__name__}For{module}", (adapter_type,), {"module": module})()
     implementation = type(
-        "Implementation", (molrec.Implementation,), {"name": "broken", "adapter": adapter}
+        "Implementation", (molrec.adapter.Implementation,), {"name": "broken", "adapter": adapter}
     )()
-    return molrec.ConformanceSuite(implementation, modules=[module]).run()
+    return molrec.suite.ConformanceSuite(implementation, modules=[module]).run()
 
 
-def _statuses(report: molrec.Report, direction: str | None = None) -> dict[str, str]:
+def _statuses(report: molrec.report.Report, direction: str | None = None) -> dict[str, str]:
     return {
         r.case_id: r.status for r in report.results if direction is None or r.direction == direction
     }
 
 
-def _failed(report: molrec.Report, direction: str) -> set[str]:
+def _failed(report: molrec.report.Report, direction: str) -> set[str]:
     return {r.case_id for r in report.failures if r.direction == direction}
 
 
@@ -72,23 +73,23 @@ def _negatives(module: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-class RaisesNotImplemented(molrec.Adapter):
+class RaisesNotImplemented(molrec.adapter.Adapter):
     backends: ClassVar[tuple[str, ...]] = ("zarr", "lmdb")
     refusal_types: ClassVar[tuple[type[Exception], ...]] = (ValueError,)
 
-    def write(self, model: BaseModel, store: molrec.Store) -> None:
+    def write(self, model: BaseModel, storage: molrec.storage.Storage) -> None:
         raise NotImplementedError
 
-    def read(self, store: molrec.Store) -> Any:
+    def read(self, storage: molrec.storage.Storage) -> Any:
         raise NotImplementedError
 
 
 class RaisesAttributeError(RaisesNotImplemented):
-    def write(self, model: BaseModel, store: molrec.Store) -> None:
+    def write(self, model: BaseModel, storage: molrec.storage.Storage) -> None:
         return model.no_such_door  # type: ignore[attr-defined]
 
-    def read(self, store: molrec.Store) -> Any:
-        return store.no_such_door  # type: ignore[attr-defined]
+    def read(self, storage: molrec.storage.Storage) -> Any:
+        return storage.no_such_door  # type: ignore[attr-defined]
 
 
 class DeclaresItsDefectsRefusals(RaisesNotImplemented):
@@ -102,7 +103,7 @@ class DeclaresItsDefectsRefusals(RaisesNotImplemented):
     "adapter_type", [RaisesNotImplemented, RaisesAttributeError, DeclaresItsDefectsRefusals]
 )
 def test_an_adapter_that_cannot_read_or_write_passes_nothing(
-    module: str, adapter_type: type[molrec.Adapter]
+    module: str, adapter_type: type[molrec.adapter.Adapter]
 ) -> None:
     report = _run(module, adapter_type)
 
@@ -129,8 +130,8 @@ def _fields(model: BaseModel, **update: Any) -> dict[str, Any]:
 class DropsCarriedForwardBlocks(CodecAdapter):
     """Hands back only the blocks updated at each ordinal, not what carried forward."""
 
-    def read(self, store: molrec.Store) -> Any:
-        model = super().read(store)
+    def read(self, storage: molrec.storage.Storage) -> Any:
+        model = super().read(storage)
         frames: list[FrameModel] = []
         previous: dict[str, BlockModel] = {}
         for frame in model.frames:
@@ -157,8 +158,8 @@ def test_a_reader_that_drops_carried_forward_blocks_fails() -> None:
 class DropsFills(CodecAdapter):
     """Leaves a declared fill out of the frames that omitted the key."""
 
-    def read(self, store: molrec.Store) -> Any:
-        model = super().read(store)
+    def read(self, storage: molrec.storage.Storage) -> Any:
+        model = super().read(storage)
         frames = [
             FrameModel.model_construct(
                 blocks=frame.blocks,
@@ -183,8 +184,8 @@ def test_a_reader_that_drops_filled_values_fails() -> None:
 class DropsBoxDefaults(CodecAdapter):
     """Hands back a cell's vectors only, leaving origin and boundary to the defaults."""
 
-    def read(self, store: molrec.Store) -> Any:
-        model = super().read(store)
+    def read(self, storage: molrec.storage.Storage) -> Any:
+        model = super().read(storage)
         box = None if model.box is None else {"vectors": model.box.vectors}
         return _fields(model, box=box)
 
@@ -201,7 +202,7 @@ def test_a_reader_that_leaves_the_box_defaults_to_the_model_fails() -> None:
 
 
 class ReturnsAnEmptyFrame(CodecAdapter):
-    def read(self, store: molrec.Store) -> Any:
+    def read(self, storage: molrec.storage.Storage) -> Any:
         return FrameModel()
 
 
@@ -248,13 +249,13 @@ def _recast(model: FrameModel, source: str, target: str) -> FrameModel:
 
 
 class WidensU8Writer(CodecAdapter):
-    def write(self, model: BaseModel, store: molrec.Store) -> None:
-        super().write(_recast(model, "u8", "u64"), store)
+    def write(self, model: BaseModel, storage: molrec.storage.Storage) -> None:
+        super().write(_recast(model, "u8", "u64"), storage)
 
 
 class NarrowsI64Writer(CodecAdapter):
-    def write(self, model: BaseModel, store: molrec.Store) -> None:
-        super().write(_recast(model, "i64", "i32"), store)
+    def write(self, model: BaseModel, storage: molrec.storage.Storage) -> None:
+        super().write(_recast(model, "i64", "i32"), storage)
 
 
 def test_a_writer_that_widens_u8_fails() -> None:
@@ -284,7 +285,7 @@ def test_a_writer_that_narrows_i64_fails() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _result(report: molrec.Report, case_id: str, direction: str) -> molrec.CaseResult:
+def _result(report: molrec.report.Report, case_id: str, direction: str) -> molrec.report.CaseResult:
     [found] = [r for r in report.results if r.case_id == case_id and r.direction == direction]
     return found
 
@@ -292,13 +293,13 @@ def _result(report: molrec.Report, case_id: str, direction: str) -> molrec.CaseR
 class RefusesRowCounts(CodecAdapter):
     refusal_types: ClassVar[tuple[type[Exception], ...]] = ()
 
-    def read(self, store: molrec.Store) -> Any:
-        raise molrec.Refusal("count disagrees", kind="row_count_mismatch")
+    def read(self, storage: molrec.storage.Storage) -> Any:
+        raise molrec.refusal.Refusal("count disagrees", kind="row_count_mismatch")
 
 
 class RefusesForAnotherReason(RefusesRowCounts):
-    def read(self, store: molrec.Store) -> Any:
-        raise molrec.Refusal("unsupported", kind="unsupported_dtype")
+    def read(self, storage: molrec.storage.Storage) -> Any:
+        raise molrec.refusal.Refusal("unsupported", kind="unsupported_dtype")
 
 
 class UndeclaredRefusals(CodecAdapter):
@@ -351,7 +352,7 @@ def test_refusal_translation() -> None:
 
     assert as_refusal(DtypeError("no"), (DtypeError,)) is not None
     assert as_refusal(TypeError("no"), (DtypeError,)) is None
-    refusal = molrec.Refusal("no", kind="bad_version")
+    refusal = molrec.refusal.Refusal("no", kind="bad_forcefield")
     assert as_refusal(refusal) is refusal
 
 
@@ -360,30 +361,30 @@ def test_refusal_translation() -> None:
 # ---------------------------------------------------------------------------
 
 
-class _OneCaseSuite(molrec.Suite):
+class _OneCaseSuite(molrec.suite.Suite):
     """Not registered: a suite built only to drive the harness."""
 
     module: ClassVar[str] = "core"
     model_type: ClassVar[type[FrameModel]] = FrameModel
-    the_cases: ClassVar[tuple[molrec.Case, ...]] = ()
+    the_cases: ClassVar[tuple[molrec.case.Case, ...]] = ()
 
-    def cases(self) -> Iterable[molrec.Case]:
+    def cases(self) -> Iterable[molrec.case.Case]:
         return self.the_cases
 
 
-def _drive(suite_type: type[molrec.Suite], tmp_path: Path) -> list[molrec.CaseResult]:
+def _drive(suite_type: type[molrec.suite.Suite], tmp_path: Path) -> list[molrec.report.CaseResult]:
     adapter = type("Codec", (CodecAdapter,), {"module": "core"})()
     return suite_type().run(adapter, ZarrFrameBinding(), tmp_path)
 
 
-def _explode(store: ZarrFrameStore) -> None:
+def _explode(storage: ZarrFrameStorage) -> None:
     raise RuntimeError("tamper broke")
 
 
 def test_a_tamper_that_raises_is_an_error(tmp_path: Path) -> None:
     class Suite(_OneCaseSuite):
         the_cases = (
-            molrec.Case(
+            molrec.case.Case(
                 id="tampered",
                 model=FrameModel(),
                 expect_violation="anything",
@@ -396,12 +397,12 @@ def test_a_tamper_that_raises_is_an_error(tmp_path: Path) -> None:
     assert "tamper" in result.message
 
 
-def test_a_store_the_codec_refuses_to_lay_down_is_an_error(tmp_path: Path) -> None:
+def test_a_storage_the_codec_refuses_to_lay_down_is_an_error(tmp_path: Path) -> None:
     """The implementation was never shown the malformation, so it cannot have refused it."""
 
     class Suite(_OneCaseSuite):
         the_cases = (
-            molrec.Case(
+            molrec.case.Case(
                 id="unlayable",
                 model=FrameModel.model_construct(
                     blocks={"box": BlockModel(count=0)}, box=None, meta={}
@@ -435,8 +436,8 @@ def test_the_read_direction_compares_before_validating(tmp_path: Path) -> None:
     class Adapter(CodecAdapter):
         module = "core"
 
-        def read(self, store: molrec.Store) -> Any:
-            model = ZarrFrameCodec().read(store)
+        def read(self, storage: molrec.storage.Storage) -> Any:
+            model = ZarrFrameCodec().read(storage)
             box = _fields(model.box)
             del box["cell_defined"]
             return _fields(model, box=box)
@@ -465,13 +466,13 @@ def test_an_adapter_without_backends_is_an_error() -> None:
 
 
 def test_a_report_of_skips_only_is_not_ok() -> None:
-    report = molrec.Report(
+    report = molrec.report.Report(
         implementation="x",
         version="0",
-        results=(molrec.CaseResult(case_id="*", module="core", backend="", status="skip"),),
+        results=(molrec.report.CaseResult(case_id="*", module="core", backend="", status="skip"),),
     )
     assert not report.ok
-    assert not molrec.Report(implementation="x", version="0").ok
+    assert not molrec.report.Report(implementation="x", version="0").ok
 
 
 class DeclaresTwoCasesUnsupported(RaisesNotImplemented):
@@ -493,3 +494,15 @@ def test_a_declared_unsupported_case_is_a_skip_with_its_reason() -> None:
     assert "coordinates" not in judged
     assert judged == {case.id for case in FrameSuite().cases()} - set(skipped)
     assert not report.ok  # everything else still errors
+
+
+@pytest.mark.parametrize(
+    "package", [molrec, molrec.core, molrec.observables, molrec.draft.observables]
+)
+def test_a_package_holds_its_modules_and_no_symbol_of_theirs(package) -> None:
+    """One public path per symbol: the owner module's. A package exports its
+    subsystems (and the root its ``__version__``), never a re-export."""
+    exported = set(package.__all__) - {"__version__"}
+    assert exported, package.__name__
+    for name in exported:
+        assert isinstance(getattr(package, name), types.ModuleType), f"{package.__name__}.{name}"

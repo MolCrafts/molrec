@@ -65,7 +65,6 @@ Example line:
 |----------|---------------------------|------|
 | Dense Zarr series (record `metrics/`) | Yes, up to the watermark | After densify / close |
 | JSONL WAL | Record: past the watermark, or when no dense series exist. Host: **always** | During a run; the host's only surface |
-| Leftover host `*.mlp.zarr/` / `*.mlp.index.json` | No — ignored | Recognised only to be skipped; never a UI trigger |
 
 There is no separate first-class `metrics/index.json` on a record, and hosts
-do not maintain a dense store or an index beside the WAL.
+do not maintain a dense series or an index beside the WAL.

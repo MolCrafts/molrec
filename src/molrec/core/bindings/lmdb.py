@@ -17,7 +17,7 @@ A trajectory update holds only the blocks that changed at its ordinal, so a
 section costs what it changes -- the sparse semantics of the ragged layout,
 one row per frame. ``meta`` is written last and is the commit marker.
 
-``lmdb`` is imported where a store is opened, not here, so importing molrec
+``lmdb`` is imported where a storage is opened, not here, so importing molrec
 registers the binding without requiring the backend (``pip install
 molrec[lmdb]``).
 """
@@ -62,14 +62,12 @@ from molrec.core.model import (
     encode_typed_meta,
     revalidated,
     same_bits,
-    stamp_version,
 )
-from molrec.core.store import CollectionStore, TrajectoryStore
+from molrec.core.storage import CollectionStorage, TrajectoryStorage
 from molrec.registry import REGISTRY
 
 MAGIC = b"MRF1"
 LAYOUT = "mrec-lmdb"
-LAYOUT_VERSION = 1
 META_KEY = b"meta"
 INDEX_KEY = b"index"
 #: The collection's one force field: frame bytes whose ``meta`` is the
@@ -301,11 +299,11 @@ def decode_frame(value: bytes | memoryview) -> FrameBytes:
 
 
 # ---------------------------------------------------------------------------
-# Stores
+# Storage
 # ---------------------------------------------------------------------------
 
 
-class LmdbCollectionStore(CollectionStore):
+class LmdbCollectionStorage(CollectionStorage):
     """One ``*.mrec.lmdb`` file holding a collection."""
 
     backend: ClassVar[str] = "lmdb"
@@ -345,7 +343,7 @@ class LmdbCollectionStore(CollectionStore):
                 target.unlink()
 
 
-class LmdbTrajectoryStore(LmdbCollectionStore, TrajectoryStore):
+class LmdbTrajectoryStorage(LmdbCollectionStorage, TrajectoryStorage):
     """A collection of one record holding one bare trajectory."""
 
 
@@ -357,11 +355,11 @@ class LmdbTrajectoryStore(LmdbCollectionStore, TrajectoryStore):
 class LmdbCollectionCodec(Codec):
     """The official translation of a collection. Thin: it is the arbiter."""
 
-    def write(self, model: CollectionModel, store: LmdbCollectionStore) -> None:
+    def write(self, model: CollectionModel, storage: LmdbCollectionStorage) -> None:
         model = revalidated(model)
         schema = model.sequence_schema or SequenceSchemaModel()
-        store.clear()
-        env = store.open(write=True)
+        storage.clear()
+        env = storage.open(write=True)
         derived: dict[str, list[int]] = {name: [] for name in RESERVED_INDEX_COLUMNS}
         ordinal = 0
         try:
@@ -413,8 +411,7 @@ class LmdbCollectionCodec(Codec):
                     jsonvalue.dumps(
                         {
                             "layout": LAYOUT,
-                            "layout_version": LAYOUT_VERSION,
-                            "collection": stamp_version(document(model.meta)),
+                            "collection": document(model.meta),
                             "sequence_schema": schema.model_dump(mode="json"),
                             "n_records": len(model.records),
                             "n_frames": ordinal,
@@ -458,19 +455,18 @@ class LmdbCollectionCodec(Codec):
             )
         return values
 
-    def read(self, store: LmdbCollectionStore) -> CollectionModel:
-        env = store.open()
+    def read(self, storage: LmdbCollectionStorage) -> CollectionModel:
+        env = storage.open()
         try:
             with env.begin() as txn:
                 raw = txn.get(META_KEY)
                 if raw is None:
-                    raise ValueError(f"{store.path}: no 'meta' key -- not a committed collection")
+                    raise ValueError(f"{storage.path}: no 'meta' key -- not a committed collection")
                 meta = json.loads(bytes(raw))
                 if meta.get("layout") != LAYOUT:
                     raise ValueError(
-                        f"{store.path}: layout {meta.get('layout')!r}, expected {LAYOUT!r}"
+                        f"{storage.path}: layout {meta.get('layout')!r}, expected {LAYOUT!r}"
                     )
-                _check_layout_version(meta.get("layout_version"), store.path)
                 schema = SequenceSchemaModel.model_validate(meta["sequence_schema"])
                 index = decode_frame(txn.get(INDEX_KEY)).blocks[INDEX_BLOCK]
                 n_records, total = int(meta["n_records"]), int(meta["n_frames"])
@@ -492,9 +488,9 @@ class LmdbCollectionCodec(Codec):
                 raw = txn.get(FF_KEY)
                 forcefield = None
                 if raw is not None:
-                    decoded = decode_frame(raw)
+                    stored = decode_frame(raw)
                     forcefield = ForceFieldModel.model_validate(
-                        {**decoded.meta, "tables": decoded.blocks}
+                        {**stored.meta, "tables": stored.blocks}
                     )
         finally:
             env.close()
@@ -574,17 +570,6 @@ class LmdbCollectionCodec(Codec):
         return RecordModel(meta=meta, system=system, trajectory=trajectory)
 
 
-def _check_layout_version(version: Any, path: Path) -> None:
-    """``layout_version`` is the binding's own layout version: required, an
-    integer in ``1..=LAYOUT_VERSION``. It is not ``molrec_version``, which the
-    collection document carries under the record rule."""
-    if type(version) is not int or not 1 <= version <= LAYOUT_VERSION:
-        raise ValueError(
-            f"{path}: layout_version {version!r} is not one this reader supports "
-            f"(1..={LAYOUT_VERSION})"
-        )
-
-
 def _cell_section(r: int, ordinals: list[int], cells: list[BoxModel]) -> TrajectoryBoxModel | None:
     """A record's cell updates as one section: one ``cell_defined`` for all."""
     if not cells:
@@ -625,20 +610,20 @@ class LmdbTrajectoryCodec(Codec):
     #: one-record collection wrapping it states none it could be wrong about.
     UNITS: ClassVar[dict[str, str]] = {}
 
-    def write(self, model: TrajectoryModel, store: LmdbTrajectoryStore) -> None:
+    def write(self, model: TrajectoryModel, storage: LmdbTrajectoryStorage) -> None:
         model = revalidated(model)
         LmdbCollectionCodec().write(
             CollectionModel(
                 meta=CollectionMetaModel(units=dict(self.UNITS)),
                 records=[RecordModel(meta=MetaModel(), trajectory=model)],
             ),
-            store,
+            storage,
         )
 
-    def read(self, store: LmdbTrajectoryStore) -> TrajectoryModel:
-        collection = LmdbCollectionCodec().read(store)
+    def read(self, storage: LmdbTrajectoryStorage) -> TrajectoryModel:
+        collection = LmdbCollectionCodec().read(storage)
         if len(collection.records) != 1 or collection.records[0].trajectory is None:
-            raise ValueError(f"{store.path}: not a one-trajectory collection")
+            raise ValueError(f"{storage.path}: not a one-trajectory collection")
         return collection.records[0].trajectory
 
 
@@ -652,10 +637,10 @@ class LmdbCollectionBinding(Binding):
     module: ClassVar[str] = "collection"
     backend: ClassVar[str] = "lmdb"
 
-    def new_store(self, workdir: Path) -> LmdbCollectionStore:
-        store = LmdbCollectionStore(workdir.with_suffix(".mrec.lmdb"))
-        store.clear()
-        return store
+    def new_storage(self, workdir: Path) -> LmdbCollectionStorage:
+        storage = LmdbCollectionStorage(workdir.with_suffix(".mrec.lmdb"))
+        storage.clear()
+        return storage
 
     def codec(self) -> LmdbCollectionCodec:
         return LmdbCollectionCodec()
@@ -666,10 +651,10 @@ class LmdbTrajectoryBinding(Binding):
     module: ClassVar[str] = "trajectory"
     backend: ClassVar[str] = "lmdb"
 
-    def new_store(self, workdir: Path) -> LmdbTrajectoryStore:
-        store = LmdbTrajectoryStore(workdir.with_suffix(".mrec.lmdb"))
-        store.clear()
-        return store
+    def new_storage(self, workdir: Path) -> LmdbTrajectoryStorage:
+        storage = LmdbTrajectoryStorage(workdir.with_suffix(".mrec.lmdb"))
+        storage.clear()
+        return storage
 
     def codec(self) -> LmdbTrajectoryCodec:
         return LmdbTrajectoryCodec()
@@ -679,10 +664,10 @@ __all__ = [
     "FrameBytes",
     "LmdbCollectionBinding",
     "LmdbCollectionCodec",
-    "LmdbCollectionStore",
+    "LmdbCollectionStorage",
     "LmdbTrajectoryBinding",
     "LmdbTrajectoryCodec",
-    "LmdbTrajectoryStore",
+    "LmdbTrajectoryStorage",
     "decode_frame",
     "encode_frame",
     "key",
