@@ -44,19 +44,13 @@ docs = [
 
 # The reference implementation is built from the sibling checkout
 # (../molrs, MolCrafts/molrs) so the suite judges the layout molrs writes
-# *now*, not the last published wheel. CI checks the sibling out at a pinned
-# commit (see .github/workflows/ci.yml).
+# *now*, not the last published wheel. CI and the hooks check the sibling out
+# at the commit scripts/partners.py resolves (molrs's dev; see "Partners" in
+# CLAUDE.md).
 #
-# uv caches the built molrs wheel by the sibling's pyproject.toml only, so a
-# change to its Rust sources is not picked up by `uv sync` on its own. Either
-# rebuild explicitly -- `uv sync --extra dev --reinstall-package
-# molcrafts-molrs` -- or give molrs-python's pyproject.toml the cache keys
-# that make uv notice (that file is molrs's, not ours):
-#
-#   [tool.uv]
-#   cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" },
-#                 { file = "src/**/*.rs" }, { file = "../molrs/src/**/*.rs" },
-#                 { file = "../Cargo.lock" }]
+# uv rebuilds that wheel when the checkout's commit moves (molrs-python's
+# [tool.uv] cache-keys); uncommitted Rust edits in ../molrs need
+# `uv sync --extra dev --reinstall-package molcrafts-molrs`.
 [tool.uv.sources]
 molcrafts-molrs = { path = "../molrs/molrs-python" }
 

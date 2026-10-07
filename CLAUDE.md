@@ -68,14 +68,15 @@ Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract.
 - Layout chapter: `docs/layout.md`'s trees are generated from the codecs by
   `scripts/layout_examples.py`; after a codec or layout change run it with
   `--write` (`tests/test_layout_doc.py` fails on drift).
-- Full suite against molrs, exactly as CI runs it (molrs built from the commit
-  `.github/partners.env` pins, in a layout of its own -- never `../molrs`):
+- Full suite against molrs, exactly as CI runs it (molrs built from the
+  commit `scripts/partners.py` resolves, in a layout of its own -- never your
+  `../molrs` working tree):
   `scripts/partners.py run -- env MOLREC_REQUIRE_MOLRS=1 uv run --locked
   --python 3.12 --extra dev pytest -q`. It compiles molrs: **only on a build
   machine, never a login node** (the pre-push hook dispatches it for you).
-- Bumping molrs: change `MOLRS_REF` in `.github/partners.env` and relock in
-  the same commit, since the lock records the pinned molrs version:
-  `scripts/partners.py run -- sh -c 'uv lock && cp uv.lock "$PARTNERS_SOURCE/"'`.
+- Relocking against molrs (when molrs's `dev` changed its version or its
+  dependencies and `uv lock --check` fails): `scripts/partners.py run -- sh -c
+  'uv lock && cp uv.lock "$PARTNERS_SOURCE/"'`, in a commit of its own.
 
 ## Hooks
 
@@ -87,14 +88,14 @@ a red PR.
 - **pre-commit** (staged files, cheap, in place): file hygiene
   (whitespace, EOF, yaml/toml/json, merge markers, large files) and ruff.
 - **pre-push**: the same hygiene hooks on `--all-files` (as ci.yml `checks`
-  runs them); `scripts/partners.py check` (every pin in
-  `.github/partners.env` exists on its remote, no path source CI cannot
-  resolve, no workflow spelling a partner commit of its own); `uv lock
-  --check` and the bare `import molrec`, both against the pinned molrs; the
+  runs them); `scripts/partners.py check` (every partner in
+  `.github/partners.env` resolves, no path source CI cannot resolve, no
+  workflow spelling a partner commit of its own); `uv lock --check` and the
+  bare `import molrec`, both against the resolved molrs; the
   docs build (`zensical build --clean --strict` in a fresh `.[docs]` env, as
   Cloudflare Pages builds it; on docs/src/zensical.toml/pyproject changes);
   and the full suite with `MOLREC_REQUIRE_MOLRS=1` against a molrs wheel
-  built from the pinned commit.
+  built from the resolved commit.
 - **Dispatch:** the full suite compiles molrs, so its entry goes through
   `scripts/hook-run.sh`, which hands the command to `$MOLCRAFTS_HOOK_RUNNER`
   when that is set and it is not already inside a Slurm job. On the MolCrafts
@@ -102,8 +103,38 @@ a red PR.
   runs the command on a compute node (allocation `$USER-hooks`; fails after
   20 min without a node, never passes). Everything else runs in place, so a
   commit never waits for Slurm. Elsewhere nothing sets the variable and every
-  hook runs locally. `$MOLCRAFTS_PARTNER_CACHE`, when set, keeps the pinned
-  molrs checkout and its build between pushes.
+  hook runs locally. `$MOLCRAFTS_PARTNER_CACHE`, when set, keeps the molrs
+  checkout and its build between pushes.
+
+## Partners
+
+On `dev`, partners are tracked, not pinned. `.github/partners.env` names
+molrs's branch (`MOLRS_REF=dev`), and `scripts/partners.py` resolves it -- for
+CI (`partners.py resolve`, appended to `$GITHUB_ENV`) and for the hooks
+(`partners.py run`) alike -- to the first of:
+
+1. molrs's branch named like the one being built (CI: the pushed branch or a
+   pull request's head branch; locally: the checked-out branch), when
+   MolCrafts/molrs has one;
+2. outside CI only, that branch in the sibling clone `../molrs`, when it has
+   one and the remote does not yet;
+3. molrs's `dev`.
+
+A change to the contract between molrec and molrs (molrs's adapter, the
+conformance suite) lands as two same-named branches, never by skipping a gate:
+create the same branch (say `converge/x`) in both checkouts; push the first
+(its gates take the partner's branch from the sibling clone), then the second
+(its gates take the first from the remote); open both pull requests into `dev`
+-- each CI run resolves the other's branch -- and once both are green,
+fast-forward both `dev`s to them (or merge both) and delete the branches. A
+`dev` push whose partner's `dev` has not caught up yet is re-run once both
+have landed.
+
+`uv.lock` records molrs's package metadata (version, dependencies), never a
+commit, and every gate is `--locked`; when molrs's `dev` moves that metadata,
+relock (see Commands). A release (a tag on `master`) names a molrs tag or
+commit as `MOLRS_REF` in its release commit, so it is checked against a fixed
+molrs; `dev` keeps `MOLRS_REF=dev` when `master` is merged back.
 
 ## Spec hygiene
 
