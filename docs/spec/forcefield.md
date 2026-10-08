@@ -440,7 +440,7 @@ parameter enters it converted from degrees.
 | `pair.morse` | d0·[(1 − e^{−alpha(r − r0)})² − 1] | `d0` E, `alpha` 1/L, `r0` L | `cutoff` L |
 | `pair.coul/cut` | coulomb·qᵢqⱼ / (dielectric·(r + delta)), r < cutoff | — (charges from `atoms.charge`) | `coulomb` E·L/Q², `dielectric` 1, `delta` L, `cutoff` L |
 | `pair.coul/long/pme` | Ewald-summed coulomb·qᵢqⱼ/r (particle-mesh) | — (charges from `atoms.charge`) | `coulomb` E·L/Q², `cutoff` L, `alpha` 1/L, `order` 1, `grid_x`, `grid_y`, `grid_z` 1 |
-| `pair.thole` | T(r)·C·qᵢqⱼ/r, T = 1 − (1 + s·r/2)·e^{−s·r}, s = ½(dampᵢ + dampⱼ)/(alphaᵢ·alphaⱼ)^{1/6}, C the Coulomb constant of `units` | `charge` Q, `alpha` L³, `damp` 1 | `coulomb` E·L/Q² |
+| `pair.thole` | T(r)·C·qᵢqⱼ/r, T = 1 − (1 + s·r/2)·e^{−s·r}, s = ½(dampᵢ + dampⱼ)/(alphaᵢ·alphaⱼ)^{1/6}, C the Coulomb constant of `units`. Expression: `coulomb*charge1*charge2/r*(1-(1+s*r/2)*exp(-s*r)); s=(damp1+damp2)/2/(alpha1*alpha2)^(1/6)` | `charge` Q, `alpha` L³, `damp` 1 | `coulomb` E·L/Q² |
 | `pair.coul/tt` | C·fₙ(r)·qᵢqⱼ/r, fₙ = 1 − c·e^{−b·r}·Σ_{k=0}^{n} (b·r)^k/k!, n = `order` | `charge` Q | `coulomb` E·L/Q², `b` 1/L (4.5), `c` 1 (1), `order` 1 (4) |
 | `constraint.fixed` | \|rᵢ − rⱼ\| = r0 | `r0` L | — |
 | `virtual_site.average2` | x = w1·x_j + w2·x_k | `w1`, `w2` 1 | — |
@@ -462,6 +462,8 @@ Special classes: `pair.lj/cut`, `pair.lj/charmm`, `pair.lj/class2`,
 `pair.coul/charmm`, `pair.coul/long/pme`, `pair.thole` and `pair.coul/tt` take
 `special_bonds.coul`. An
 unregistered pair style takes `lj` unless its `params.special` is `"coul"`.
+`pair.coul/tt` has no expression: fₙ sums to the style parameter `order`,
+and an expression has no sum.
 
 A `pair.lj/charmm` self row whose `epsilon14` or `sigma14` is null has the
 row's `epsilon` or `sigma` there (LAMMPS's default), and `mixing` mixes
