@@ -171,7 +171,7 @@ there is no `release.yml` or `nightly.yml`.
 
 | workflow | feature-branch push to MolCrafts | everything else: any push to a fork, `dev`/`master`/`main`, pull requests, tags, dispatches | upstream only |
 | --- | --- | --- | --- |
-| `lint.yml` | `lint / hooks` (commit hooks on every file, partners, `uv lock --check`) | same | — |
+| `lint.yml` | `lint / hooks` (commit hooks on every file, partners, `uv lock --check`), `lint / workflows` (`check-workflows`) | same | — |
 | `test.yml` | fast: `test / python (ubuntu-latest)` (bare import + the full suite against molrs) | full: `test / python` on Linux, macOS and Windows | — |
 | `docs.yml` | `docs / build` (zensical `--strict`) | same | Cloudflare Pages deploys the site from MolCrafts |
 
