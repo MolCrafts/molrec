@@ -1481,12 +1481,29 @@
     },
     "StyleModel": {
       "additionalProperties": true,
-      "description": "One entry of ``forcefield.styles``: a functional form and its table.\n\nThe table is the block :attr:`block` -- a function of ``(category,\nstyle)``, so the two can never disagree. ``params`` and ``endpoint_key``\nare written only when they say something (non-empty, not ``\"type\"``).",
+      "description": "One entry of ``forcefield.styles``: a functional form and its table.\n\nThe table is the block :attr:`block` -- a function of ``(category,\nstyle)``, so the two can never disagree. ``params`` and ``endpoint_key``\nare written only when they say something (non-empty, not ``\"type\"``).\n``role``, ``selection`` and ``charge`` are a pair style's registry\ndeclaration, written only when stated.",
       "properties": {
         "category": {
           "pattern": "^[a-z][a-z0-9_]*$",
           "title": "Category",
           "type": "string"
+        },
+        "charge": {
+          "anyOf": [
+            {
+              "enum": [
+                "atom",
+                "type",
+                "drude"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Charge"
         },
         "endpoint_key": {
           "default": "type",
@@ -1523,6 +1540,44 @@
           },
           "title": "Params",
           "type": "object"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "enum": [
+                "complete:coul",
+                "complete:lj",
+                "additive",
+                "additive:lj",
+                "additive:coul",
+                "correction:coul",
+                "correction:lj"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "selection": {
+          "anyOf": [
+            {
+              "enum": [
+                "all",
+                "polarizable_except_own",
+                "mixed_roles"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selection"
         },
         "style": {
           "minLength": 1,
