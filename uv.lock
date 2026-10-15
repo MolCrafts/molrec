@@ -320,7 +320,7 @@ wheels = [
 
 [[package]]
 name = "molcrafts-molrs"
-version = "0.17.0"
+version = "0.18.0"
 source = { directory = "../molrs/molrs-python" }
 dependencies = [
     { name = "numpy" },
@@ -331,10 +331,11 @@ requires-dist = [
     { name = "maturin", marker = "extra == 'dev'", specifier = ">=1.0,<2.0" },
     { name = "mkdocstrings", extras = ["python"], marker = "extra == 'doc'" },
     { name = "molcrafts-zensical-theme", marker = "extra == 'doc'", specifier = ">=0.2.3" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13" },
     { name = "numpy", specifier = ">=2.0" },
     { name = "numpy", marker = "extra == 'dev'", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'" },
-    { name = "tox", marker = "extra == 'dev'", specifier = ">=4.23" },
+    { name = "pytest-cov", marker = "extra == 'dev'" },
     { name = "zensical", marker = "extra == 'doc'", specifier = ">=0.0.51" },
 ]
 provides-extras = ["dev", "doc"]
