@@ -218,11 +218,11 @@ Each [column dtype](frame.md#data-types) is stored as exactly one Zarr V3
 
 ## Array groups
 
-Reference implementation: molrs — `molrs.io.write_mrec_frame` /
-`write_mrec_system` / `write_mrec_trajectory` and the streaming
-`molrs.io.mrec.MrecWriter`, with `read_mrec_frame` / `read_mrec_system` /
-`read_mrec_trajectory` / `read_mrec_meta` (and
-`molrs.io.mrec.section_names`) on the way back.
+Reference implementation: molrs — `molrs.io.write_mrec` (one door for
+`meta` and whichever state sections are given) and the streaming
+`molrs.io.mrec.MrecWriter`, with `molrs.io.mrec.MrecFile` (`sections` /
+`meta` / `frame` / `system` / `forcefield`) and `molrs.io.mrec.MrecReader`
+(the trajectory) on the way back.
 
 - A frame-shaped section (`frame/`, `system/`) is a
   [frame-shaped group](#frame-shaped-group).
