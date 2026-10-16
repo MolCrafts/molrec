@@ -31,7 +31,7 @@ jobs:
       publish: ${{ steps.context.outputs.publish }}
     steps:
       - id: context
-        uses: MolCrafts/molcrafts-ci/actions/ci-context@master
+        uses: MolCrafts/molcrafts-ci/actions/ci-context@03352583738d9424ce37996ef9e04df9290087ba
 
   build:
     name: docs / build
@@ -41,5 +41,5 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: MolCrafts/molcrafts-ci/actions/setup-python@master
+      - uses: MolCrafts/molcrafts-ci/actions/setup-python@03352583738d9424ce37996ef9e04df9290087ba
       - run: uv run --isolated --no-project --python 3.12 --with '.[docs]' zensical build --clean --strict

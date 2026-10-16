@@ -69,13 +69,13 @@ Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract.
   `scripts/layout_examples.py`; after a codec or layout change run it with
   `--write` (`tests/test_layout_doc.py` fails on drift).
 - Full suite against molrs, exactly as CI runs it (molrs built from the
-  commit `scripts/partners.py` resolves, in a layout of its own -- never your
+  commit `.github/partners.env` declares, in a layout of its own -- never your
   `../molrs` working tree):
   `scripts/partners.py run -- env MOLREC_REQUIRE_MOLRS=1 uv run --locked
   --python 3.12 --extra dev python -X warn_default_encoding -m pytest -q`. It compiles molrs: **only on a build
   machine, never a login node** (the pre-push hook dispatches it for you).
-- Relocking against molrs (when molrs's `dev` changed its version or its
-  dependencies and `uv lock --check` fails): `scripts/partners.py run -- sh -c
+- Relocking against molrs (when the declared molrs changed its version or
+  its dependencies and `uv lock --check` fails): `scripts/partners.py run -- sh -c
   'uv lock && cp uv.lock "$PARTNERS_SOURCE/"'`, in a commit of its own.
 
 ## Hooks
@@ -108,35 +108,40 @@ a red PR.
 
 ## Partners
 
-On `dev`, partners are tracked, not pinned. `.github/partners.env` names
-molrs's branch (`MOLRS_REF=dev`), and `scripts/partners.py` resolves it -- for
-CI (`partners.py fetch`, into `../molrs`) and for the hooks (`partners.py
-run`) alike -- to the first of:
+`.github/partners.env` declares each partner (`MOLRS_REPOSITORY`,
+`MOLRS_REF`) and the molcrafts-ci commit that resolves them (`CI_REF`, a full
+SHA). The resolver is molcrafts-ci's `molcrafts_ci.partners`, one
+implementation for CI and the hooks: the workflows reach it through
+`MolCrafts/molcrafts-ci/actions/setup-partners@<CI_REF>` (into `../molrs`),
+the hooks through `scripts/partners.py`, a thin wrapper that runs it at
+`CI_REF` (`check`, `fetch`, `run --`). `partners.py check` fails when a
+workflow's `uses: MolCrafts/molcrafts-ci/actions/...@` names any other
+commit, so moving to a new molcrafts-ci is one commit that changes `CI_REF`
+and every action ref together. `scripts/partners.py` is molrs's wrapper
+(only ruff's formatting differs); resolver logic never grows here.
 
-1. molrs's branch named like the one being built (CI: the pushed branch or a
-   pull request's head branch; locally: the checked-out branch), looked up
-   first on the fork the build comes from (`<owner>/molrs`, where `<owner>`
-   owns the pull request's head repository or the repository CI runs in; in a
-   git hook, the remote being pushed to), then on MolCrafts/molrs;
-2. outside CI only, that branch in the sibling clone `../molrs`, when it has
-   one and neither remote does yet;
-3. MolCrafts/molrs's `dev`.
+`MOLRS_REF` is used exactly as written -- a branch, tag or full commit. There
+is no same-named-branch matching and no sibling-clone fallback: the branch
+being built never changes which molrs is fetched. On `dev`, `MOLRS_REF=dev`.
 
 A change to the contract between molrec and molrs (molrs's adapter, the
-conformance suite) lands as two same-named branches, never by skipping a gate:
-create the same branch (say `converge/x`) in both checkouts; push both to
-your forks, never to MolCrafts (the first push's gates take the partner's
-branch from the sibling clone, the second's from your fork); each push runs
-the full CI tier on your fork, and each run resolves the other's branch there; only once both forks are green, open
-the pull requests into MolCrafts `dev`, merge both once green (never a red
-one), and delete the branches. A `dev` push whose partner's `dev` has not
-caught up yet is re-run once both have landed.
+conformance suite) lands as two pull requests into `dev` that pin each other
+by full commit, never by skipping a gate:
+
+- molrs's `partners.env` pins `MOLREC_REF` at the molrec commit that carries
+  the adapter change;
+- molrec's pins `MOLRS_REF` at the molrs pull request's head (MolCrafts/molrs
+  serves a pull request's commits), in a commit of its own, relocked if the
+  metadata moved.
+
+Merge both once green (never a red one), with merge commits so the pinned
+commits stay on `dev`, then set `MOLRS_REF` back to `dev` on molrec `dev`.
 
 `uv.lock` records molrs's package metadata (version, dependencies), never a
-commit, and every gate is `--locked`; when molrs's `dev` moves that metadata,
-relock (see Commands). A release (a tag on `master`) names a molrs tag or
-commit as `MOLRS_REF` in its release commit, so it is checked against a fixed
-molrs; `dev` keeps `MOLRS_REF=dev` when `master` is merged back.
+commit, and every gate is `--locked`; when the declared molrs moves that
+metadata, relock (see Commands). A release (a tag on `master`) names a molrs
+tag or commit as `MOLRS_REF` in its release commit, so it is checked against a
+fixed molrs; `dev` returns to `MOLRS_REF=dev` when `master` is merged back.
 
 ## Spec hygiene
 
@@ -179,8 +184,9 @@ So a fork branch gets the full tier on its push: push to your fork, wait for
 green, then open the pull request into MolCrafts `dev`. The
 `require-green-ci` (`dev`) and `protect-master` rulesets require the full
 tier's jobs and `test / context`. Every workflow's first job,
-`<file> / context`, runs `MolCrafts/molcrafts-ci/actions/ci-context@master`,
+`<file> / context`, runs `MolCrafts/molcrafts-ci/actions/ci-context@<CI_REF>`,
 which decides the tier, fork vs upstream and the pull-request dedup; the other
 jobs read its outputs. Shared setup is molcrafts-ci's
-`MolCrafts/molcrafts-ci/actions/<name>@master` (`setup-rust`, `setup-python`,
-`setup-partners`).
+`MolCrafts/molcrafts-ci/actions/<name>@<CI_REF>` (`setup-rust`,
+`setup-python`, `setup-partners`), every ref the full `CI_REF` commit from
+`.github/partners.env` (see Partners).

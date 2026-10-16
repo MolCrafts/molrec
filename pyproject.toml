@@ -45,7 +45,7 @@ docs = [
 # The reference implementation is built from the sibling checkout
 # (../molrs, MolCrafts/molrs) so the suite judges the layout molrs writes
 # *now*, not the last published wheel. CI and the hooks check the sibling out
-# at the commit scripts/partners.py resolves (molrs's dev; see "Partners" in
+# at the commit .github/partners.env declares (molrs's dev; see "Partners" in
 # CLAUDE.md).
 #
 # uv rebuilds that wheel when the checkout's commit moves (molrs-python's

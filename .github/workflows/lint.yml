@@ -32,7 +32,7 @@ jobs:
       publish: ${{ steps.context.outputs.publish }}
     steps:
       - id: context
-        uses: MolCrafts/molcrafts-ci/actions/ci-context@master
+        uses: MolCrafts/molcrafts-ci/actions/ci-context@03352583738d9424ce37996ef9e04df9290087ba
 
   hooks:
     name: lint / hooks
@@ -42,8 +42,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: MolCrafts/molcrafts-ci/actions/setup-python@master
-      - uses: MolCrafts/molcrafts-ci/actions/setup-partners@master
+      - uses: MolCrafts/molcrafts-ci/actions/setup-python@03352583738d9424ce37996ef9e04df9290087ba
+      - uses: MolCrafts/molcrafts-ci/actions/setup-partners@03352583738d9424ce37996ef9e04df9290087ba
       - run: uvx pre-commit run --all-files --show-diff-on-failure
       - run: python3 scripts/partners.py check
       - run: uv lock --check
@@ -56,4 +56,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: MolCrafts/molcrafts-ci/actions/check-workflows@master
+      - uses: MolCrafts/molcrafts-ci/actions/check-workflows@03352583738d9424ce37996ef9e04df9290087ba
