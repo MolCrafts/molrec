@@ -1,7 +1,8 @@
 # Managed by prek / pre-commit: `prek install` (installs both hook types).
 # CI parity: every job in .github/workflows/{lint,test,docs}.yml has a hook here, running
-# the same command against the same molrs commit (scripts/partners.py resolves
-# .github/partners.env: molrs's dev, or its branch named like this one).
+# the same command against the same molrs commit (scripts/partners.py runs
+# molcrafts-ci's resolver on .github/partners.env, whose MOLRS_REF is used
+# exactly as declared).
 #
 #   pre-commit  file hygiene + ruff, on the staged files. Cheap: runs in place.
 #   pre-push    the cheap hooks again on --all-files (CI runs them that way),

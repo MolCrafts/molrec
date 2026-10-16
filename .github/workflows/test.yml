@@ -1,8 +1,8 @@
 name: test
 
 # The whole suite -- the molrs-marked conformance cases included, judging
-# molrs built from the commit scripts/partners.py resolves (molrs's dev, or
-# its branch named like this one) -- in two tiers (`test / context` decides):
+# molrs built from the commit .github/partners.env declares (MOLRS_REF, used
+# exactly as written) -- in two tiers (`test / context` decides):
 #
 #   fast  a feature-branch push to MolCrafts: Linux.
 #   full  every push to a fork (proven before its pull request), dev, master
@@ -21,7 +21,7 @@ permissions:
 # One group per file, workflow, event and ref; only a feature ref cancels its superseded runs.
 concurrency:
   group: test-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: ${{ !contains(fromJSON('["refs/heads/dev","refs/heads/master","refs/heads/main"]'), github.ref) && !startsWith(github.ref, 'refs/tags/') }}
+  cancel-in-progress: ${{ !contains(fromJSON('["refs/heads/dev","refs/heads/master"]'), github.ref) && !startsWith(github.ref, 'refs/tags/') }}
 
 defaults:
   run:
@@ -45,7 +45,7 @@ jobs:
       publish: ${{ steps.context.outputs.publish }}
     steps:
       - id: context
-        uses: MolCrafts/molcrafts-ci/actions/ci-context@master
+        uses: MolCrafts/molcrafts-ci/actions/ci-context@03352583738d9424ce37996ef9e04df9290087ba
 
   python:
     name: test / python (${{ matrix.os }})
@@ -58,10 +58,10 @@ jobs:
         os: ${{ fromJSON(needs.context.outputs.tier == 'full' && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v7
-      - uses: MolCrafts/molcrafts-ci/actions/setup-python@master
-      - uses: MolCrafts/molcrafts-ci/actions/setup-partners@master
+      - uses: MolCrafts/molcrafts-ci/actions/setup-python@03352583738d9424ce37996ef9e04df9290087ba
+      - uses: MolCrafts/molcrafts-ci/actions/setup-partners@03352583738d9424ce37996ef9e04df9290087ba
       # molrs/rust-toolchain.toml pins the compiler that builds the molrs wheel.
-      - uses: MolCrafts/molcrafts-ci/actions/setup-rust@master
+      - uses: MolCrafts/molcrafts-ci/actions/setup-rust@03352583738d9424ce37996ef9e04df9290087ba
         with:
           toolchain-dir: ../molrs
           cache: molrs-python

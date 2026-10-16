@@ -8,18 +8,16 @@ exists to prevent. For the same reason nothing here touches the storage behind
 molrs's back: the storage molrs is asked to read is exactly the one the codec
 wrote.
 
-The molrs surface used here: the whole-record doors are
-functions at the top of ``molrs.io`` -- ``write_mrec_frame`` / ``write_mrec_system``
-(both taking ``forcefield=``) and ``write_mrec_forcefield`` to write a record,
-``read_mrec_frame`` / ``read_mrec_system`` / ``read_mrec_meta`` /
-``read_mrec_forcefield`` to read one back, and ``read_mrec_trajectory`` for
-the eager trajectory read -- and the storage's own classes are
-``molrs.io.mrec``'s: ``section_names`` lists a record's sections, a force
-field travels as a ``ForceFieldSection`` (the document plus one ``Block`` per
-style table, kept whole), and a trajectory is declared by a
-``SequenceSchema`` (``declare_*``, ``declare_meta_with_fill``) and streamed
+The molrs surface used here: one whole-record write door,
+``molrs.io.write_mrec(path, meta=, frame=, system=, forcefield=)``, and the
+storage's own classes in ``molrs.io.mrec`` -- ``MrecFile(path)`` opens a
+record for its sections (``sections`` / ``meta`` / ``frame`` / ``system`` /
+``forcefield``), a force field travels as a ``ForceFieldSection`` (the
+document plus one ``Block`` per style table, kept whole), a trajectory is
+declared by a ``SequenceSchema`` (``from_frames``, ``declare_*``) and streamed
 through ``MrecWriter(path, schema)`` (``flush_every`` / ``compression`` /
-``durable`` left at their defaults: durable, spec-following).
+``durable`` left at their defaults: durable, spec-following), and read back
+eagerly through ``MrecReader(path).to_trajectory()``.
 
 molrs refuses malformed input with ``ValueError`` (every ``MolRsError``), and
 an array it cannot storage as a column with ``molrs.core.BlockDtypeError``; those are
@@ -55,20 +53,18 @@ def _dtype_of(native: molrs.core.Block, column: str) -> str:
 
 
 def _to_box(box: CellModel, cell_defined: bool) -> molrs.core.Box:
-    return molrs.core.Box(
-        box.vectors,
-        box.origin,
-        None if box.boundary is None else np.array(box.boundary),
-        cell_defined=cell_defined,
-    )
+    cell = molrs.core.Cell.matrix(box.vectors) if cell_defined else molrs.core.Cell.undefined()
+    if box.boundary is None:
+        return molrs.core.Box(cell, box.origin)
+    return molrs.core.Box(cell, box.origin, np.array(box.boundary))
 
 
 def _from_box(box: molrs.core.Box) -> dict[str, Any]:
     return {
-        "vectors": np.asarray(box.h),
+        "vectors": np.asarray(box.matrix),
         "origin": np.asarray(box.origin),
         "boundary": tuple(bool(flag) for flag in np.asarray(box.pbc)),
-        "cell_defined": bool(box.cell_defined),
+        "cell_defined": bool(box.is_cell_defined),
     }
 
 
@@ -79,9 +75,7 @@ def _to_block(block: molrec.core.model.BlockModel) -> molrs.core.Block:
     for column, payload in block.columns.items():
         # The values as the producer handed them: rounding to a declared
         # precision is the writer's job, not the adapter's.
-        native.insert(column, payload.values)
-        if payload.validity is not None:
-            native.set_validity(column, payload.validity)
+        native.insert(column, payload.values, payload.validity)
         if getattr(payload, "precision", None) is not None:
             native.set_precision(column, payload.precision)
     if block.structural_shape is not None:
@@ -144,7 +138,7 @@ def _from_block(native: molrs.core.Block, *, in_trajectory: bool = False) -> dic
     """One molrs block as molrec's duck: what molrs returned, column by column."""
     columns = {}
     for column in native.keys():  # noqa: SIM118 (molrs Block has no __iter__)
-        values = native.copy_column(column)
+        values = np.array(native[column])
         validity = native.validity(column)
         columns[column] = {
             "dtype": _dtype_of(native, column),
@@ -235,13 +229,10 @@ def _with_nullable(model: molrec.core.model.TrajectoryModel) -> molrs.io.mrec.Se
                 if dtype == "string"
                 else np.zeros(shape, dtype=NUMPY_DTYPE[dtype])
             )
-            native.insert(column, values)
-            native.set_validity(column, np.zeros(rows, dtype=bool))
+            native.insert(column, values, np.zeros(rows, dtype=bool))
         frame = molrs.core.Frame()
         frame[name] = native
         frames.append(frame)
-    if not frames:
-        return molrs.io.mrec.SequenceSchema()
     return molrs.io.mrec.SequenceSchema.from_frames(frames)
 
 
@@ -289,10 +280,7 @@ def _declared_schema(model: molrec.core.model.TrajectoryModel) -> molrs.io.mrec.
                 for column, target in (getattr(block, "targets", None) or {}).items():
                     schema.declare_target(name, column, target)
     for key, series in model.meta.items():
-        if series.has_fill:
-            schema.declare_meta_with_fill(key, series.fill, dtype=_tag(series.dtype))
-        else:
-            schema.declare_meta(key, _tag(series.dtype))
+        schema.declare_meta(key, _tag(series.dtype), series.fill if series.has_fill else None)
     return schema
 
 
@@ -303,38 +291,21 @@ class MolrsRecordAdapter(molrec.core.adapter.RecordAdapter):
     refusal_types = _REFUSALS
 
     def write(self, model: molrec.core.model.RecordModel, storage) -> None:
-        path = Path(storage.uri)
-        meta = document(model.meta)
-        forcefield = None if model.forcefield is None else _to_section(model.forcefield)
-        if model.frame is not None:
-            system = None if model.system is None else _to_frame(model.system)
-            molrs.io.write_mrec_frame(
-                path, _to_frame(model.frame), system=system, meta=meta, forcefield=forcefield
-            )
-            return
-        if model.system is not None:
-            molrs.io.write_mrec_system(
-                path, _to_frame(model.system), meta=meta, forcefield=forcefield
-            )
-            return
-        if forcefield is not None:
-            molrs.io.write_mrec_forcefield(path, forcefield, meta=meta)
-            return
-        # molrs has no door for a record of meta (and status / method) alone.
-        raise NotImplementedError(
-            "molrs writes a record with a frame, a system or a forcefield section"
+        molrs.io.write_mrec(
+            Path(storage.uri),
+            meta=document(model.meta),
+            frame=None if model.frame is None else _to_frame(model.frame),
+            system=None if model.system is None else _to_frame(model.system),
+            forcefield=None if model.forcefield is None else _to_section(model.forcefield),
         )
 
     def read(self, storage) -> Any:
-        path = Path(storage.uri)
-        present = molrs.io.mrec.section_names(path)
-        frame = _from_frame(molrs.io.read_mrec_frame(path)) if "frame" in present else None
-        system = _from_frame(molrs.io.read_mrec_system(path)) if "system" in present else None
+        record = molrs.io.mrec.MrecFile(Path(storage.uri))
         return {
-            "meta": molrs.io.read_mrec_meta(path),
-            "frame": frame,
-            "system": system,
-            "forcefield": _from_section(molrs.io.read_mrec_forcefield(path)),
+            "meta": record.meta(),
+            "frame": _from_frame(record.frame()),
+            "system": _from_frame(record.system()),
+            "forcefield": _from_section(record.forcefield()),
         }
 
 
@@ -371,9 +342,9 @@ def _cell_section(frames: list[molrs.core.Frame]) -> dict[str, Any] | None:
         if frame.box is None:
             continue
         if defined is None:
-            defined = bool(frame.box.cell_defined)
+            defined = bool(frame.box.is_cell_defined)
         current = CellModel(
-            vectors=np.asarray(frame.box.h),
+            vectors=np.asarray(frame.box.matrix),
             origin=np.asarray(frame.box.origin),
             boundary=tuple(bool(flag) for flag in np.asarray(frame.box.pbc)),
         )
@@ -407,8 +378,8 @@ def _meta_series(frames: list[molrs.core.Frame]) -> dict[str, dict[str, Any]]:
 class MolrsForceFieldAdapter(molrec.core.adapter.ForceFieldAdapter):
     """A force-field package: ``meta`` and the ``forcefield`` section alone.
 
-    Written through ``molrs.io.write_mrec_forcefield`` and read through
-    ``molrs.io.read_mrec_forcefield``, which carry the section whole -- every document
+    Written through ``molrs.io.write_mrec(path, forcefield=…)`` and read through
+    ``MrecFile(path).forcefield()``, which carry the section whole -- every document
     key, every table, units as stated -- so a section molrs could not compile
     (``nm`` units, smirks keys, an unknown category) is still judged on what
     molrs stores. Turning it into a ``molrs.ff.forcefield.ForceField`` is
@@ -424,10 +395,10 @@ class MolrsForceFieldAdapter(molrec.core.adapter.ForceFieldAdapter):
         model: molrec.core.model.ForceFieldModel,
         storage: molrec.core.storage.ForceFieldStorage,
     ) -> None:
-        molrs.io.write_mrec_forcefield(Path(storage.uri), _to_section(model))
+        molrs.io.write_mrec(Path(storage.uri), forcefield=_to_section(model))
 
     def read(self, storage: molrec.core.storage.ForceFieldStorage) -> Any:
-        return _from_section(molrs.io.read_mrec_forcefield(Path(storage.uri)))
+        return _from_section(molrs.io.mrec.MrecFile(Path(storage.uri)).forcefield())
 
 
 class MolrsTrajectoryAdapter(molrec.core.adapter.TrajectoryAdapter):
@@ -437,8 +408,8 @@ class MolrsTrajectoryAdapter(molrec.core.adapter.TrajectoryAdapter):
     rule the layout places on the writer -- a reserved name refused at
     declaration, a step that does not increase, a ``time`` that comes and
     goes -- is molrs's to refuse, not the adapter's. Reading goes through
-    ``molrs.io.read_mrec_trajectory``, which yields the resolved frames with ``step`` /
-    ``time`` beside them.
+    ``MrecReader(path).to_trajectory()``, which yields the resolved frames with
+    ``step`` / ``time`` beside them.
     """
 
     backends = ("zarr",)
@@ -465,7 +436,7 @@ class MolrsTrajectoryAdapter(molrec.core.adapter.TrajectoryAdapter):
                 writer.append(native, step=int(step), time=None if time is None else float(time))
 
     def read(self, storage: molrec.core.storage.TrajectoryStorage) -> Any:
-        trajectory = molrs.io.read_mrec_trajectory(Path(storage.uri))
+        trajectory = molrs.io.mrec.MrecReader(Path(storage.uri)).to_trajectory()
         frames = list(trajectory.frames)
         described = []
         for frame in frames:
@@ -501,7 +472,7 @@ def _installed_version() -> str:
 class Molrs(molrec.adapter.Implementation):
     name = "molrs"
     version = _installed_version()
-    # Frame cases run inside records: molrs.io.write_mrec_frame writes a Structure
+    # Frame cases run inside records: molrs.io.write_mrec(frame=…) writes a Structure
     # (meta + frame/), not a bare frame at the storage root.
     record = MolrsRecordAdapter()
     trajectory = MolrsTrajectoryAdapter()
