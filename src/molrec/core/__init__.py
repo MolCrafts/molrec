@@ -13,9 +13,12 @@ from molrec.core.model import (
     BoxModel,
     ColumnModel,
     DType,
+    ForceFieldModel,
     FrameModel,
+    MeshModel,
     MetaModel,
     RecordModel,
+    UnitsModel,
 )
 from molrec.core.store import FrameStore, RecordStore
 
@@ -25,11 +28,14 @@ __all__ = [
     "BoxModel",
     "ColumnModel",
     "DType",
+    "ForceFieldModel",
     "FrameAdapter",
     "FrameModel",
     "FrameStore",
+    "MeshModel",
     "MetaModel",
     "RecordAdapter",
     "RecordModel",
     "RecordStore",
+    "UnitsModel",
 ]

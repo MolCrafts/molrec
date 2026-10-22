@@ -20,9 +20,14 @@ from molrec.core.model import (
     BlockModel,
     BoxModel,
     ColumnModel,
+    ForceFieldModel,
     FrameModel,
+    MeshModel,
     MetaModel,
     RecordModel,
+    SpecialBondsModel,
+    StyleEntryModel,
+    UnitsModel,
 )
 from molrec.observables.model import (
     Array,
@@ -35,7 +40,19 @@ from molrec.report import Violation
 
 #: module -> the models it publishes.
 PUBLISHED: dict[str, tuple[type[BaseModel], ...]] = {
-    "core": (ColumnModel, BlockModel, BoxModel, FrameModel, MetaModel, RecordModel),
+    "core": (
+        ColumnModel,
+        BlockModel,
+        BoxModel,
+        MeshModel,
+        UnitsModel,
+        FrameModel,
+        MetaModel,
+        SpecialBondsModel,
+        StyleEntryModel,
+        ForceFieldModel,
+        RecordModel,
+    ),
     "observables": (Array, Source, ObservableModel, ObservablesModel),
     "ref": (Ref,),
     "report": (Violation,),

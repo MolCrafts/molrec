@@ -30,6 +30,21 @@
       "title": "Shape",
       "type": "array"
     },
+    "validity": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "boolean"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Validity"
+    },
     "values": {
       "anyOf": [
         {

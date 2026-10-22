@@ -23,7 +23,7 @@ and metrics vocabulary.
 |---------|------|------|----------------|
 | `method` | Scientific / training context | [Method](method.md) | Zarr group attributes |
 | `status` | Lifecycle state, stage, progress, errors | [Status](status.md) | Zarr group attributes |
-| `metrics` | Append-oriented run-local curves and counters | [Metrics](metrics.md) | JSONL text buffer (+ optional Zarr summary) |
+| `metrics` | Run-local curves and counters | [Metrics](metrics.md) | Dense Zarr series under `metrics/series/`; JSONL WAL only while live |
 
 ### Observables vs metrics
 
@@ -79,7 +79,7 @@ Still a **Zarr root** — not a loose tree of `.json` files:
 <record-root>/                 # Zarr V3
 ├── meta/                      # attrs: record_schema_version, creator, …
 ├── status/                    # attrs: state (required), stage, …
-├── method/                    # attrs: type, engine, …  (optional)
+├── method/                    # attrs: open document (optional)
 └── metrics/
     ├── (attrs)                # catalog / closed summary
     ├── series/…               # dense arrays after densify

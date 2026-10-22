@@ -52,17 +52,19 @@ codes invent different formats. MolRec provides one language-agnostic contract:
 +-- system                # recommended — system definition (no required xyz)
 +-- frame                 # recommended — instantaneous snapshot
 +-- trajectory            # optional — frame sequence
++-- forcefield            # optional — force-field document and style tables
 +-- observables           # optional — scientific results
 +-- status                # optional — lifecycle / progress (run surface)
-+-- metrics               # optional — append-only run measurements
-+-- method                # optional — scientific / training context
++-- metrics               # optional — dense series + live WAL
++-- method                # optional — narrative context, not a schema switch
 ```
 
-There is **no** root `parameters/` (use `system/parameters` or `method`).
+There is **no** root `parameters/`. Force-field tables live under `forcefield/`.
 
-`meta` is mandatory. A record must also include **at least one of** `frame`,
-`system`, or `status`. A **Run**-shaped record (`meta` + `status`) does not
-require a frame. Trajectory may omit `system/`. The cell is **Box** only; the
+`meta` is mandatory. A record must also include **at least one other
+section**. `frame`, `system`, `trajectory`, `forcefield`, and `status` each
+count. A **Run**-shaped record (`meta` + `status`) does not require a frame.
+A trajectory may omit `system/`. The cell is **Box** only; the
 sole version key is **`record_schema_version` (1)**. See
 [docs/spec/record.md](docs/spec/record.md) and
 [docs/spec/run.md](docs/spec/run.md).
@@ -85,6 +87,7 @@ sole version key is **`record_schema_version` (1)**. See
 - **Run surface.** Training and jobs use `status` + `metrics` + `method` as one surface.
 - **Box only.** The cell contract name is `Box` / `box` — not `simbox`.
 - **One schema version.** `meta.record_schema_version` (starts at 1); no parallel `frame_schema_version` or layout `meta.version`.
+- **One unit object.** `meta.units` and `forcefield.units` share the preset table in [docs/spec/units.md](docs/spec/units.md). Geometry does not silently inherit the force field's units.
 - **Zarr + metrics WAL.** One Zarr V3 root holds arrays and document sections (group attributes). Closed metrics densify to Zarr series; live metrics use an append-only JSONL WAL (`metrics/metrics.jsonl`) — not a parallel `.json` document tree. Never a second layout named MolStore.
 - **Hard cut.** New writers do not dual-read retired keys or private layouts; migrate offline.
 - **Collections, not only atoms.** Named blocks carry any entity set.

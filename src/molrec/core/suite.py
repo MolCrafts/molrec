@@ -18,9 +18,13 @@ from molrec.core.model import (
     BlockModel,
     BoxModel,
     ColumnModel,
+    ForceFieldModel,
     FrameModel,
+    MeshModel,
     MetaModel,
     RecordModel,
+    StyleEntryModel,
+    UnitsModel,
 )
 from molrec.registry import REGISTRY
 from molrec.suite import Suite
@@ -115,6 +119,40 @@ class FrameSuite(Suite):
         )
 
         yield Case(
+            id="validity-mask",
+            exercises="a false validity flag is data; the filler under it is not a value",
+            model=FrameModel(
+                blocks={
+                    "atoms": BlockModel(
+                        count=2,
+                        columns={
+                            "charge": ColumnModel(
+                                dtype="f64",
+                                shape=(2,),
+                                values=np.array([0.5, 0.0], dtype="float64"),
+                                validity=(True, False),
+                            )
+                        },
+                    )
+                }
+            ),
+        )
+
+        yield Case(
+            id="reject-column-named-validity",
+            exercises="_validity names the mask subgroup; a column taking it must be refused",
+            expect_violation="reserved_column_name",
+            model=FrameModel(
+                blocks={
+                    "atoms": BlockModel(
+                        count=1,
+                        columns={"_validity": _column("i64", [1])},
+                    )
+                }
+            ),
+        )
+
+        yield Case(
             id="reject-block-named-box",
             exercises="box names the cell; a block taking it must be refused, not silently lost",
             expect_violation="reserved_block_name",
@@ -144,6 +182,27 @@ class FrameSuite(Suite):
         )
 
         yield Case(
+            id="block-mesh",
+            exercises="a grid with its own origin and axis steps is not the frame box",
+            model=FrameModel(
+                blocks={
+                    "density": BlockModel(
+                        count=8,
+                        structural_shape=(2, 2, 2),
+                        sample="corner",
+                        mesh=MeshModel(
+                            origin=np.zeros(3, dtype="float64"),
+                            vectors=np.eye(3, dtype="float64") * 0.2,
+                            boundary=(False, False, False),
+                            unit="bohr",
+                        ),
+                        columns={"values": _column("f64", [0.0] * 8)},
+                    )
+                }
+            ),
+        )
+
+        yield Case(
             id="structural-shape",
             exercises="a volumetric block reads back reshapable -- nx,ny,nz must survive",
             model=FrameModel(
@@ -151,6 +210,7 @@ class FrameSuite(Suite):
                     "density": BlockModel(
                         count=64,
                         structural_shape=(4, 4, 4),
+                        sample="center",
                         columns={
                             "electron_density": _column("f64", [0.25] * 64),
                         },
@@ -293,6 +353,46 @@ class RecordSuite(Suite):
                     },
                 )
             }
+        )
+
+        yield Case(
+            id="forcefield",
+            exercises="a force-field package is meta plus forcefield and needs no frame",
+            model=RecordModel(
+                meta=MetaModel(
+                    record_schema_version=1,
+                    format_name="molrec",
+                    units=UnitsModel(preset="real"),
+                ),
+                forcefield=ForceFieldModel(
+                    name="demo",
+                    units=UnitsModel(preset="real"),
+                    styles=[StyleEntryModel(category="bond", style="harmonic")],
+                    tables={
+                        "bond.harmonic": BlockModel(
+                            count=1,
+                            columns={
+                                "name": _column("string", ["A-B"]),
+                                "itom": _column("string", ["A"]),
+                                "jtom": _column("string", ["B"]),
+                                "k": _column("f64", [300.0]),
+                                "r0": _column("f64", [1.5]),
+                            },
+                        )
+                    },
+                ),
+            ),
+        )
+
+        yield Case(
+            id="run",
+            exercises="a run is meta plus a status document and needs no frame",
+            model=RecordModel.model_validate(
+                {
+                    "meta": {"record_schema_version": 1, "format_name": "molrec"},
+                    "status": {"state": "succeeded", "stage": "train"},
+                }
+            ),
         )
 
         yield Case(

@@ -13,13 +13,13 @@ It answers:
 
 - what class of method produced this record
 - which engine wrote it
-- which force field, model, or solver was used
-- which settings define the calculation
+- which engine produced it
+- which settings the operator wants recorded beside the data
 
-`method` is descriptive metadata. Result arrays stay in `frame`, `trajectory`,
-or `observables`. System-defining parameter tables live under
-`system/parameters` (see [System](system.md)), not as a root `parameters/` or
-`forcefield/` section.
+`method` is an open JSON document. It does not select a schema, and readers
+do not branch on `method.type`. Result arrays stay in `frame`, `trajectory`,
+or `observables`. Force-field tables stay in `forcefield/`. A name inside
+`method` is narrative; it is not a second copy of those tables.
 
 Physical form: **Zarr group attributes** on `method/` — see
 [Storage](storage.md). The logical document is one JSON object.
@@ -28,76 +28,53 @@ Physical form: **Zarr group attributes** on `method/` — see
 
 ```text
 method
-+-- type: string                      # required — selects parse rules
-+-- description: string               # required
-+-- engine                            # required
++-- (description: string)
++-- (engine)
 |   +-- name: string
 |   \-- (version: string)
-+-- (order: string[])                 # stage ids for workflow type
++-- (order: string[])
 \-- (stages)
     \-- <stage_id>
-        +-- type: string
-        +-- description: string
+        +-- (description: string)
         \-- ...
 ```
 
-Field types are plain JSON.
+Field types are plain JSON. The tree is a recommendation. A producer may
+add keys, and may omit every key above.
 
-## Typed schemas
+## Document
 
-Interpretation is driven by `method.type`, not by hard-coded subtree names alone.
+No key is required for the section to exist. Recommended keys, when the
+producer has them:
 
-Rules:
+| Key | Meaning |
+|-----|---------|
+| `description` | What this run is |
+| `engine.name` | Tool that produced it |
+| `engine.version` | That tool's version |
+| `order` | Stage ids, in order |
+| `stages.<id>` | Narrative for one stage: description, engine, whatever else belongs there |
 
-1. `method.type` is required when the section exists.
-2. `method.description` is required.
-3. `method.engine.name` is required.
-4. Custom method types MUST document parse rules under `meta.modules`.
-5. Result arrays stay in `frame`, `trajectory`, or `observables`.
-
-Standard types (open vocabulary; not a closed enum):
-
-| Type | Typical content |
-|------|-----------------|
-| `classical` | force field, bonded/nonbonded choices, integrator, thermostat, barostat, cutoffs |
-| `ml` | model family, checkpoint id, representation, inference precision, training provenance |
-| `electronic_structure` | HF/DFT/MP2 family, functional, basis, ECP, SCF, spin, thresholds |
-| `workflow` | multi-stage composite (see below) |
-
-Any custom type is valid if its parse rules are declared in a module under
-`meta.modules`.
-
-### `workflow`
-
-Required when `type = "workflow"`:
-
-- `method.order` — ordered list of stage ids
-- `method.stages.<stage_id>.type` — each stage is itself a typed method block
-
-Typical content: stage names and order, per-stage engines/methods, inputs and
-outputs, targets such as `/frame/atoms` or `/observables/free_energy`.
+`stages.<id>.type` is a label inside that narrative. It does not change
+which record sections exist or how they are parsed. Unknown keys are
+preserved. Result arrays stay in `frame`, `trajectory`, or `observables`.
 
 ## Example
 
 ```json
 {
-  "type": "workflow",
-  "description": "Geometry relaxation followed by single-point DFT",
+  "description": "Geometry relaxation followed by a single-point evaluation",
   "engine": { "name": "MolFlow" },
   "order": ["relax", "single_point"],
   "stages": {
     "relax": {
-      "type": "classical",
-      "description": "Pre-relaxation with a classical force field",
+      "description": "Pre-relaxation",
       "force_field": "GAFF"
     },
     "single_point": {
-      "type": "electronic_structure",
-      "description": "Single-point DFT evaluation",
-      "family": "DFT",
+      "description": "Single-point evaluation",
       "functional": "PBE",
-      "basis": "def2-SVP",
-      "spin": "restricted"
+      "basis": "def2-SVP"
     }
   }
 }

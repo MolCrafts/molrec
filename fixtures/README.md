@@ -11,7 +11,8 @@ payloads may be added without changing names.
 | `fixtures/run-minimal/` | Run | `meta`, `status`, `metrics` buffer (no `frame`) |
 
 All new fixtures: `meta.record_schema_version = 1`, no root `parameters/`, cell
-key `box` only. Physical forms follow [docs/spec/storage.md](../docs/spec/storage.md):
+key `box` only. A trajectory-only tree and a `meta` + `status` tree are both
+valid records. Physical forms follow [docs/spec/storage.md](../docs/spec/storage.md):
 
 - Documents → Zarr **group attributes** (payloads under `attrs/` for text goldens)
 - Closed metrics → **dense Zarr series** under `metrics/`

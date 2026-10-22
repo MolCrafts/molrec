@@ -18,21 +18,26 @@ not new structure.
 ```text
 trajectory
 +-- frames: [Frame]                 # ordered frame-like states
-+-- (step: Integer[nstep])          # discrete iteration indices
-\-- (time: Float[nstep])            # physical time values
++-- (step: i64[nstep])              # discrete iteration indices
+\-- (time: f64[nstep])              # physical time, in the record's time unit
 ```
 
 Rules:
 
 - `step` and `time`, when present, are aligned to the frame order (length
-  `nstep`).
+  `nstep`). `time` uses [Units](units.md).
 - Each frame carries its own [box](frame.md#box), so fixed-cell and variable-cell
   runs are both natural.
 - A record **MAY** omit `system/` and still carry `trajectory/` (frames may embed
   full blocks, including topology).
-- When both `system/` and `trajectory/` are present, trajectory **SHOULD** update
-  **state only** (coordinates, instantaneous properties, instantaneous box) and
-  not restate topology held in `system/`.
+- When both `system/` and `trajectory/` are present, each frame joins to the
+  system by [particle identity](conventions.md#particle-identity). The
+  trajectory carries coordinates, velocities, the instantaneous box, and
+  per-frame overrides. A frame that omits topology blocks uses `system`. A
+  frame that writes them — a reactive step whose bonds are not the system's —
+  uses its own.
+- `frame`, when also present, is one snapshot. It is not defined to be the
+  last trajectory frame.
 
 ## Packed storage (convention)
 

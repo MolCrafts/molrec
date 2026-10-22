@@ -32,6 +32,21 @@
           "title": "Shape",
           "type": "array"
         },
+        "validity": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validity"
+        },
         "values": {
           "anyOf": [
             {
@@ -52,6 +67,54 @@
       ],
       "title": "ColumnModel",
       "type": "object"
+    },
+    "MeshModel": {
+      "description": "Voxel edges of a regular grid, the geometry of molrs ``RegularGrid``.\n\nColumns of ``vectors`` are the edge of one voxel along each axis.\n``origin`` is the corner of voxel 0. Where the stored value sits, corner\nor center, is the block's ``sample``, not this geometry. ``unit`` is a\nlength override; absent means ``meta.units`` length.",
+      "properties": {
+        "boundary": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Boundary"
+        },
+        "origin": {
+          "items": {},
+          "title": "Origin",
+          "type": "array"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "vectors": {
+          "items": {},
+          "title": "Vectors",
+          "type": "array"
+        }
+      },
+      "required": [
+        "origin",
+        "vectors"
+      ],
+      "title": "MeshModel",
+      "type": "object"
     }
   },
   "additionalProperties": true,
@@ -68,6 +131,33 @@
       "minimum": 0,
       "title": "Count",
       "type": "integer"
+    },
+    "mesh": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MeshModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "sample": {
+      "anyOf": [
+        {
+          "enum": [
+            "corner",
+            "center"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sample"
     },
     "structural_shape": {
       "anyOf": [

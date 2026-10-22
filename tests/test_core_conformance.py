@@ -118,7 +118,7 @@ def test_dropping_an_unknown_block_is_caught():
 
 def test_losing_the_structural_shape_is_caught():
     report = molrec.ConformanceSuite(FlattensGrid(), modules=["core"]).run()
-    assert _failed_case_ids(report) == {"structural-shape"}
+    assert _failed_case_ids(report) == {"structural-shape", "block-mesh"}
 
 
 def test_a_module_without_an_adapter_is_skipped_not_failed():

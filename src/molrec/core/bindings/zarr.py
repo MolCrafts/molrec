@@ -4,7 +4,9 @@ Layout::
 
     <frame root>/               group attributes = the frame's meta document
     ├── <block>/                group attributes: count, structural_shape
-    │   └── <column>            array
+    │   ├── <column>            array
+    │   ├── _validity/<column>  bool[count], only for a column that has a mask
+    │   └── _mesh/              origin, vectors — only when the block has its own grid
     └── box/
         ├── vectors             array
         ├── origin              array (optional)
@@ -46,8 +48,9 @@ from molrec.core.model import (
     BoxModel,
     ColumnModel,
     DType,
+    ForceFieldModel,
     FrameModel,
-    MetaModel,
+    MeshModel,
     RecordModel,
     dtype_of,
 )
@@ -55,9 +58,37 @@ from molrec.core.store import FrameStore, RecordStore
 from molrec.registry import REGISTRY
 
 BOX_GROUP = "box"
+#: Reserved child of a block group. A column of this name would be indistinguishable
+#: from the mask subgroup, so writers refuse it.
+VALIDITY_GROUP = "_validity"
+#: Reserved child of a block group holding that block's own grid.
+MESH_GROUP = "_mesh"
+RECORD_FORCEFIELD = "forcefield"
 
 #: molrec dtype -> the Zarr V3 dtype a conforming writer emits.
 TO_ZARR: dict[DType, str] = {**NUMPY_DTYPE, "string": "string"}
+
+
+def _masked(block: BlockModel) -> bool:
+    return any(column.validity is not None for column in block.columns.values())
+
+
+def _read_mesh(group: zarr.Group) -> MeshModel:
+    boundary = group.attrs.get("boundary")
+    return MeshModel(
+        origin=group["origin"][...],
+        vectors=group["vectors"][...],
+        boundary=tuple(bool(flag) for flag in boundary) if boundary is not None else None,
+        unit=group.attrs.get("unit"),
+    )
+
+
+def _read_masks(group: zarr.Group) -> dict[str, tuple[bool, ...]]:
+    masks: dict[str, tuple[bool, ...]] = {}
+    for name, member in group.members():
+        if isinstance(member, zarr.Array):
+            masks[name] = tuple(bool(flag) for flag in np.asarray(member[...]).reshape(-1))
+    return masks
 
 
 def _itemsize(dtype: DType) -> int | None:
@@ -137,9 +168,21 @@ class ZarrFrameCodec(Codec):
         group.attrs["count"] = block.count
         if block.structural_shape is not None:
             group.attrs["structural_shape"] = list(block.structural_shape)
+        if block.sample is not None:
+            group.attrs["sample"] = block.sample
 
+        masks = group.create_group(VALIDITY_GROUP) if _masked(block) else None
         for column_name, column in block.columns.items():
+            if column_name in {VALIDITY_GROUP, MESH_GROUP}:
+                raise ValueError(
+                    f"{column_name!r} is reserved in a block group; a column cannot take it"
+                )
             self._write_column(group, column_name, column)
+            if masks is not None and column.validity is not None:
+                mask = masks.create_array(column_name, shape=(block.count,), dtype="bool")
+                mask[...] = np.asarray(column.validity, dtype=bool)
+        if block.mesh is not None:
+            self._write_mesh(group, block.mesh)
 
     def _write_column(self, group: zarr.Group, name: str, column: ColumnModel) -> None:
         chunks, shards = plan(column.shape, _itemsize(column.dtype))
@@ -158,16 +201,30 @@ class ZarrFrameCodec(Codec):
         if "count" not in attrs:
             raise ValueError(f"block {group.name!r} has no count attribute")
 
-        columns = {
-            name: self._read_column(member)
-            for name, member in group.members()
-            if isinstance(member, zarr.Array)
-        }
+        columns: dict[str, ColumnModel] = {}
+        masks: dict[str, tuple[bool, ...]] = {}
+        mesh: MeshModel | None = None
+        for name, member in group.members():
+            if name == VALIDITY_GROUP and isinstance(member, zarr.Group):
+                masks = _read_masks(member)
+                continue
+            if name == MESH_GROUP and isinstance(member, zarr.Group):
+                mesh = _read_mesh(member)
+                continue
+            if isinstance(member, zarr.Array):
+                columns[name] = self._read_column(member)
+        for name, mask in masks.items():
+            column = columns.get(name)
+            if column is None:
+                raise ValueError(f"validity mask {name!r} has no column in block {group.name!r}")
+            columns[name] = column.model_copy(update={"validity": mask})
         structural = attrs.get("structural_shape")
         return BlockModel(
             count=int(attrs["count"]),
             columns=columns,
             structural_shape=tuple(structural) if structural is not None else None,
+            sample=attrs.get("sample"),
+            mesh=mesh,
         )
 
     def _read_column(self, array: zarr.Array) -> ColumnModel:
@@ -176,6 +233,17 @@ class ZarrFrameCodec(Codec):
             shape=tuple(int(n) for n in array.shape),
             values=array[...],
         )
+
+    def _write_mesh(self, group: zarr.Group, mesh: MeshModel) -> None:
+        child = group.create_group(MESH_GROUP)
+        origin = child.create_array("origin", shape=mesh.origin.shape, dtype="float64")
+        origin[...] = mesh.origin
+        vectors = child.create_array("vectors", shape=mesh.vectors.shape, dtype="float64")
+        vectors[...] = mesh.vectors
+        if mesh.boundary is not None:
+            child.attrs["boundary"] = list(mesh.boundary)
+        if mesh.unit is not None:
+            child.attrs["unit"] = mesh.unit
 
     def _write_box(self, root: zarr.Group, box: BoxModel) -> None:
         group = root.create_group(BOX_GROUP)
@@ -269,14 +337,55 @@ class ZarrRecordCodec(Codec):
         ):
             if frame is not None:
                 self._frames.write_into(root.create_group(name), frame)
+        if model.forcefield is not None:
+            self._write_forcefield(root.create_group(RECORD_FORCEFIELD), model.forcefield)
+        for name, document in (model.__pydantic_extra__ or {}).items():
+            if name in {RECORD_META, RECORD_FRAME, RECORD_SYSTEM, RECORD_FORCEFIELD}:
+                raise ValueError(f"section {name!r} is written by the record codec itself")
+            if not isinstance(document, dict):
+                raise ValueError(
+                    f"section {name!r} is not a document; this binding writes attribute maps "
+                    "and frame-shaped frame/system sections"
+                )
+            root.create_group(name).attrs.update(document)
 
     def read(self, store: ZarrRecordStore) -> RecordModel:
         root = store.root(mode="r")
-        return RecordModel(
-            meta=MetaModel.model_validate(dict(root[RECORD_META].attrs)),
-            frame=self._section(root, RECORD_FRAME),
-            system=self._section(root, RECORD_SYSTEM),
-        )
+        payload: dict = {"meta": dict(root[RECORD_META].attrs)}
+        frame = self._section(root, RECORD_FRAME)
+        system = self._section(root, RECORD_SYSTEM)
+        if frame is not None:
+            payload["frame"] = frame
+        if system is not None:
+            payload["system"] = system
+        if RECORD_FORCEFIELD in root:
+            payload["forcefield"] = self._read_forcefield(root[RECORD_FORCEFIELD])
+        owned = {RECORD_META, RECORD_FRAME, RECORD_SYSTEM, RECORD_FORCEFIELD}
+        for name, member in root.members():
+            if name in owned or not isinstance(member, zarr.Group):
+                continue
+            if any(True for _ in member.members()):
+                raise ValueError(
+                    f"section {name!r} has children this record codec does not own; "
+                    "refusing to drop them"
+                )
+            payload[name] = dict(member.attrs)
+        return RecordModel.model_validate(payload)
+
+    def _write_forcefield(self, group: zarr.Group, model: ForceFieldModel) -> None:
+        document = model.model_dump(mode="json", exclude_none=True, exclude={"tables"})
+        group.attrs.update(document)
+        for name, table in model.tables.items():
+            self._frames._write_block(group, name, table)
+
+    def _read_forcefield(self, group: zarr.Group) -> ForceFieldModel:
+        payload = dict(group.attrs)
+        payload["tables"] = {
+            name: self._frames._read_block(member)
+            for name, member in group.members()
+            if isinstance(member, zarr.Group)
+        }
+        return ForceFieldModel.model_validate(payload)
 
     def _section(self, root: zarr.Group, name: str) -> FrameModel | None:
         if name not in root:

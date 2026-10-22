@@ -9,20 +9,36 @@ conventions and observable metadata, not part of the type.
 
 ## Column dtypes
 
-A column's element type is one of:
+A column's element type is one of the names below. Each numeric name is one
+width. There is no dtype called `float`, `int`, or `uint`: those words name
+families, and a family has no single width.
 
-| dtype | Meaning |
-|-------|---------|
-| `float` | 64-bit floating point |
-| `int` | signed integer |
-| `uint` | unsigned integer |
-| `u8` | 8-bit unsigned integer |
-| `bool` | boolean |
-| `string` | UTF-8 string |
+| dtype | Width | Zarr V3 type |
+|-------|-------|----------------|
+| `f16` | 16-bit float | `float16` |
+| `f32` | 32-bit float | `float32` |
+| `f64` | 64-bit float | `float64` |
+| `i8` | signed 8-bit | `int8` |
+| `i16` | signed 16-bit | `int16` |
+| `i32` | signed 32-bit | `int32` |
+| `i64` | signed 64-bit | `int64` |
+| `u8` | unsigned 8-bit | `uint8` |
+| `u16` | unsigned 16-bit | `uint16` |
+| `u32` | unsigned 32-bit | `uint32` |
+| `u64` | unsigned 64-bit | `uint64` |
+| `bool` | 8-bit boolean | `bool` |
+| `string` | UTF-8, variable width | `string` |
+| `c64` | complex pair of `f32` | `complex64` |
+| `c128` | complex pair of `f64` | `complex128` |
 
-The set is closed. A tool that cannot represent a dtype natively should preserve
-it rather than silently narrow it (for example, `uint` endpoints must not be read
-back as signed `int`).
+The set is closed. On disk the Zarr data type is the width. A reader that
+sees `f32` and returns `f64`, or `i64` and returns `i32`, has lost the
+column. Preserve a width the host cannot compute on; do not narrow it and do
+not widen it.
+
+An implementation may spell `f64` / `i32` / `u64` as `float` / `int` / `uint`
+in its own API. Those three spellings are these three dtypes. They are not
+extra dtypes, and they are not written as a second name beside the Zarr type.
 
 ## Column shape
 
@@ -44,6 +60,19 @@ one container describe both flat tables and N-D objects:
 The shape only tells a consumer how to unflatten the leading axis; the storage is
 the same row-major column.
 
+## Missing values
+
+A column is dense. A missing entry is a **validity mask**, not a sentinel in
+the value array and not a dtype of its own.
+
+When any row is missing, the column carries a `bool` mask of length `count`.
+`true` means the value is present. `false` means the stored value is filler
+and readers must not interpret it. No mask means every row is present.
+
+In the Zarr binding the mask is `bool[count]` at
+`<block>/_validity/<column>`. A block whose columns are all present writes
+no `_validity` group. `_validity` is a reserved column name.
+
 ## Semantic metadata is not a type
 
 MolRec does not encode unit, description, or axis meaning in the dtype. Those are
@@ -52,7 +81,8 @@ observable metadata (see [Observables](observables.md)).
 
 ## Normative invariants
 
-1. A column dtype is one of `float`, `int`, `uint`, `u8`, `bool`, `string`.
+1. A column dtype is one of `f16`, `f32`, `f64`, `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `bool`, `string`, `c64`, `c128`.
 2. A column's leading axis length equals its block's count.
 3. A block's structural shape, when present, has product equal to its count.
 4. Type does not carry domain meaning; that is supplied by conventions.
+5. A validity mask, when present, has one boolean per row. Absent mask means every row is present.

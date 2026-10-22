@@ -49,6 +49,7 @@ class FrameBench(Bench):
                 "density": BlockModel(
                     count=count,
                     structural_shape=(side, side, side),
+                    sample="center",
                     columns={
                         "electron_density": ColumnModel(dtype="f64", shape=(count,), values=values)
                     },

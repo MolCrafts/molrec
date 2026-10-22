@@ -53,29 +53,26 @@ as a plain text sibling (not a Zarr array):
 ├── meta/                           # group attributes = meta document
 ├── status/                         # group attributes = status document
 ├── method/                         # group attributes = method document
+├── forcefield/                     # attributes = force-field document
+│   └── <style block>/              # one block per style
 ├── metrics/
-│   ├── (group attributes)          # catalog / closed summary
-│   ├── series/<safe_name>/         # dense float64 values (when densified)
+│   ├── (group attributes)          # catalog: which series exist
+│   ├── series/<safe_name>/         # dense f64 values (when densified)
 │   └── metrics.jsonl               # live WAL (when a stream exists)
 ├── system/                         # frame-shaped array groups
 ├── frame/                          # frame-shaped array groups
 ├── trajectory/                     # step, time, frames/0..n-1/  (or packed)
-└── observables/                    # meta/<name> attrs + <name> arrays
+└── observables/                    # shared coordinates + value arrays
 ```
 
-**Host layout** (e.g. molexp Run directories that are not full Zarr roots) nests
-the dense store:
+One root. Metrics series are arrays in this root, under `metrics/series/`.
+There is no nested `metrics/zarr/` store and no second format name for the
+catalog. A host that is not itself a record still writes this `metrics/`
+group inside the record it emits.
 
-```text
-<run-dir>/metrics/
-  metrics.jsonl          # live WAL
-  zarr/                  # Zarr V3 store (series arrays + catalog attrs)
-  index.json             # host-only listing cache (optional)
-```
-
-Discovery: open the **Zarr root** (record) or `metrics/zarr/` (host). Read
-documents from group attributes. Prefer dense series arrays for curves; fall
-back to the WAL only when the dense store is absent.
+Discovery: open the Zarr root. Read documents from group attributes. Read
+curves from `metrics/series/`. Read the WAL only while the run is live, or
+when the dense series are absent.
 
 ### Run-shaped root (no frame)
 
@@ -122,7 +119,7 @@ be exactly the document that section chapters describe.
 |---------|------------|----------------------------------|
 | `meta` | `meta/` | `record_schema_version` (see [Meta](meta.md)) |
 | `status` | `status/` | `state` |
-| `method` | `method/` | `type`, `description`, `engine.name` |
+| `method` | `method/` | none — the document is open |
 
 `format_name` on `meta` for this binding is **`molrec`** (never a product id
 such as `molpy-zarr`).
@@ -138,8 +135,20 @@ Reference implementation: molrs (`write_record_*` / `read_record_*`).
 - Trajectory reference layout in molrs today: `trajectory/step`,
   `trajectory/time`, `trajectory/frames/<i>/`. The [packed](trajectory.md)
   convention is an allowed optimisation over the same logical model.
-- `observables/<name>` holds data arrays; `observables/meta/<name>` holds
-  semantic attributes ([Observables](observables.md)).
+- A block column with missing rows stores `bool[count]` at
+  `<block>/_validity/<column>` ([Types](types.md#missing-values)). No mask
+  means every row is present. `_validity` is not a column name.
+- A volumetric block stores `sample` (`corner` or `center`) on the block
+  group's attributes, beside `count` and `structural_shape`. Its own voxel
+  edges, when present, are `f64` arrays at `<block>/_mesh/origin` and
+  `<block>/_mesh/vectors`, with optional `boundary` and `unit` attributes
+  ([Conventions](conventions.md#volumetric-data)). `_mesh` is not a column
+  name. The field itself is a flat column of length `count`.
+- Array names that are not a single Zarr path segment use **percent-encoding**:
+  every UTF-8 byte outside `A–Z a–z 0–9 . _ -` is `%XX` with uppercase hex.
+  `train/loss` is `train%2Floss`. The encoding is reversible.
+- `observables/` holds shared coordinate arrays and value arrays
+  ([Observables](observables.md)).
 - Dense **metrics** series use float64 arrays under `metrics/series/` (or the
   host nested store); see [Metrics](metrics.md).
 

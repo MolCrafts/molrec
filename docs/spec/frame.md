@@ -16,15 +16,15 @@ frame
 |   \-- ...
 +-- meta                         # free-form key -> value
 \-- (box)
-    +-- vectors: Float[ndim][ndim]     # columns are lattice vectors
-    +-- (origin: Float[ndim])
-    \-- (boundary: Bool[ndim])
+    +-- vectors: f64[ndim][ndim]       # columns are lattice vectors
+    +-- origin: f64[ndim]              # absent in input means the zero vector
+    \-- boundary: bool[ndim]           # absent in input means periodic on every axis
 ```
 
 ## Column
 
-A column is a typed N-dimensional array. Its dtype is one of `float`, `int`,
-`uint`, `u8`, `bool`, `string` (see [Types](types.md)). Its leading axis length is
+A column is a typed N-dimensional array. Its dtype is one of the closed set in
+[Types](types.md). Its leading axis length is
 the owning block's count; trailing axes describe per-entity structure.
 
 ## Block
@@ -40,7 +40,7 @@ Examples (conventional, not required — see [Conventions](conventions.md)):
 
 - an `atoms` block: `count` = number of atoms; columns `x`/`y`/`z`, `element`, ...
 - a `bonds` block: `count` = number of bonds; columns `atomi`/`atomj`, `order`;
-- a `density` block: structural shape `[nx, ny, nz]`; one float column per field.
+- a `density` block: structural shape `[nx, ny, nz]`; one column per field.
 
 ## Frame
 
@@ -62,20 +62,25 @@ type name for this cell.
 
 ```text
 frame/box
-+-- vectors: Float[ndim][ndim]     # cell vectors; columns are lattice vectors
-+-- (origin: Float[ndim])          # cell origin
-\-- (boundary: Bool[ndim])         # per-axis periodic boundary flags
++-- vectors: f64[ndim][ndim]       # cell vectors; columns are lattice vectors
++-- origin: f64[ndim]              # cell origin
+\-- boundary: bool[ndim]           # per-axis periodic boundary flags
 ```
 
+`vectors` is required and square. An omitted `origin` is the zero vector of
+length `ndim`. An omitted `boundary` is periodic on every axis (`true` for
+each). Writers materialize both, so a round trip does not have to guess.
+
 The cell applies to the whole frame. For a trajectory, each frame carries its own
-box, so fixed-cell and variable-cell runs are both natural.
+box, so fixed-cell and variable-cell runs are both natural. The reference
+binding stores a 3×3 cell. The model itself is `ndim`. LAMMPS data uses one
+orientation of this matrix ([Engines](engines.md#lammps-data)).
 
 ## Volumetric data
 
-MolRec has no dedicated grid type. Volumetric data is an ordinary block whose
-structural shape is `[nx, ny, nz]` and whose columns are the scalar fields (each
-of shape `[nx][ny][nz]`). The spatial cell is the frame's box — a volumetric
-block carries no cell of its own.
+MolRec has no dedicated grid type. Volumetric data is an ordinary block with
+a structural shape, a flat column of length `count`, and a `sample` of
+`corner` or `center`. See [Conventions](conventions.md#volumetric-data).
 
 ## Interpretation
 

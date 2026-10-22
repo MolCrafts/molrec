@@ -16,6 +16,33 @@
           "title": "Count",
           "type": "integer"
         },
+        "mesh": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MeshModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sample": {
+          "anyOf": [
+            {
+              "enum": [
+                "corner",
+                "center"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sample"
+        },
         "structural_shape": {
           "anyOf": [
             {
@@ -113,6 +140,21 @@
           "title": "Shape",
           "type": "array"
         },
+        "validity": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validity"
+        },
         "values": {
           "anyOf": [
             {
@@ -132,6 +174,51 @@
         "shape"
       ],
       "title": "ColumnModel",
+      "type": "object"
+    },
+    "ForceFieldModel": {
+      "additionalProperties": true,
+      "description": "The ``forcefield/`` section: a document plus one block per style.\n\n``tables`` is keyed by :func:`style_block_name`. Rules that need the style\nregistry's parameter lists live in the force-field chapter; this model\nchecks the shape a reader needs before it prices anything.",
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "special_bonds": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpecialBondsModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "styles": {
+          "items": {
+            "$ref": "#/$defs/StyleEntryModel"
+          },
+          "title": "Styles",
+          "type": "array"
+        },
+        "tables": {
+          "additionalProperties": {
+            "$ref": "#/$defs/BlockModel"
+          },
+          "title": "Tables",
+          "type": "object"
+        },
+        "units": {
+          "$ref": "#/$defs/UnitsModel"
+        }
+      },
+      "required": [
+        "name",
+        "units"
+      ],
+      "title": "ForceFieldModel",
       "type": "object"
     },
     "FrameModel": {
@@ -163,6 +250,54 @@
         }
       },
       "title": "FrameModel",
+      "type": "object"
+    },
+    "MeshModel": {
+      "description": "Voxel edges of a regular grid, the geometry of molrs ``RegularGrid``.\n\nColumns of ``vectors`` are the edge of one voxel along each axis.\n``origin`` is the corner of voxel 0. Where the stored value sits, corner\nor center, is the block's ``sample``, not this geometry. ``unit`` is a\nlength override; absent means ``meta.units`` length.",
+      "properties": {
+        "boundary": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "boolean"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Boundary"
+        },
+        "origin": {
+          "items": {},
+          "title": "Origin",
+          "type": "array"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        },
+        "vectors": {
+          "items": {},
+          "title": "Vectors",
+          "type": "array"
+        }
+      },
+      "required": [
+        "origin",
+        "vectors"
+      ],
+      "title": "MeshModel",
       "type": "object"
     },
     "MetaModel": {
@@ -210,6 +345,17 @@
           "minimum": 1,
           "title": "Record Schema Version",
           "type": "integer"
+        },
+        "units": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnitsModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -217,11 +363,303 @@
       ],
       "title": "MetaModel",
       "type": "object"
+    },
+    "SpecialBondsModel": {
+      "description": "1-2 / 1-3 / 1-4 scale weights, van der Waals and Coulomb separately.",
+      "properties": {
+        "coul": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Coul",
+          "type": "array"
+        },
+        "lj": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Lj",
+          "type": "array"
+        }
+      },
+      "required": [
+        "lj",
+        "coul"
+      ],
+      "title": "SpecialBondsModel",
+      "type": "object"
+    },
+    "StyleEntryModel": {
+      "additionalProperties": true,
+      "description": "One ``(category, style)`` in document order.",
+      "properties": {
+        "arity": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Arity"
+        },
+        "category": {
+          "title": "Category",
+          "type": "string"
+        },
+        "center": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Center"
+        },
+        "coordinate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coordinate"
+        },
+        "defaults": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Defaults"
+        },
+        "dims": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dims"
+        },
+        "endpoint_key": {
+          "default": "type",
+          "enum": [
+            "type",
+            "class",
+            "smirks"
+          ],
+          "title": "Endpoint Key",
+          "type": "string"
+        },
+        "expression": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expression"
+        },
+        "order": {
+          "anyOf": [
+            {
+              "enum": [
+                "reversible",
+                "ordered",
+                "unordered"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Order"
+        },
+        "params": {
+          "additionalProperties": true,
+          "title": "Params",
+          "type": "object"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "type_rows",
+                "per_instance"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        },
+        "style": {
+          "title": "Style",
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "style"
+      ],
+      "title": "StyleEntryModel",
+      "type": "object"
+    },
+    "UnitsModel": {
+      "additionalProperties": true,
+      "description": "One unit system: a preset, explicit quantities, or both when they agree.\n\nAngle values are degrees in every built-in preset. A force constant per\nradian is a parameter dimension (``E/A^2``), not a second angle unit.",
+      "properties": {
+        "angle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Angle"
+        },
+        "charge": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Charge"
+        },
+        "energy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Energy"
+        },
+        "length": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Length"
+        },
+        "mass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mass"
+        },
+        "preset": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preset"
+        },
+        "time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time"
+        }
+      },
+      "title": "UnitsModel",
+      "type": "object"
     }
   },
   "additionalProperties": true,
-  "description": "The record root.\n\n``meta`` is always required, plus at least one substantive section. The\nother sections arrive with their own modules; this module owns ``frame``\nand ``system``.",
+  "description": "The record root.\n\n``meta`` is always required, plus at least one other section. This module\nowns ``frame`` and ``system``. Document sections it does not model\n(``status``, ``method``, and any section a later module adds) ride in\n``extra`` and are part of the record: a run is ``meta`` plus ``status``\nand has no frame.",
   "properties": {
+    "forcefield": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ForceFieldModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "frame": {
       "anyOf": [
         {

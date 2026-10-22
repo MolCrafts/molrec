@@ -24,7 +24,7 @@ data its authors never anticipated.
 
 | Layer | Name | Contents | Normativity |
 |-------|------|----------|-------------|
-| L0 | Vocabulary | dtypes, units, hard naming rules | Normative |
+| L0 | Vocabulary | dtypes, [units](units.md), hard naming rules | Normative |
 | L1 | Containers | Column · Block · Frame · Box | Normative |
 | L2 | Record | Root sections, versioning, minimum shapes | Normative |
 | L3 | Conventions | `system`, `trajectory`, `status`, `metrics`, … | Recommended |
@@ -39,15 +39,15 @@ Details of L4: [Storage](storage.md).
 A `Column` is a typed N-dimensional array. Its element type (`dtype`) is one of:
 
 ```text
-float      64-bit floating point
-int        signed integer
-uint       unsigned integer
-u8         8-bit unsigned integer
-bool       boolean
-string     UTF-8 string
+f16 f32 f64          floating point, one width each
+i8 i16 i32 i64       signed integers
+u8 u16 u32 u64       unsigned integers
+bool string          boolean, UTF-8
+c64 c128             complex64, complex128
 ```
 
-The dtype set is closed; see [Types](types.md).
+The dtype set is closed and every numeric name is one width. See [Types](types.md).
+There is no dtype named `float`, `int`, or `uint`.
 
 ### Block
 
@@ -117,13 +117,14 @@ A **Record** bundles optional companion sections under one root. See
 +-- (system)        system definition
 +-- (frame)         snapshot
 +-- (trajectory)    frame sequence
++-- (forcefield)    force-field document and style tables
 +-- (observables)   scientific results
-+-- (method)        scientific / training context
++-- (method)        narrative of how it was produced
 +-- (status)        execution lifecycle
-\-- (metrics)       append-only run measurements
+\-- (metrics)       run measurements (dense series + live WAL)
 ```
 
-No record-root `parameters/`. Parameters: `system/parameters` or `method`.
+No record-root `parameters/`. A force field is the `forcefield/` section.
 
 ### Minimum shapes
 
@@ -131,12 +132,14 @@ No record-root `parameters/`. Parameters: `system/parameters` or `method`.
 |-------|----------|-------|
 | Structure | `meta` + `frame` | Single snapshot |
 | System def | `meta` + `system` | Definition without coordinates |
-| Trajectory | `meta` + `trajectory` | `system` optional; with system prefer coords/state-only updates |
+| Trajectory | `meta` + `trajectory` | Valid with no `frame` and no `system` |
+| Force field | `meta` + `forcefield` | Style tables, no snapshot required |
 | **Run** | `meta` + `status` (+ `metrics` and/or `method`) | **No `frame` required** |
 | Full | combinations | Experiment package |
 
-A record MUST include `meta` and **at least one of** `frame`, `system`, or
-`status`.
+A record MUST include `meta` and **at least one other section**. `frame`,
+`system`, `trajectory`, `forcefield`, and `status` each satisfy that on
+their own. Any other preserved section does too.
 
 `system` vs `frame`: definition vs instantaneous state — see [System](system.md).
 Training / job logs: see [Run surface](run.md).
@@ -170,7 +173,7 @@ The following invariants define the current MolRec contract
 
 1. L1 has exactly three containers — Column, Block, Frame — with no privileged
    field names.
-2. A Column's dtype is one of `float`, `int`, `uint`, `u8`, `bool`, `string`.
+2. A Column's dtype is one of `f16`, `f32`, `f64`, `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `bool`, `string`, `c64`, `c128`. A validity mask, when present, is one boolean per row.
 3. All columns in a Block share the same count (axis-0 length).
 4. A Block's optional structural shape has product equal to its count.
 5. A Frame is a general map of names to Blocks; it enforces no cross-block
@@ -181,7 +184,6 @@ The following invariants define the current MolRec contract
    arrays.
 8. A reader must preserve blocks, columns, and record sections it does not
    recognize.
-9. A Record requires `meta` and at least one of `frame`, `system`, or `status`.
+9. A Record requires `meta` and at least one other section. `trajectory` alone, `forcefield` alone, and `status` alone each qualify.
 10. Instantaneous Cartesian coordinates are not required content of `system/`.
-11. Live metrics use the JSONL text buffer when present; Zarr metrics attributes
-    are summary-only.
+11. Closed metrics curves are dense Zarr arrays under `metrics/series/`. The JSONL file is only the live WAL. Catalog attributes list series; they are not the curve.

@@ -54,6 +54,18 @@ def _diff_model(expected: BaseModel, actual: Any, path: str) -> tuple[Violation,
                 found.append(Violation(kind="missing_field", path=_at(path, name), detail="absent"))
                 continue
         found.extend(diff(want, got, _at(path, name)))
+    # Fields the model keeps under extra="allow" are part of the value.
+    # Walking only model_fields makes "preserve unknown keys" untested:
+    # a reader can drop them and still compare equal.
+    expected_extra = getattr(expected, "__pydantic_extra__", None) or {}
+    if isinstance(actual, BaseModel):
+        actual_extra = getattr(actual, "__pydantic_extra__", None) or {}
+    elif isinstance(actual, dict):
+        known = type(expected).model_fields
+        actual_extra = {key: actual[key] for key in actual if key not in known}
+    else:
+        actual_extra = {}
+    found.extend(_diff_mapping(expected_extra, actual_extra, path))
     return tuple(found)
 
 

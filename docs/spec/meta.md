@@ -26,6 +26,9 @@ meta
 |   +-- (email: string)
 +-- (created_at: string)              # ISO-8601
 +-- (source: string)
++-- (units)                           # geometry unit system — see units.md
+|   +-- (preset: string)
+|   \-- (length, energy, time, mass, charge, angle)
 +-- (audit)
 |   \-- ...                           # provenance tree
 \-- (modules)
@@ -69,6 +72,7 @@ When writing the Zarr reference binding, `format_name` SHOULD be set to
 | `author.email` | Optional contact |
 | `created_at` | ISO-8601 creation timestamp |
 | `source` | Upstream dataset, path, or URI |
+| `units` | Unit system of coordinates, the box, meshes, and trajectory time. See [Units](units.md). |
 
 ## Audit
 
@@ -87,9 +91,8 @@ The audit subtree is extensible; no closed schema is required.
 `meta.modules` declares optional extensions that refine record meaning.
 
 Each module entry is keyed by module name and SHOULD carry a major/minor
-`version` pair documenting the extension contract. Custom method types and
-custom metric types point here for their parse rules (see [Method](method.md),
-[Metrics](metrics.md)).
+`version` pair documenting the extension contract. `method` is not parsed
+by type. A module documents extra keys; it does not select a record layout.
 
 ## Example
 

@@ -20,15 +20,17 @@ below.
 ├── system/               # recommended — system definition (see system.md)
 ├── frame/                # recommended — instantaneous snapshot (see frame.md)
 ├── trajectory/           # optional — ordered frames (see trajectory.md)
+├── forcefield/           # optional — force-field document and style tables
 ├── observables/          # optional — scientific results (see observables.md)
-├── method/               # optional — how it was produced (see method.md)
+├── method/               # optional — narrative of how it was produced (see method.md)
 ├── status/               # optional — lifecycle / progress (see status.md)
 └── metrics/              # optional — append-only run measurements (see metrics.md)
 ```
 
-There is **no** record-root `parameters/` section. Scientific / force-field /
-model parameters live under `system/parameters`. How a job is run lives under
-`method/`.
+There is **no** record-root `parameters/` section. A force field is the
+`forcefield/` section: one document (the group's attributes) and one block
+per style. How a job is run lives under `method/`, which does not select a
+schema and does not hold the parameter tables.
 
 Section names above are **conventional record keys**. Unknown sibling sections
 MUST be preserved by readers that do not understand them.
@@ -57,15 +59,16 @@ Full meta field table: [Meta](meta.md).
 |-------|-------------------|-------------|
 | Structure | `meta` + `frame` | Single conformation / snapshot |
 | System def | `meta` + `system` | Topology / types without coordinates |
-| Trajectory | `meta` + `trajectory` (+ optional `system`) | MD time series |
+| Trajectory | `meta` + `trajectory` (+ optional `system`) | MD time series. Valid with neither `frame` nor `status` |
+| Force field | `meta` + `forcefield` | Style tables without a snapshot |
 | Run | `meta` + `status` (+ `metrics` and/or `method`) | Training job / workflow run |
 | Full | any combination | Reproducible experiment package |
 
 Rules:
 
 1. **`meta` is always required.**
-2. A record MUST include **at least one of** `frame`, `system`, or `status`.
-3. A **Run**-shaped record does **not** require `frame`.
+2. A record MUST include **at least one section besides** `meta`. `frame`, `system`, `trajectory`, `forcefield`, and `status` each satisfy this. So does any other preserved section.
+3. A **Run**-shaped record does **not** require `frame`. A trajectory-only record and a force-field-only record are valid.
 4. Instantaneous Cartesian coordinates belong on `frame` / `trajectory`, not as
    required content of `system` (see [System](system.md)).
 5. When both `system/` and `trajectory/` are present, trajectory **SHOULD**
@@ -96,7 +99,7 @@ Summary — full chapter: [Storage](storage.md).
 |------|----------|----------------|
 | Zarr root | whole package | One openable Zarr V3 hierarchy |
 | Arrays | `frame`, `system`, `trajectory`, large `observables` | Zarr groups + arrays |
-| Documents | `meta`, `status`, `method`, closed metrics summary | Zarr **group attributes** |
+| Documents | `meta`, `status`, `method`, `forcefield` document, metrics catalog | Zarr **group attributes** |
 | Dense series | closed `metrics` | Zarr arrays under `metrics/` (+ catalog attrs) |
 | Live WAL | live `metrics` | `metrics/metrics.jsonl` (UTF-8 text; densify on flush) |
 
@@ -109,4 +112,7 @@ metrics buffer.
 - [Overview](overview.md) — L0–L4 layering
 - [Storage](storage.md) — Zarr root + JSONL buffer
 - [System](system.md) — system definition section
+- [Units](units.md) — presets
+- [Force field](forcefield.md) — style tables
+- [Engines](engines.md) — LAMMPS data and OpenMM XML
 - [Run surface](run.md) — training / job logs as records

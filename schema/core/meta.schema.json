@@ -1,4 +1,98 @@
 {
+  "$defs": {
+    "UnitsModel": {
+      "additionalProperties": true,
+      "description": "One unit system: a preset, explicit quantities, or both when they agree.\n\nAngle values are degrees in every built-in preset. A force constant per\nradian is a parameter dimension (``E/A^2``), not a second angle unit.",
+      "properties": {
+        "angle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Angle"
+        },
+        "charge": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Charge"
+        },
+        "energy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Energy"
+        },
+        "length": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Length"
+        },
+        "mass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mass"
+        },
+        "preset": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preset"
+        },
+        "time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time"
+        }
+      },
+      "title": "UnitsModel",
+      "type": "object"
+    }
+  },
   "additionalProperties": true,
   "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.",
   "properties": {
@@ -43,6 +137,17 @@
       "minimum": 1,
       "title": "Record Schema Version",
       "type": "integer"
+    },
+    "units": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UnitsModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     }
   },
   "required": [

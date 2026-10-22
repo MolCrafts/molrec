@@ -167,6 +167,8 @@ poetry.toml
 # ruff
 .ruff_cache/
 
+.DS_Store
+
 # LSP config files
 pyrightconfig.json
 uv.lock

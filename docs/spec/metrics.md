@@ -49,36 +49,32 @@ Full root rules: [Storage](storage.md).
 
 ### Dense Zarr SoT (closed / densified)
 
-Under the record (or host run) root:
+Inside the one record root:
 
 ```text
-metrics/
-  zarr/                    # Zarr V3 store (host layout) OR metrics/ group arrays
-    zarr.json
-    series/
-      <safe_name>/         # float64 values [n]
-      <safe_name>__steps/  # optional float64 [n]
-      <safe_name>__wall/   # optional float64 unix times [n]
+metrics/                     # group attributes = the catalog below
+  series/
+    <safe_name>/             # f64 values [n]
+    <safe_name>__steps/      # optional f64 [n]
+    <safe_name>__wall/       # optional f64 unix seconds [n]
+  metrics.jsonl              # live WAL, not an array
 ```
 
-Store root attributes (catalog):
+`<safe_name>` is the percent-encoding in [Storage](storage.md): `train/loss`
+is stored as `train%2Floss`. The catalog key is the original name.
+
+Catalog attributes on the `metrics/` group:
 
 | Attribute | Meaning |
 |-----------|---------|
-| `format_name` | `molmetrics` |
-| `binding` | `zarr-v3` |
-| `version` | integer schema of this catalog (starts at **1**) |
-| `series` | map of original key → `{type, count, array, steps_array?, wall_array?, …}` |
+| `series` | map of original key → `{type, count, array, steps_array?, wall_array?}` |
 | `series_count` | number of keys |
 | `point_count` | total scalar points |
 
-Consumers that need the curve **MUST** read the dense Zarr arrays when the
-store exists.
+The catalog has no `format_name` and no version of its own. The record's
+`meta.record_schema_version` covers it. There is no `metrics/zarr/` store.
 
-On a pure MolRec record root that *is* the Zarr V3 package, series arrays MAY
-live directly under the `metrics/` group (same catalog attrs on that group)
-instead of a nested `metrics/zarr/` store. Hosts that are not full Zarr roots
-(e.g. molexp Run directories) use the nested `metrics/zarr/` store.
+Consumers that need the curve read the dense arrays when `series/` exists.
 
 ### Live WAL (append-only text)
 
@@ -117,7 +113,7 @@ Example lines:
 
 | Artifact | Authoritative for curves? | When |
 |----------|---------------------------|------|
-| `metrics/zarr/` (or `metrics/` series arrays) | **Yes** when present | After densify / close |
+| `metrics/series/` | **Yes** when present | After densify / close |
 | `metrics/metrics.jsonl` | Live only; fallback if no dense store | During a run; pre-flush |
 | Group attributes summary only | No — listing aid | Optional |
 
@@ -134,8 +130,14 @@ hosts MAY keep a rebuildable listing cache.
 | `image_ref` | object with `path` string and optional `caption` |
 | `json` | any JSON-compatible value |
 
-Scalar series densify to float64 arrays. Non-scalar types MAY remain WAL-only
-until a denser encoding is declared in `meta.modules`.
+Scalar series densify to `f64` arrays. `__steps` is the event's `step` as
+`f64`. `__wall` is `wall_time` converted from ISO-8601 to Unix seconds as
+`f64`. The WAL keeps the ISO string; the dense array keeps the number. Both
+are that one conversion, not two clocks.
+
+`histogram`, `text`, `image_ref`, and `json` stay in the WAL until a dense
+encoding for them is added. They are not a second source of truth for scalar
+curves.
 
 ## Key namespace
 

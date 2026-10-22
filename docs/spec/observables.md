@@ -2,79 +2,76 @@
 
 ## Purpose
 
-`observables` is a recommended record section for named derived or reported
-quantities that are part of the interpreted scientific record — a total energy, a
-dipole moment, a per-atom charge. It is a convention layered on the general model
-(see [Overview](overview.md)); a record need not carry one.
+`observables` is a recommended record section for named quantities that are
+part of the interpreted scientific record: a total energy, a dipole, an RDF,
+a free-energy surface. It is a convention layered on the general model (see
+[Overview](overview.md)). A record need not carry one.
 
-**Not the same as metrics.** Run-local monitoring series (training loss, step
-time, throughput) belong under [Metrics](metrics.md) as part of the
-[run surface](run.md). Observables are scientific results a reader would treat as
-part of the chemistry/physics payload, not job telemetry.
+Run-local monitoring (training loss, step time, throughput) belongs under
+[Metrics](metrics.md). An observable is a quantity a reader treats as part of
+the chemistry or physics payload.
 
-Each observable is a pair:
+An observable is a value array over named dimensions. Coordinates that
+several quantities share are stored once on the section.
 
-- `observables/<name>` — the data, a column (see [Types](types.md));
-- `observables/meta/<name>` — its semantic metadata.
-
-When the section is present the pairing is mandatory: observable data are never
-standalone.
-
-Physical form: **Zarr array groups** with per-name semantic **attributes** —
-see [Storage](storage.md).
+Physical form: **Zarr arrays** with `dims` (and optional `unit`) on each
+array's attributes. See [Storage](storage.md).
 
 ## Structure
 
 ```text
-observables
-├── meta/
-│   └── <name>/                 # semantic metadata (JSON attrs in Zarr binding)
-│       +-- kind: string        # "scalar" | "vector"
-│       +-- description: string
-│       +-- time_dependent: bool
-│       +-- (unit: string)
-│       +-- (axes: string[])    # names of trailing axes
-│       \-- (target: string)    # e.g. "/frame/atoms"
-└── <name>: <dtype>[...]        # data column / array
+observables/
+├── coordinates/
+│   └── <safe_name>          # array; attrs: dims, (unit)
+└── observables/
+    └── <safe_name>          # array; attrs: dims, (unit), (description),
+                              #              (payload), (source)
 ```
 
-## Kinds
+`<safe_name>` is the percent-encoding in [Storage](storage.md). The logical
+name may contain `/`.
 
-MolRec defines two observable kinds:
+A coordinate and a quantity may share a logical name. They live in different
+groups, so the stored names do not collide.
 
-| Kind | Meaning | Typical shape |
-|------|---------|---------------|
-| `scalar` | one value per sample | `[]` or `[ntimestep]` |
-| `vector` | an ordered tuple of components per sample | `[ncomp]` or `[ntimestep][ncomp]` |
+## Values
 
-Higher-rank data (tensors), volumetric fields, and tables are expressed with the
-same two kinds plus `axes` metadata naming the trailing axes. A producer that
-needs a distinct kind declares it in a module under `meta/modules`.
+Each quantity has:
 
-## Metadata
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `values` | yes | One array: `dims`, `dtype`, `shape`, data |
+| `description` | no | Prose |
+| `unit` | no | Unit of the values, on the array |
+| `payload` | no | What the number is when the name is not enough |
+| `source` | no | Provenance: `refs`, optional `method_ref` |
 
-Required for every observable:
+`dims` has one name per axis, and `shape` has the same length. A scalar has
+`dims = ()` and `shape = ()`.
 
-- `kind`
-- `description`
-- `time_dependent`
+The section checks one rule: a dimension name has one length everywhere it
+appears. A grid and a scatter are different dimension names, not a flag:
 
-Recommended when applicable:
+```text
+grid        phi.dims=(phi,)      psi.dims=(psi,)    values.dims=(phi, psi)
+scatter     phi.dims=(sample,)   psi.dims=(sample,) values.dims=(sample,)
+curve       step.dims=(point,)   values.dims=(point,)
+```
 
-- `unit` — physical unit of the values;
-- `axes` — names of the trailing axes when the rank is greater than zero;
-- `target` — the block an entity-aligned observable indexes (e.g.
-  `/frame/atoms`).
+There is no `kind` of scalar versus vector, and no `time_dependent` flag.
+The dimensions already say both. A second copy of that fact can disagree
+with the array.
 
-## Time dependence
+`dtype` is the closed set in [Types](types.md). A `f32` observable stays
+`f32`.
 
-Time dependence is stated in metadata, not inferred from shape. When
-`time_dependent = true`, the leading axis is the trajectory axis (named
-`timestep` by convention).
+## Coordinates
 
-## Relationship to metrics
+`coordinates` holds the axes. A hundred curves over one `step` store that
+`step` array once. The dimension list is derived from the arrays; it is not
+a second table.
 
-Use `observables` for values that are part of the interpreted scientific record;
-use [metrics](metrics.md) for run-local monitoring streams. A writer may mirror a
-value into metrics for live display, but the observable remains the authoritative
-scientific value.
+## See also
+
+- [Metrics](metrics.md) — run-local series
+- [Types](types.md) — dtypes and validity

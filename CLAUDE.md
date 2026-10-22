@@ -44,7 +44,7 @@ do not invent parallel store names.
 - Sole schema key: `meta.record_schema_version` (integer, starts at 1).
 - No `frame_schema_version`, no layout `meta.version` dual-key.
 - Cell contract name: `Box` / `box` only (not `simbox`).
-- No root `parameters/`; parameters under `system/parameters` or `method`.
+- No root `parameters/`. Force-field tables are the `forcefield/` section. `method` is narrative and does not select a layout.
 - Keep section chapters aligned with `docs/spec/storage.md`: documents are Zarr
   attributes (not sibling `.json` stores); metrics JSONL is only an append
   buffer; no nested metrics array trees or columnar `String[]` document trees.
