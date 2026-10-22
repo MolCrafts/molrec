@@ -1,0 +1,13 @@
+{
+  "blocks": {
+    "atoms": {
+      "columns": {
+        "x": {
+          "dtype": "f64",
+          "precision": 0.001,
+          "trailing": []
+        }
+      }
+    }
+  }
+}

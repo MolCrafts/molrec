@@ -7,6 +7,22 @@
       "type": "string"
     },
     "kind": {
+      "enum": [
+        "missing_field",
+        "missing_key",
+        "unexpected_key",
+        "missing_values",
+        "unexpected_values",
+        "wrong_type",
+        "wrong_shape",
+        "wrong_length",
+        "value_mismatch",
+        "model_mismatch",
+        "not_rejected",
+        "wrong_refusal",
+        "refused",
+        "unreadable"
+      ],
       "title": "Kind",
       "type": "string"
     },

@@ -1,28 +1,13 @@
-"""Observables: named quantities as functions of their coordinates.
+"""The ``observables`` section: named results, each a kind plus an array.
 
-Importing this package registers the observables suite, bench, and bindings.
+Each symbol is its owner module's: the models in
+:mod:`molrec.observables.model`, the adapter in
+:mod:`molrec.observables.adapter`, the storage in
+:mod:`molrec.observables.storage`. Importing this package registers the
+observables suite and binding. The dims-based redesign is the draft in
+:mod:`molrec.draft.observables`.
 """
 
-from molrec.observables import bench as _bench  # noqa: F401
-from molrec.observables import bindings as _bindings  # noqa: F401
-from molrec.observables import suite as _suite  # noqa: F401
-from molrec.observables.adapter import ObservableAdapter
-from molrec.observables.model import (
-    Array,
-    ObservableModel,
-    ObservablesModel,
-    Source,
-)
-from molrec.observables.safe_name import original_name, safe_name
-from molrec.observables.store import ObservableStore
+from molrec.observables import adapter, bindings, model, storage, suite
 
-__all__ = [
-    "Array",
-    "ObservableAdapter",
-    "ObservableModel",
-    "ObservableStore",
-    "ObservablesModel",
-    "Source",
-    "original_name",
-    "safe_name",
-]
+__all__ = ["adapter", "bindings", "model", "storage", "suite"]

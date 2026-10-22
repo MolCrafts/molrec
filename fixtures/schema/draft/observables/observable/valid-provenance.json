@@ -1,0 +1,29 @@
+{
+  "description": null,
+  "payload": null,
+  "source": {
+    "method_ref": null,
+    "refs": [
+      {
+        "hash": null,
+        "kind": "section",
+        "select": {},
+        "uri": "./a.mrec"
+      }
+    ]
+  },
+  "values": {
+    "data": [
+      0.5,
+      0.25
+    ],
+    "dims": [
+      "point"
+    ],
+    "dtype": "f64",
+    "shape": [
+      2
+    ],
+    "unit": "eV"
+  }
+}

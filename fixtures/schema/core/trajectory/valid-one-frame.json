@@ -1,0 +1,85 @@
+{
+  "blocks": {
+    "atoms": {
+      "columns": {
+        "x": {
+          "dtype": "f64",
+          "trailing": []
+        }
+      }
+    }
+  },
+  "box": {
+    "cell_defined": true,
+    "updates": [
+      {
+        "box": {
+          "boundary": [
+            true,
+            true,
+            true
+          ],
+          "origin": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "vectors": [
+            [
+              10.0,
+              0.0,
+              0.0
+            ],
+            [
+              0.0,
+              10.0,
+              0.0
+            ],
+            [
+              0.0,
+              0.0,
+              10.0
+            ]
+          ]
+        },
+        "step_index": 0
+      }
+    ]
+  },
+  "frames": [
+    {
+      "blocks": {
+        "atoms": {
+          "columns": {
+            "x": {
+              "dtype": "f64",
+              "shape": [
+                2
+              ],
+              "validity": null,
+              "values": [
+                0.0,
+                1.5
+              ]
+            }
+          },
+          "count": 2,
+          "structural_shape": null
+        }
+      },
+      "box": null,
+      "meta": {
+        "pe": -1.0
+      }
+    }
+  ],
+  "meta": {
+    "pe": {
+      "dtype": "f64"
+    }
+  },
+  "step": [
+    0
+  ],
+  "time": null
+}

@@ -1,8 +1,20 @@
-# Managed by prek: `prek install`
-# CI parity: lint.yml runs the pre-commit stage of this file; test.yml runs
-# the ci-test command (no tox wrapper).
+# Managed by prek / pre-commit: `prek install` (installs both hook types).
+# CI parity: every job in .github/workflows/{lint,test,docs}.yml has a hook here, running
+# the same command against the same molrs commit (scripts/partners.py resolves
+# .github/partners.env: molrs's dev, or its branch named like this one).
+#
+#   pre-commit  file hygiene + ruff, on the staged files. Cheap: runs in place.
+#   pre-push    the cheap hooks again on --all-files (CI runs them that way),
+#               the partners, the lock, the bare import, the docs build,
+#               and the full suite -- molrs-marked conformance included --
+#               against a molrs wheel built from the resolved commit.
+#
+# Heavy entries go through scripts/hook-run.sh, which hands them to
+# $MOLCRAFTS_HOOK_RUNNER (a compute node on the MolCrafts cluster) when set and
+# runs them in place otherwise. See "Hooks" in CLAUDE.md. Never --no-verify.
 
 default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -21,17 +33,76 @@ repos:
 
   - repo: local
     hooks:
+      # lint.yml's `lint / workflows`: every workflow against the CI scheme,
+      # with the validator CI runs (MolCrafts/molcrafts-ci master).
+      - id: workflows
+        name: "check-workflows (lint.yml)"
+        entry: bash -c 'd=$(mktemp -d) && trap "rm -rf $d" EXIT && git clone -q --depth 1 https://github.com/MolCrafts/molcrafts-ci "$d" && env -u VIRTUAL_ENV uv run -q --no-project --script "$d/actions/check-workflows/check_workflows.py" .'
+        language: system
+        pass_filenames: false
+        files: ^\.github/workflows/
+
       - id: ci-lint
-        name: "CI lint (lint.yml)"
-        entry: bash -c 'uv sync --extra dev && uv run ruff format --check . && uv run ruff check .'
+        name: "ruff format + ruff (lint.yml)"
+        entry: bash -c 'uvx ruff@0.16.5 format --check . && uvx ruff@0.16.5 check .'
         language: system
         pass_filenames: false
         always_run: true
-        stages: [pre-commit, pre-push]
 
+      # lint.yml runs the hooks above on every file; a commit only
+      # sees the staged ones (an untouched file with no final newline slips by).
+      - id: all-files
+        name: "pre-commit hooks on --all-files (lint.yml)"
+        entry: uvx pre-commit run --all-files --hook-stage pre-commit --show-diff-on-failure
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: partners
+        name: "partners resolve; path sources resolve in CI"
+        entry: python3 scripts/partners.py check
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      # uv.lock records the molcrafts-molrs metadata the RESOLVED molrs carries,
+      # not the sibling ../molrs's: checked in CI's layout.
+      - id: uv-lock
+        name: "uv.lock is current against the resolved molrs (lint.yml)"
+        entry: python3 scripts/partners.py run -- uv lock --check
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|uv\.lock|\.github/partners\.env)$
+        stages: [pre-push]
+
+      - id: bare-import
+        name: "molrec imports with no extras (lint.yml)"
+        entry: >-
+          python3 scripts/partners.py run --
+          uv run --isolated --locked --python 3.12 python -c "import molrec"
+        language: system
+        pass_filenames: false
+        files: ^(src/|pyproject\.toml|uv\.lock)
+        stages: [pre-push]
+
+      # Cloudflare Pages builds the site: `pip install ".[docs]"` + zensical.
+      - id: docs
+        name: "docs build (docs.yml, Cloudflare Pages)"
+        entry: uv run --isolated --no-project --python 3.12 --with '.[docs]' zensical build --clean --strict
+        language: system
+        pass_filenames: false
+        files: ^(docs/|zensical\.toml|pyproject\.toml|src/)
+        stages: [pre-push]
+
+      # test.yml: the whole suite, molrs-marked conformance included, with
+      # molrs built from the resolved commit. Compiles molrs.
       - id: ci-test
-        name: "CI test (test.yml)"
-        entry: bash -c 'uv sync --extra dev && uv run pytest -q'
+        name: "full suite against the resolved molrs (test.yml)"
+        entry: >-
+          scripts/hook-run.sh python3 scripts/partners.py run --
+          env MOLREC_REQUIRE_MOLRS=1 MATURIN_PEP517_ARGS=--locked uv run --locked --python 3.12 --extra dev python -X warn_default_encoding -m pytest -q
         language: system
         pass_filenames: false
         always_run: true

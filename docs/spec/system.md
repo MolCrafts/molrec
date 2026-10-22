@@ -1,78 +1,44 @@
-# System
+# System group
 
-## Purpose
+The `system` group answers what chemical or physical system the record is
+about: the identity of the particle set, its connectivity and its typing.
+Instantaneous coordinates of a time step live on `frame` or `trajectory`.
 
-`system/` is a **recommended record section** that answers:
-
-> What chemical / physical **system** is this record about?
-
-It holds identity of the particle set, connectivity, typing, and the default
-cell — not the instantaneous coordinates of a time step.
-
-`system/` is a convention layered on the general model (see
-[Overview](overview.md)). It is first-class at the **Record** root (see
-[Record](record.md)), not a private product layout.
-
-## system vs frame
-
-| | `system/` | `frame/` |
-|---|---|---|
-| Question | What **is** the system? | What is the state **now**? |
-| Coordinates | Instantaneous Cartesian `x`/`y`/`z` are **not** required system content | Typical content |
-| Box | Optional default cell: the section's `box` | Instantaneous box on the frame |
-| Topology | Bonds / angles / … as definition | May repeat or omit if trajectory-only |
-| Types / parameters | Atom types, FF or model binding | Optional per-instance overrides |
-
-**Rule:** Instantaneous Cartesian coordinates belong on `frame` or
-`trajectory`. A conforming `system/` MAY omit coordinate columns entirely.
-
-## Recommended tree
+`system` is **strictly frame-shaped**: it is a
+[frame-shaped group](storage.md#frame-shaped-group) — a `meta` document as
+its attributes, named blocks as flat children, an optional `box` — with the
+same blocks, columns and [standardized identifiers](conventions.md) a frame
+uses.
 
 ```text
-system/
-├── meta/                      # local id, description (optional attrs)
-├── topology/                  # optional grouping; or flat convention blocks
-│   ├── atoms/                 # rows without x/y/z are valid
-│   ├── bonds/                 # atomi / atomj per conventions
-│   └── …
-└── box/                       # optional default cell (the frame box)
+system                    attributes = the system's meta document
+ \-- (atoms)
+ \-- (bonds)
+ \-- (angles)
+ \-- ...
+ \-- (box)
 ```
 
-Writers MAY flatten topology blocks directly under `system/` (e.g.
-`system/atoms`, `system/bonds`) when a `topology/` group adds no value.
+- Blocks are **flat** children of `system/` (`system/atoms`,
+  `system/bonds`). There is no `system/topology/` level: a nested group is a
+  block like any other, and a reader would take a `topology` group for a
+  block named `topology`.
+- The composition and identity keys of
+  [Conventions](conventions.md#composition-and-identity-keys)
+  (`total_charge`, `spin`, `smiles`, …) live in the meta document.
+- There is no `box_policy` and no `parameters` child.
 
-Field names for topology blocks **reuse** [Conventions](conventions.md)
-(`element`, `atomi`/`atomj`, …). This chapter does not invent a second
-topology vocabulary.
+A conforming `system` may omit coordinate columns entirely; instantaneous
+Cartesian coordinates belong on `frame` or `trajectory`.
 
-The default cell is this section's `box`. Particle identity across `system`,
-`frame`, and `trajectory` follows
-[Conventions](conventions.md#particle-identity).
+Records with only `frame` (no `system`) remain valid. Records with only
+`system` (no `frame`) are valid. A trajectory may omit `system`; when
+`system` is present, `trajectory` should carry state updates only, aligned
+1:1 by row order with the `system` block of the same name
+([Trajectory](trajectory.md#with-and-without-system)).
 
-## Parameters vs the force field vs method
-
-| Location | Holds |
-|----------|--------|
-| `forcefield/` | The force-field document and one parameter table per style |
-| `system/` | The topology and type labels that use that force field |
-| `method/` | Narrative context: engine name, description, stage order |
-
-`method.type` does not choose a layout. A record is read from the sections it
-actually contains.
-
-## Compatibility
-
-- Records with only `frame` (no `system`) remain valid (Structure shape).
-- Records with only `system` (no `frame`) are valid (System-def shape).
-- Trajectory packages **MAY** omit `system/`. When `system/` is present,
-  `trajectory/` **SHOULD** carry state/coordinate updates only (see
-  [Trajectory](trajectory.md)).
-
-## See also
-
-- [Record](record.md)
-- [Frame](frame.md)
-- [Conventions](conventions.md)
-- [Method](method.md)
-- [Force field](forcefield.md)
-- [Units](units.md)
+Types are linked, not embedded: `atoms.type` and each relation block's
+`type` name rows of the record's [`forcefield`](forcefield.md) section (or
+its collection's), and a relation block's `style` column picks among styles
+of one category. Per-instance parameters (MMFF, UFF) stay columns of the
+relation blocks.

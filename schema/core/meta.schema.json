@@ -1,10 +1,10 @@
 {
   "$defs": {
-    "UnitsModel": {
+    "AuthorModel": {
       "additionalProperties": true,
-      "description": "One unit system: a preset, explicit quantities, or both when they agree.\n\nAngle values are degrees in every built-in preset. A force constant per\nradian is a parameter dimension (``E/A^2``), not a second angle unit.",
+      "description": "The person or group responsible for the record.",
       "properties": {
-        "angle": {
+        "email": {
           "anyOf": [
             {
               "type": "string"
@@ -14,88 +14,81 @@
             }
           ],
           "default": null,
-          "title": "Angle"
+          "title": "Email"
         },
-        "charge": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Charge"
-        },
-        "energy": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Energy"
-        },
-        "length": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Length"
-        },
-        "mass": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Mass"
-        },
-        "preset": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Preset"
-        },
-        "time": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Time"
+        "name": {
+          "title": "Name",
+          "type": "string"
         }
       },
-      "title": "UnitsModel",
+      "required": [
+        "name"
+      ],
+      "title": "AuthorModel",
+      "type": "object"
+    },
+    "CreatorModel": {
+      "additionalProperties": true,
+      "description": "The tool that wrote the record.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "CreatorModel",
+      "type": "object"
+    },
+    "ModuleModel": {
+      "additionalProperties": true,
+      "description": "A shared interpretation beyond this specification that the record uses,\nkeyed by its name under ``meta/modules``: optionally the URL of its\nspecification, plus module-specific keys.",
+      "properties": {
+        "spec": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spec"
+        }
+      },
+      "title": "ModuleModel",
       "type": "object"
     }
   },
   "additionalProperties": true,
-  "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.",
+  "description": "The record's identity document.\n\n``extra=\"allow\"`` is not convenience -- it is the preserve-the-unknown\ninvariant: a reader must keep keys it does not recognize.\n\nIdentity of a record is the ``*.mrec`` path suffix plus a Zarr root.\n\n``record_id`` and ``content_hash`` are optional provenance, like\n``creator``, ``author``, ``created_at`` and ``source``.",
   "properties": {
+    "author": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuthorModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "content_hash": {
       "anyOf": [
         {
@@ -108,10 +101,10 @@
       "default": null,
       "title": "Content Hash"
     },
-    "format_name": {
+    "created_at": {
       "anyOf": [
         {
-          "const": "molrec",
+          "format": "date-time",
           "type": "string"
         },
         {
@@ -119,7 +112,33 @@
         }
       ],
       "default": null,
-      "title": "Format Name"
+      "title": "Created At"
+    },
+    "creator": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CreatorModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "modules": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/ModuleModel"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Modules"
     },
     "record_id": {
       "anyOf": [
@@ -133,26 +152,19 @@
       "default": null,
       "title": "Record Id"
     },
-    "record_schema_version": {
-      "minimum": 1,
-      "title": "Record Schema Version",
-      "type": "integer"
-    },
-    "units": {
+    "source": {
       "anyOf": [
         {
-          "$ref": "#/$defs/UnitsModel"
+          "type": "string"
         },
         {
           "type": "null"
         }
       ],
-      "default": null
+      "default": null,
+      "title": "Source"
     }
   },
-  "required": [
-    "record_schema_version"
-  ],
   "title": "MetaModel",
   "type": "object"
 }

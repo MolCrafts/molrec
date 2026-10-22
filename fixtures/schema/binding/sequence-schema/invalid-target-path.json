@@ -1,0 +1,15 @@
+{
+  "blocks": {
+    "members": {
+      "columns": {
+        "ibead": {
+          "dtype": "u64",
+          "trailing": []
+        }
+      },
+      "targets": {
+        "ibead": "/frame/atoms/x"
+      }
+    }
+  }
+}

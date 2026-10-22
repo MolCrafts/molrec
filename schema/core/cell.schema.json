@@ -1,0 +1,58 @@
+{
+  "description": "The geometry of a triclinic cell. Columns of ``vectors`` are the lattice\nvectors.\n\nWhat a cell's absent parts mean depends on whether there is a cell at\nall, which the owner says -- a frame's :class:`BoxModel`, or a\ntrajectory's :class:`TrajectoryBoxModel` for every update at once -- so\nthe owner resolves them (:func:`resolve_cell`). On its own a cell only\nholds its parts to their shapes and to ``f64``.",
+  "properties": {
+    "boundary": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "boolean"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Boundary"
+    },
+    "origin": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Origin"
+    },
+    "vectors": {
+      "items": {
+        "items": {
+          "type": "number"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": "array"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Vectors",
+      "type": "array"
+    }
+  },
+  "required": [
+    "vectors"
+  ],
+  "title": "CellModel",
+  "type": "object"
+}

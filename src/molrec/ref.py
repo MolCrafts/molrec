@@ -14,20 +14,20 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from molrec.core.model import DocumentModel
 
 RefKind = Literal["record", "section", "frame", "block", "observable", "sample"]
 
 
-class Ref(BaseModel):
+class Ref(DocumentModel):
     """A resolvable pointer.
 
     ``select`` narrows the target: ``{"frame": 12}`` for one frame of a
     trajectory, ``{"rows": [0, 5]}`` for part of a block. Its keys are the
     target kind's business, not this type's.
     """
-
-    model_config = ConfigDict(frozen=True, from_attributes=True, extra="allow")
 
     uri: str = Field(min_length=1)
     hash: str | None = None

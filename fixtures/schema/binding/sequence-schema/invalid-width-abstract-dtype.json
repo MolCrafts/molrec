@@ -1,0 +1,11 @@
+{
+  "blocks": {
+    "atoms": {
+      "columns": {
+        "x": {
+          "dtype": "float"
+        }
+      }
+    }
+  }
+}

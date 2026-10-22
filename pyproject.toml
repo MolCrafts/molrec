@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "molrec"
-version = "0.1.0"
+dynamic = ["version"]
 description = "The MolCrafts record contract: models, conformance suite, and benchmarks."
 requires-python = ">=3.12"
 license = { text = "BSD-3-Clause" }
@@ -12,28 +12,75 @@ authors = [{ name = "MolCrafts" }]
 dependencies = [
   "numpy>=1.26",
   "pydantic>=2.7",
+  # The reference binding: importing molrec registers its Zarr codecs, so the
+  # backend they are written against is not optional.
+  # 3.3: the first release that registers numcodecs.shuffle (must-decode).
+  "zarr>=3.3",
 ]
 
-# Backends are optional: a consumer that only needs the models and the
-# conformance harness must not be forced to install every store backend.
+# LMDB is the one optional backend: it is imported where a storage is opened,
+# so a consumer that never opens a collection never needs it.
 [project.optional-dependencies]
-zarr = ["zarr>=3.0"]
-dev = [
+lmdb = ["lmdb>=1.4"]
+# Everything the test suite needs except the reference implementation: every
+# test but the `molrs`-marked ones runs with this alone, and nothing compiles.
+test = [
   "pytest>=8.0",
-  "ruff>=0.11",
-  "zarr>=3.0",
+  "jsonschema>=4.0",
+  "lmdb>=1.4",
 ]
+dev = [
+  "molrec[test]",
+  "ruff==0.16.5",
+  # The reference implementation, so the conformance suite can actually judge
+  # it. molrec's own codec passing molrec's own suite proves very little.
+  # Building it compiles Rust: do that on a build machine, never a login node.
+  "molcrafts-molrs",
+]
+docs = [
+  "zensical>=0.0.53",
+  "molcrafts-zensical-theme>=0.2.5",
+]
+
+# The reference implementation is built from the sibling checkout
+# (../molrs, MolCrafts/molrs) so the suite judges the layout molrs writes
+# *now*, not the last published wheel. CI and the hooks check the sibling out
+# at the commit scripts/partners.py resolves (molrs's dev; see "Partners" in
+# CLAUDE.md).
+#
+# uv rebuilds that wheel when the checkout's commit moves (molrs-python's
+# [tool.uv] cache-keys); uncommitted Rust edits in ../molrs need
+# `uv sync --extra dev --reinstall-package molcrafts-molrs`.
+[tool.uv.sources]
+molcrafts-molrs = { path = "../molrs/molrs-python" }
+
+[tool.hatch.version]
+path = "src/molrec/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/molrec"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `python -X warn_default_encoding -m pytest` (how the suite is run) makes
+# every text-mode open without encoding= warn, and this makes the warning an
+# error: Python would decode with the locale, cp1252 on Windows, so such a
+# read passes on Linux and fails only on Windows. Ruff's PLW1514 catches it
+# statically only where it can tell the receiver is a Path.
+filterwarnings = ["error::EncodingWarning"]
+markers = [
+  "molrs: judges the reference implementation (needs molcrafts-molrs built); deselect with -m 'not molrs'",
+]
 
 [tool.ruff]
 line-length = 100
 src = ["src"]
-extend-exclude = ["legacy"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+# PLW1514 (a preview rule; explicit-preview-rules keeps every other preview
+# rule off): text-mode file I/O names its encoding. Unnamed, Python decodes
+# with the locale -- cp1252 on Windows -- so a read that passes every Linux
+# hook fails only on CI's Windows leg.
+select = ["E", "F", "I", "UP", "B", "SIM", "PLW1514"]
+preview = true
+explicit-preview-rules = true

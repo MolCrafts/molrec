@@ -1,41 +1,11 @@
-"""L0-L2: the containers and the record root.
+"""Containers and the record root.
 
-Importing this package registers the core suite, bench, and bindings.
+Each symbol is its owner module's: the models in :mod:`molrec.core.model`,
+the adapters in :mod:`molrec.core.adapter`, the storage classes in
+:mod:`molrec.core.storage`. Importing this package registers the core suite,
+bench, and bindings.
 """
 
-from molrec.core import bench as _bench  # noqa: F401
-from molrec.core import bindings as _bindings  # noqa: F401
-from molrec.core import suite as _suite  # noqa: F401
-from molrec.core.adapter import FrameAdapter, RecordAdapter
-from molrec.core.model import (
-    DTYPES,
-    BlockModel,
-    BoxModel,
-    ColumnModel,
-    DType,
-    ForceFieldModel,
-    FrameModel,
-    MeshModel,
-    MetaModel,
-    RecordModel,
-    UnitsModel,
-)
-from molrec.core.store import FrameStore, RecordStore
+from molrec.core import adapter, bench, bindings, ffsuite, model, storage, suite
 
-__all__ = [
-    "DTYPES",
-    "BlockModel",
-    "BoxModel",
-    "ColumnModel",
-    "DType",
-    "ForceFieldModel",
-    "FrameAdapter",
-    "FrameModel",
-    "FrameStore",
-    "MeshModel",
-    "MetaModel",
-    "RecordAdapter",
-    "RecordModel",
-    "RecordStore",
-    "UnitsModel",
-]
+__all__ = ["adapter", "bench", "bindings", "ffsuite", "model", "storage", "suite"]

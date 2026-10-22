@@ -1,0 +1,37 @@
+{
+  "cell_defined": true,
+  "updates": [
+    {
+      "box": {
+        "boundary": [
+          true,
+          true,
+          true
+        ],
+        "origin": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "vectors": [
+          [
+            10.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            10.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            10.0
+          ]
+        ]
+      },
+      "step_index": 0
+    }
+  ]
+}

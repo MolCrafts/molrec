@@ -2,14 +2,22 @@
 
 Two methods per module, and both directions are exercised:
 
-* ``write(model, store)`` -- build your own object from the model, serialize
-  it your way. The suite then reads the store back with the official codec.
-* ``read(store)`` -- the suite wrote a canonical store with the official
+* ``write(model, storage)`` -- build your own object from the model, serialize
+  it your way. The suite then reads the storage back with the official codec.
+* ``read(storage)`` -- the suite wrote a canonical storage with the official
   codec; hand back something shaped like the model.
 
 ``read`` may return anything duck-compatible: a dict, a dataclass, your own
-native object. The suite validates it with ``from_attributes=True``. What it
-must *not* do is assert -- every assertion belongs to the suite.
+native object. It is compared *as returned*, before any model validation
+could fill a default, carry a block forward or resolve a fill on its behalf:
+a reader hands back every value the model holds (a field the model holds as
+``None`` may be left out). Only then is it validated with
+``from_attributes=True``. What it must *not* do is assert -- every assertion
+belongs to the suite.
+
+A negative case is passed only by a *refusal*: a :class:`~molrec.refusal.Refusal`, or
+an exception of a type the adapter declares in ``refusal_types``. Any other
+exception is a defect and is reported as ``error``.
 """
 
 from __future__ import annotations
@@ -19,7 +27,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel
 
-from molrec.store import Store
+from molrec.storage import Storage
 
 
 class Adapter(ABC):
@@ -27,14 +35,24 @@ class Adapter(ABC):
 
     module: ClassVar[str]
     backends: ClassVar[tuple[str, ...]] = ()
+    #: The native exception types the implementation refuses malformed input
+    #: with (``(ValueError,)`` for most Python bindings). The harness counts
+    #: them, and :class:`~molrec.refusal.Refusal`, as a refusal; nothing else.
+    refusal_types: ClassVar[tuple[type[Exception], ...]] = ()
+    #: Case ids this adapter declares out of its implementation's scope, each
+    #: with the reason (the API the implementation lacks). The harness reports
+    #: them as ``skip`` with that reason -- never as a pass -- and judges every
+    #: other case. A case id prefixed by a module's own wrapping (``frame/``
+    #: in the record suite) is matched as written.
+    unsupported: ClassVar[dict[str, str]] = {}
 
     @abstractmethod
-    def write(self, model: BaseModel, store: Store) -> None:
-        """Serialize ``model`` into ``store`` using the implementation."""
+    def write(self, model: BaseModel, storage: Storage) -> None:
+        """Serialize ``model`` into ``storage`` using the implementation."""
 
     @abstractmethod
-    def read(self, store: Store) -> Any:
-        """Read ``store`` and return something shaped like the module's model."""
+    def read(self, storage: Storage) -> Any:
+        """Read ``storage`` and return something shaped like the module's model."""
 
 
 class Implementation:
@@ -46,8 +64,8 @@ class Implementation:
 
         class Molrs(Implementation):
             name    = "molrs"
-            version = molrs.__version__
-            frame   = MolrsFrameAdapter()
+            version = importlib.metadata.version("molcrafts-molrs")
+            record  = MolrsRecordAdapter()
     """
 
     name: ClassVar[str] = "unnamed"

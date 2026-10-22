@@ -1,0 +1,21 @@
+{
+  "blocks": {
+    "atom_types": {
+      "aligned_with": "atoms",
+      "columns": {
+        "type": {
+          "dtype": "string",
+          "trailing": []
+        }
+      }
+    },
+    "atoms": {
+      "columns": {
+        "x": {
+          "dtype": "f64",
+          "trailing": []
+        }
+      }
+    }
+  }
+}

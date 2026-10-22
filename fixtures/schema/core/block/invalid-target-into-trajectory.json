@@ -1,0 +1,17 @@
+{
+  "columns": {
+    "atom": {
+      "dtype": "u64",
+      "shape": [
+        1
+      ],
+      "values": [
+        0
+      ]
+    }
+  },
+  "count": 1,
+  "targets": {
+    "atom": "/trajectory/atoms"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "bad category",
+  "styles": [
+    {
+      "category": "Bond",
+      "style": "harmonic"
+    }
+  ],
+  "tables": {},
+  "units": {
+    "preset": "real"
+  }
+}

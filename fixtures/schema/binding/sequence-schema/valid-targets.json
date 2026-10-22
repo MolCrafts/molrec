@@ -1,0 +1,28 @@
+{
+  "blocks": {
+    "atoms": {
+      "columns": {
+        "x": {
+          "dtype": "f64",
+          "trailing": []
+        }
+      }
+    },
+    "members": {
+      "columns": {
+        "atom": {
+          "dtype": "u64",
+          "trailing": []
+        },
+        "ibead": {
+          "dtype": "u64",
+          "trailing": []
+        }
+      },
+      "targets": {
+        "atom": "/system/atoms",
+        "ibead": "atoms"
+      }
+    }
+  }
+}

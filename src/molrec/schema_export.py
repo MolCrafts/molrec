@@ -17,23 +17,31 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from molrec.core.model import (
+    CANONICAL_COLUMNS,
+    ArrayModel,
     BlockModel,
     BoxModel,
+    BoxUpdateModel,
+    CellModel,
+    CollectionMetaModel,
+    CollectionModel,
     ColumnModel,
     ForceFieldModel,
     FrameModel,
-    MeshModel,
     MetaModel,
+    MetaSeriesModel,
+    MethodModel,
     RecordModel,
-    SpecialBondsModel,
-    StyleEntryModel,
-    UnitsModel,
+    SequenceSchemaModel,
+    StatusModel,
+    TrajectoryBoxModel,
+    TrajectoryModel,
 )
+from molrec.draft.observables import model as draft
 from molrec.observables.model import (
-    Array,
+    ObservableMetaModel,
     ObservableModel,
     ObservablesModel,
-    Source,
 )
 from molrec.ref import Ref
 from molrec.report import Violation
@@ -43,23 +51,52 @@ PUBLISHED: dict[str, tuple[type[BaseModel], ...]] = {
     "core": (
         ColumnModel,
         BlockModel,
+        CellModel,
         BoxModel,
-        MeshModel,
-        UnitsModel,
         FrameModel,
+        MetaSeriesModel,
+        BoxUpdateModel,
+        TrajectoryBoxModel,
+        TrajectoryModel,
         MetaModel,
-        SpecialBondsModel,
-        StyleEntryModel,
-        ForceFieldModel,
+        StatusModel,
+        MethodModel,
         RecordModel,
+        CollectionMetaModel,
+        CollectionModel,
+        # The section, its document parts as $defs (units, source, special
+        # bonds, styles) and the style tables as blocks.
+        ForceFieldModel,
     ),
-    "observables": (Array, Source, ObservableModel, ObservablesModel),
+    # The `observables/` section: the kind-based layout molrs writes.
+    "observables": (ArrayModel, ObservableMetaModel, ObservableModel, ObservablesModel),
+    # DRAFT -- the dims-based redesign; adopting it is a normative change
+    # to the `observables/` section.
+    "draft/observables": (
+        draft.Array,
+        draft.Source,
+        draft.ObservableModel,
+        draft.ObservablesModel,
+    ),
+    "binding": (SequenceSchemaModel,),
     "ref": (Ref,),
     "report": (Violation,),
 }
 
 
+#: The canonical column vocabulary (``docs/spec/conventions.md``, canonical
+#: dtypes) as ``{key: dtype}`` -- the table another implementation's own
+#: vocabulary is gated against. Generated from the models, like the schemas.
+VOCABULARY = "core/vocabulary.json"
+
+
+#: A schema whose file is named for its section rather than its class.
+_SECTION_NAMES: dict[type[BaseModel], str] = {ForceFieldModel: "forcefield"}
+
+
 def filename(model: type[BaseModel]) -> str:
+    if model in _SECTION_NAMES:
+        return f"{_SECTION_NAMES[model]}.schema.json"
     name = model.__name__.removesuffix("Model")
     return "".join(f"-{c.lower()}" if c.isupper() else c for c in name).lstrip("-") + ".schema.json"
 
@@ -72,8 +109,13 @@ def export(root: Path) -> list[Path]:
         for model in models:
             target = directory / filename(model)
             schema = model.model_json_schema()
-            target.write_text(json.dumps(schema, indent=2, sort_keys=True) + "\n")
+            target.write_text(json.dumps(schema, indent=2, sort_keys=True) + "\n", encoding="utf-8")
             written.append(target)
+    vocabulary = root / VOCABULARY
+    vocabulary.write_text(
+        json.dumps(CANONICAL_COLUMNS, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    written.append(vocabulary)
     return written
 
 

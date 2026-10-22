@@ -1,0 +1,85 @@
+{
+  "$defs": {
+    "EngineModel": {
+      "additionalProperties": true,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "EngineModel",
+      "type": "object"
+    },
+    "MethodModel": {
+      "additionalProperties": true,
+      "description": "The scientific / training context document (``docs/spec/method.md``).\n``type``, ``description`` and ``engine.name`` are required whenever the\nsection exists; a ``workflow`` names its stages in ``order`` and gives\neach one its own method document in ``stages``.",
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "engine": {
+          "$ref": "#/$defs/EngineModel"
+        },
+        "order": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Order"
+        },
+        "stages": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/MethodModel"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stages"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "description",
+        "engine"
+      ],
+      "title": "MethodModel",
+      "type": "object"
+    }
+  },
+  "$ref": "#/$defs/MethodModel"
+}

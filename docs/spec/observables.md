@@ -1,77 +1,90 @@
-# Observables
+# Observables group
 
-## Purpose
+Named scientific result quantities — a total energy, a dipole moment, a
+per-atom charge — are stored in the `observables` group. A record need not
+carry one.
 
-`observables` is a recommended record section for named quantities that are
-part of the interpreted scientific record: a total energy, a dipole, an RDF,
-a free-energy surface. It is a convention layered on the general model (see
-[Overview](overview.md)). A record need not carry one.
+Observables are scientific results a reader would treat as part of the
+chemistry or physics payload. Run-local monitoring (training loss, step
+time, throughput) belongs under [metrics](metrics.md).
 
-Run-local monitoring (training loss, step time, throughput) belongs under
-[Metrics](metrics.md). An observable is a quantity a reader treats as part of
-the chemistry or physics payload.
+## Layout
 
-An observable is a value array over named dimensions. Coordinates that
-several quantities share are stored once on the section.
-
-Physical form: **Zarr arrays** with `dims` (and optional `unit`) on each
-array's attributes. See [Storage](storage.md).
-
-## Structure
+`observables` is an **array section**: one data array per name, beside one
+metadata document per name. It is not frame-shaped — there are no blocks,
+and an observable's array has whatever shape its `kind` and `axes` say.
 
 ```text
-observables/
-├── coordinates/
-│   └── <safe_name>          # array; attrs: dims, (unit)
-└── observables/
-    └── <safe_name>          # array; attrs: dims, (unit), (description),
-                              #              (payload), (source)
+observables
+ \-- meta
+ |    \-- <name>
+ |         +-- kind: string[]
+ |         +-- description: string[]
+ |         +-- time_dependent: bool[]
+ |         +-- (unit: string[])
+ |         +-- (axes: string[...])
+ |         +-- (sampling: string[])
+ |         +-- (domain: string[])
+ |         +-- (target: string[])
+ |         +-- (<any other key>)
+ \-- <name>: <dtype>[...]
 ```
 
-`<safe_name>` is the percent-encoding in [Storage](storage.md). The logical
-name may contain `/`.
+- The data of observable `<name>` is the array `observables/<name>`: any
+  shape (a 0-d array is a single value), any [column dtype](frame.md#data-types).
+- Its metadata is the attribute map of the group `observables/meta/<name>`.
+- **The pairing is mandatory.** A data array without its metadata group, or
+  a metadata group without its data array, is malformed and a reader refuses
+  it.
+- `<name>` is one node name: non-empty, no `/`, not `.` or `..`, no leading
+  `__`, and not `meta`, which names the metadata group.
 
-A coordinate and a quantity may share a logical name. They live in different
-groups, so the stored names do not collide.
+## Metadata
 
-## Values
+`kind`
 
-Each quantity has:
+How the array is read: `scalar` (one value per sample) or `vector` (an
+ordered tuple of components per sample). Higher-rank data are expressed with
+the same two kinds plus `axes` naming the trailing axes. Required.
 
-| Field | Required | Meaning |
-|-------|----------|---------|
-| `values` | yes | One array: `dims`, `dtype`, `shape`, data |
-| `description` | no | Prose |
-| `unit` | no | Unit of the values, on the array |
-| `payload` | no | What the number is when the name is not enough |
-| `source` | no | Provenance: `refs`, optional `method_ref` |
+A producer that needs a distinct kind uses its own name for it (and
+declares a module under `meta/modules` when other tools must agree on what
+it means). **A reader carries a kind it does not know through unchanged**:
+it neither refuses the observable nor rewrites the kind, and a writer that
+read one writes it back as it found it.
 
-`dims` has one name per axis, and `shape` has the same length. A scalar has
-`dims = ()` and `shape = ()`.
+`description`
 
-The section checks one rule: a dimension name has one length everywhere it
-appears. A grid and a scatter are different dimension names, not a flag:
+Free text. Required.
 
-```text
-grid        phi.dims=(phi,)      psi.dims=(psi,)    values.dims=(phi, psi)
-scatter     phi.dims=(sample,)   psi.dims=(sample,) values.dims=(sample,)
-curve       step.dims=(point,)   values.dims=(point,)
-```
+`time_dependent`
 
-There is no `kind` of scalar versus vector, and no `time_dependent` flag.
-The dimensions already say both. A second copy of that fact can disagree
-with the array.
+Time dependence is stated in metadata, not inferred from shape. When true,
+the leading axis is the trajectory axis, so the array has at least one
+axis. Required.
 
-`dtype` is the closed set in [Types](types.md). A `f32` observable stays
-`f32`.
+`unit`, `axes`
 
-## Coordinates
+Optional. `unit` is a unit string; `axes` names the trailing axes, in
+order.
 
-`coordinates` holds the axes. A hundred curves over one `step` store that
-`step` array once. The dimension list is derived from the arrays; it is not
-a second table.
+`sampling`, `domain`
 
-## See also
+Optional free-text provenance: how the quantity was sampled (e.g.
+`per_frame`, `time_average`) and what domain it is defined over.
 
-- [Metrics](metrics.md) — run-local series
-- [Types](types.md) — dtypes and validity
+`target`
+
+The block an entity-aligned observable indexes (e.g. `/frame/atoms`).
+
+Every other key is a producer's: a reader preserves it verbatim, a
+`null`-valued one included.
+
+## Draft
+
+A dims-based redesign of this section (named dimensions instead of `kind` /
+`time_dependent`, xarray-style shared coordinates) exists as a **draft**
+(`schema/draft/observables/`, the `draft/observables` conformance module).
+It is not part of the contract, and a conformance run that names no modules
+does not judge an implementation by it. Adopting it is a normative change
+to this section.

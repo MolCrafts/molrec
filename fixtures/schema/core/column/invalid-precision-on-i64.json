@@ -1,0 +1,11 @@
+{
+  "dtype": "i64",
+  "precision": 0.001,
+  "shape": [
+    2
+  ],
+  "values": [
+    1,
+    2
+  ]
+}

@@ -1,23 +1,8 @@
 {
-  "description": "A named-dimension array: the one building block observables are made of.",
+  "description": "One typed array of any shape, a 0-d one included.",
   "properties": {
-    "data": {
-      "items": {},
-      "title": "Data",
-      "type": "array"
-    },
-    "dims": {
-      "default": [],
-      "items": {
-        "type": "string"
-      },
-      "title": "Dims",
-      "type": "array"
-    },
     "dtype": {
       "enum": [
-        "f16",
-        "f32",
         "f64",
         "i8",
         "i16",
@@ -43,23 +28,23 @@
       "title": "Shape",
       "type": "array"
     },
-    "unit": {
+    "values": {
       "anyOf": [
         {
-          "type": "string"
+          "items": {},
+          "type": "array"
         },
         {
           "type": "null"
         }
       ],
       "default": null,
-      "title": "Unit"
+      "title": "Values"
     }
   },
   "required": [
-    "dtype",
-    "data"
+    "dtype"
   ],
-  "title": "Array",
+  "title": "ArrayModel",
   "type": "object"
 }
