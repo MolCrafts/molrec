@@ -87,6 +87,7 @@ from molrec.core.model import (
     decode_typed_meta,
     document,
     encode_typed_meta,
+    require_stated_units,
     revalidated,
     same_bits,
 )
@@ -135,6 +136,7 @@ TARGETS_ATTR = "targets"
 #: A frame-path column array's declared precision (``docs/spec/frame.md``).
 #: A trajectory column states it in ``sequence_schema`` only.
 PRECISION_ATTR = "precision"
+UNIT_ATTR = "unit"
 
 #: The byte shuffle of the Zarr extension registry, in the must-decode set.
 Shuffle = zarr.registry.get_codec_class("numcodecs.shuffle")
@@ -366,6 +368,8 @@ def write_block(parent: zarr.Group, name: str, block: BlockModel) -> None:
     for column_name, column in block.columns.items():
         precision = _declared_precision(name, column_name, column)
         array = create_fixed(group, column_name, column.shape, column.dtype, precision)
+        if column.unit is not None:
+            array.attrs[UNIT_ATTR] = column.unit
         if column.values is not None:
             # The writer stores exactly the rounded values -- whatever
             # values the model it was handed holds.
@@ -426,6 +430,7 @@ def _read_column(array: zarr.Array, validity: np.ndarray | None) -> ColumnModel:
             "values": array[...],
             "validity": validity,
             "precision": array.attrs.get(PRECISION_ATTR),
+            "unit": array.attrs.get(UNIT_ATTR),
         },
         context=STORED,
     )
@@ -698,6 +703,16 @@ class ZarrTrajectoryCodec(Codec):
                 dense=False,
                 precision=spec.precision,
             )
+            unit = next(
+                (
+                    block.columns[column_name].unit
+                    for _, block in entries
+                    if column_name in block.columns and block.columns[column_name].unit is not None
+                ),
+                None,
+            )
+            if unit is not None:
+                array.attrs[UNIT_ATTR] = unit
             for index, (_, block) in enumerate(entries):
                 values = block.columns[column_name].values
                 if values is not None and block.count:
@@ -1004,6 +1019,7 @@ class ZarrTrajectoryCodec(Codec):
                             shape=(stop - start, *(int(n) for n in array.shape[1:])),
                             values=array[start:stop],
                             validity=masks[name][start:stop] if name in masks else None,
+                            unit=array.attrs.get(UNIT_ATTR),
                         )
                         for name, array in columns.items()
                     },
@@ -1358,6 +1374,7 @@ class ZarrRecordCodec(Codec):
         self._forcefields = ZarrForceFieldCodec()
 
     def write(self, model: RecordModel, storage: ZarrRecordStorage) -> None:
+        require_stated_units(model, model.meta.units)
         storage.clear()
         root = storage.root(mode="w")
         root.create_group(RECORD_META).attrs.update(document(model.meta))
@@ -1389,7 +1406,7 @@ class ZarrRecordCodec(Codec):
     def read(self, storage: ZarrRecordStorage) -> RecordModel:
         root = storage.root(mode="r")
         meta = dict(root[RECORD_META].attrs) if RECORD_META in root else {}
-        return RecordModel(
+        record = RecordModel(
             meta=MetaModel.model_validate(meta),
             frame=self._section(root, RECORD_FRAME),
             system=self._section(root, RECORD_SYSTEM),
@@ -1415,6 +1432,8 @@ class ZarrRecordCodec(Codec):
                 if isinstance(member, zarr.Group) and name not in RECORD_SECTIONS
             },
         )
+        require_stated_units(record, record.meta.units)
+        return record
 
     @staticmethod
     def _observables() -> Codec:

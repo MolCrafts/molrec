@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
@@ -405,6 +406,9 @@ class ColumnModel(BaseModel):
     (:func:`molrec.precision.quantize`) -- which is what a writer stores and
     a reader hands back. A model built from a storage (:data:`STORED`) keeps
     the values exactly as stored.
+
+    ``unit`` is an optional label for this column alone. It is not converted,
+    it has no default, and it does not stand in for the record's unit system.
     """
 
     model_config = ConfigDict(
@@ -416,6 +420,7 @@ class ColumnModel(BaseModel):
     values: NdArray | None = None
     validity: Annotated[NdArray, WithJsonSchema(_MASK)] | None = None
     precision: Precision | None = None
+    unit: str | None = None
     _as_stored: bool = PrivateAttr(default=False)
 
     @model_validator(mode="after")
@@ -452,6 +457,7 @@ class ColumnModel(BaseModel):
             self.dtype != other.dtype
             or self.shape != other.shape
             or self.precision != other.precision
+            or self.unit != other.unit
         ):
             return False
         return arrays_equal(self.values, other.values) and arrays_equal(
@@ -1215,6 +1221,54 @@ class TrajectoryModel(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _one_unit_string_per_column(self) -> TrajectoryModel:
+        """A column states one unit string for the run.
+
+        The string is a label on the column, not a declaration in
+        ``sequence_schema``. Frames that omit it take the one string another
+        frame stated. Two different strings are refused.
+        """
+        stated: dict[tuple[str, str], str] = {}
+        for ordinal, frame in enumerate(self.frames):
+            for block_name, block in frame.blocks.items():
+                for column_name, column in block.columns.items():
+                    if column.unit is None:
+                        continue
+                    key = (block_name, column_name)
+                    previous = stated.get(key)
+                    if previous is not None and previous != column.unit:
+                        raise ValueError(
+                            f"frame {ordinal}: column {column_name!r} of block {block_name!r} "
+                            f"states unit {column.unit!r}, an earlier frame states {previous!r}"
+                        )
+                    stated[key] = column.unit
+        if not stated:
+            return self
+        frames: list[FrameModel] = []
+        changed_frames = False
+        for frame in self.frames:
+            blocks: dict[str, BlockModel] = {}
+            changed_frame = False
+            for block_name, block in frame.blocks.items():
+                columns = dict(block.columns)
+                changed_block = False
+                for column_name, column in block.columns.items():
+                    unit = stated.get((block_name, column_name))
+                    if unit is not None and column.unit != unit:
+                        columns[column_name] = column.model_copy(update={"unit": unit})
+                        changed_block = True
+                if changed_block:
+                    blocks[block_name] = block.model_copy(update={"columns": columns})
+                    changed_frame = True
+                else:
+                    blocks[block_name] = block
+            frames.append(frame.model_copy(update={"blocks": blocks}) if changed_frame else frame)
+            changed_frames = changed_frames or changed_frame
+        if changed_frames:
+            object.__setattr__(self, "frames", frames)
+        return self
+
+    @model_validator(mode="after")
     def _the_cell_is_a_section(self) -> TrajectoryModel:
         for ordinal, frame in enumerate(self.frames):
             if frame.box is not None:
@@ -1624,6 +1678,26 @@ def revalidated[M: BaseModel](model: M) -> M:
     return type(model).model_validate(model.model_dump(exclude_unset=True))
 
 
+class UnitsModel(DocumentModel):
+    """One unit system: a label per quantity, never a conversion.
+
+    Every field is optional. A missing field is absent, not ``null``. An
+    unknown key is kept. This is not :class:`ForceFieldUnitsModel`: a force
+    field states its own base units, and this object does not accept a
+    preset.
+    """
+
+    length: str | None = None
+    energy: str | None = None
+    force: str | None = None
+    angle: str | None = None
+    charge: str | None = None
+    mass: str | None = None
+    time: str | None = None
+    pressure: str | None = None
+    temperature: str | None = None
+
+
 class MetaModel(DocumentModel):
     """The record's identity document.
 
@@ -1643,6 +1717,7 @@ class MetaModel(DocumentModel):
     modules: dict[str, ModuleModel] | None = None
     record_id: str | None = None
     content_hash: str | None = None
+    units: UnitsModel | None = None
 
 
 class ErrorModel(DocumentModel):
@@ -2047,6 +2122,11 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
             raise ValueError(f"{where}: endpoint {endpoint} is a string[T] never null")
 
     for column_name, column in table.columns.items():
+        if column.unit is not None:
+            raise ValueError(
+                f"{where}: parameter {column_name!r} carries a unit; a style table's numbers "
+                "are in forcefield.units"
+            )
         if column_name == "name" or column_name in ENDPOINT_COLUMNS:
             continue
         if style.category == "cmap" and column_name == CMAP_GRID:
@@ -2337,16 +2417,79 @@ def _aligned_apart_from_system(system: FrameModel, trajectory: TrajectoryModel) 
 #: strings would lay the index out in a different order on every run.
 RESERVED_INDEX_COLUMNS: tuple[str, ...] = ("first_frame", "n_frames", "n_atoms", "has_trajectory")
 
+#: Column name → unit-system field. A name not listed does not require a unit.
+_UNIT_BY_COLUMN: dict[str, str] = {
+    "x": "length",
+    "y": "length",
+    "z": "length",
+    "fx": "force",
+    "fy": "force",
+    "fz": "force",
+    "mass": "mass",
+    "charge": "charge",
+}
+
+#: Per-step or frame meta key → unit-system field.
+_UNIT_BY_META: dict[str, str] = {
+    "pe": "energy",
+    "ke": "energy",
+    "etotal": "energy",
+    "press": "pressure",
+    "temp": "temperature",
+}
+
+
+def require_stated_units(record: RecordModel, units: UnitsModel | None) -> None:
+    """Refuse when a continuous quantity is present and its unit is not stated.
+
+    ``units`` is the record's or the collection's system. A column's own
+    ``unit`` label does not satisfy the check. Frame and system meta key
+    ``units`` is not this system and is ignored here.
+    """
+    needed: set[str] = set()
+
+    def take_columns(columns: Mapping[str, Any]) -> None:
+        for name in columns:
+            field = _UNIT_BY_COLUMN.get(name)
+            if field is not None:
+                needed.add(field)
+
+    def take_meta(keys: Iterable[str]) -> None:
+        for key in keys:
+            field = _UNIT_BY_META.get(key)
+            if field is not None:
+                needed.add(field)
+
+    for frame in (record.frame, record.system):
+        if frame is None:
+            continue
+        for block in frame.blocks.values():
+            take_columns(block.columns)
+        take_meta(frame.meta)
+    trajectory = record.trajectory
+    if trajectory is not None:
+        if trajectory.time is not None:
+            needed.add("time")
+        for frame in trajectory.frames:
+            for block in frame.blocks.values():
+                take_columns(block.columns)
+            take_meta(frame.meta)
+        for block in (trajectory.blocks or {}).values():
+            take_columns(block.columns)
+        take_meta(trajectory.meta)
+    for field in sorted(needed):
+        if units is None or getattr(units, field) is None:
+            raise ValueError(f"units.{field} is required")
+
 
 class CollectionMetaModel(DocumentModel):
-    """The collection's document. ``units`` is required; other keys are kept.
+    """The collection's document. ``units`` is the one system for every member.
 
-    ``units`` maps a quantity (``length``, ``energy``, ``force``, ``charge``,
-    ``mass``, ``time``) to a unit string. It is the only place a collection's
-    numbers get a unit: columns and per-step tags carry none.
+    It may be absent when no member carries a continuous quantity that needs
+    one. A member does not restate it.
     """
 
-    units: dict[str, str]
+    units: UnitsModel | None = None
 
 
 class CollectionModel(BaseModel):
@@ -2369,7 +2512,8 @@ class CollectionModel(BaseModel):
     records: list[RecordModel] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _records_are_collection_records(self) -> CollectionModel:
+    def _records_are_collection_records(self, info: ValidationInfo) -> CollectionModel:
+        bare = bool(info.context and info.context.get("bare_trajectory"))
         for r, record in enumerate(self.records):
             extra = [
                 section
@@ -2383,6 +2527,11 @@ class CollectionModel(BaseModel):
                 )
             if record.system is None and record.trajectory is None:
                 raise ValueError(f"record {r} has neither system nor trajectory")
+            if bare:
+                continue
+            if record.meta.units is not None:
+                raise ValueError(f"record {r} restates meta.units; a collection states units once")
+            require_stated_units(record, self.meta.units)
         return self
 
     @model_validator(mode="after")

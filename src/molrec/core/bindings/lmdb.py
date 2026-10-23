@@ -171,6 +171,8 @@ def encode_frame(
                 entry["validity"] = land(np.ascontiguousarray(column.validity, "bool").tobytes())
             if column.precision is not None:
                 entry["precision"] = column.precision
+            if column.unit is not None:
+                entry["unit"] = column.unit
             columns[column_name] = entry
         header_blocks[name] = {
             "count": block.count,
@@ -269,6 +271,7 @@ def decode_frame(value: bytes | memoryview) -> FrameBytes:
                     "values": values,
                     "validity": validity,
                     "precision": spec.get("precision"),
+                    "unit": spec.get("unit"),
                 },
                 context=STORED,
             )
@@ -355,8 +358,20 @@ class LmdbTrajectoryStorage(LmdbCollectionStorage, TrajectoryStorage):
 class LmdbCollectionCodec(Codec):
     """The official translation of a collection. Thin: it is the arbiter."""
 
-    def write(self, model: CollectionModel, storage: LmdbCollectionStorage) -> None:
-        model = revalidated(model)
+    def write(
+        self,
+        model: CollectionModel,
+        storage: LmdbCollectionStorage,
+        *,
+        bare_trajectory: bool = False,
+    ) -> None:
+        if bare_trajectory:
+            model = CollectionModel.model_validate(
+                model.model_dump(exclude_unset=True),
+                context={"bare_trajectory": True},
+            )
+        else:
+            model = revalidated(model)
         schema = model.sequence_schema or SequenceSchemaModel()
         storage.clear()
         env = storage.open(write=True)
@@ -455,7 +470,9 @@ class LmdbCollectionCodec(Codec):
             )
         return values
 
-    def read(self, storage: LmdbCollectionStorage) -> CollectionModel:
+    def read(
+        self, storage: LmdbCollectionStorage, *, bare_trajectory: bool = False
+    ) -> CollectionModel:
         env = storage.open()
         try:
             with env.begin() as txn:
@@ -507,7 +524,7 @@ class LmdbCollectionCodec(Codec):
                 "forcefield": forcefield,
                 "records": records,
             },
-            context=STORED,
+            context={**STORED, "bare_trajectory": True} if bare_trajectory else STORED,
         )
 
     def _record(
@@ -613,15 +630,19 @@ class LmdbTrajectoryCodec(Codec):
     def write(self, model: TrajectoryModel, storage: LmdbTrajectoryStorage) -> None:
         model = revalidated(model)
         LmdbCollectionCodec().write(
-            CollectionModel(
-                meta=CollectionMetaModel(units=dict(self.UNITS)),
-                records=[RecordModel(meta=MetaModel(), trajectory=model)],
+            CollectionModel.model_validate(
+                {
+                    "meta": {},
+                    "records": [{"meta": {}, "trajectory": model.model_dump()}],
+                },
+                context={"bare_trajectory": True},
             ),
             storage,
+            bare_trajectory=True,
         )
 
     def read(self, storage: LmdbTrajectoryStorage) -> TrajectoryModel:
-        collection = LmdbCollectionCodec().read(storage)
+        collection = LmdbCollectionCodec().read(storage, bare_trajectory=True)
         if len(collection.records) != 1 or collection.records[0].trajectory is None:
             raise ValueError(f"{storage.path}: not a one-trajectory collection")
         return collection.records[0].trajectory
