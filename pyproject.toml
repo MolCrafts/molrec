@@ -35,24 +35,21 @@ dev = [
   # The reference implementation, so the conformance suite can actually judge
   # it. molrec's own codec passing molrec's own suite proves very little.
   # Building it compiles Rust: do that on a build machine, never a login node.
-  "molcrafts-molrs",
+  "molcrafts-molpy",
 ]
 docs = [
   "zensical>=0.0.53",
   "molcrafts-zensical-theme>=0.2.5",
 ]
 
-# The reference implementation is built from the sibling checkout
-# (../molrs, MolCrafts/molrs) so the suite judges the layout molrs writes
-# *now*, not the last published wheel. CI and the hooks check the sibling out
-# at the commit scripts/partners.py resolves (molrs's dev; see "Partners" in
-# CLAUDE.md).
+# The reference implementation is the folded molpy package in the sibling
+# molrs checkout, so the suite judges the layout molrs writes now, not the
+# last published wheel. The path is relative to this file.
 #
-# uv rebuilds that wheel when the checkout's commit moves (molrs-python's
-# [tool.uv] cache-keys); uncommitted Rust edits in ../molrs need
-# `uv sync --extra dev --reinstall-package molcrafts-molrs`.
+# uv rebuilds that wheel when the checkout's commit moves. Uncommitted edits
+# in ../molrs need `uv sync --extra dev --reinstall-package molcrafts-molpy`.
 [tool.uv.sources]
-molcrafts-molrs = { path = "../molrs/molrs-python" }
+molcrafts-molpy = { path = "../molrs/molpy" }
 
 [tool.hatch.version]
 path = "src/molrec/__init__.py"
@@ -69,7 +66,7 @@ testpaths = ["tests"]
 # statically only where it can tell the receiver is a Path.
 filterwarnings = ["error::EncodingWarning"]
 markers = [
-  "molrs: judges the reference implementation (needs molcrafts-molrs built); deselect with -m 'not molrs'",
+  "molrs: judges the reference implementation (needs molcrafts-molpy built); deselect with -m 'not molrs'",
 ]
 
 [tool.ruff]

@@ -493,9 +493,10 @@ CANONICAL_COLUMNS: dict[str, DType] = {
     **dict.fromkeys(("axis_x", "axis_y", "axis_z", "occupancy", "b_factor"), "f64"),
     **dict.fromkeys(CANONICAL_U64, "u64"),
     "atom_map": "u64",
+    "n_bonds": "u64",
     "formal_charge": "i64",
     **dict.fromkeys(("ix", "iy", "iz"), "i32"),
-    **dict.fromkeys(("free", "is_14", "exclude_14"), "bool"),
+    **dict.fromkeys(("free", "exclude_14"), "bool"),
     **dict.fromkeys(("element", "type", "name", "res_name", "bead_type"), "string"),
     **dict.fromkeys(("chain", "icode", "altloc", "style"), "string"),
 }

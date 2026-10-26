@@ -118,19 +118,6 @@
             0.0
           ]
         },
-        "is_14": {
-          "dtype": "bool",
-          "precision": null,
-          "shape": [
-            3
-          ],
-          "validity": null,
-          "values": [
-            true,
-            true,
-            true
-          ]
-        },
         "lj_scale": {
           "dtype": "f64",
           "precision": null,
@@ -142,6 +129,19 @@
             1.0,
             1.0,
             0.5
+          ]
+        },
+        "n_bonds": {
+          "dtype": "u64",
+          "precision": null,
+          "shape": [
+            3
+          ],
+          "validity": null,
+          "values": [
+            3,
+            3,
+            3
           ]
         },
         "sigma": {

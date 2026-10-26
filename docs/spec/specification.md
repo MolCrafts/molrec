@@ -5,10 +5,14 @@ of molecular and operational data that independent tools may exchange without
 guessing private layouts. It covers molecular systems, snapshots and
 trajectories, scientific observables, and run logs (status, metrics, method).
 
-MolRec names layout and semantics. Implementations expose their own APIs
-(the reference implementation's are `molrs.io.write_mrec_frame`,
-`write_mrec_trajectory` and the streaming `molrs.io.mrec.MrecWriter`);
-the contract is the structure in the chapters that follow.
+MolRec names layout and semantics. Implementations expose their own APIs.
+The reference implementation writes one record with `molpy.io.write_mrec`
+and reads a section through `molpy.io.mrec.MrecFile`; a trajectory is
+streamed with `molpy.io.mrec.MrecWriter` and read with `MrecReader`.
+A collection is many records in one LMDB file
+([LMDB binding](lmdb.md)): molrec's codec is the plain reference, and molhub
+implements the store.
+The contract is the structure in the chapters that follow.
 
 The unit of interchange is the *record*. A `frame` section *is* a frame; a
 `trajectory` section *is* an ordered series of frames. Time-dependent data is

@@ -30,16 +30,16 @@ class FrameAdapter(Adapter):
             refusal_types = (ValueError,)
 
             def write(self, model, storage):
-                mylib.write_mrec_frame(self._build(model), storage.uri)
+                mylib.write_frame(self._build(model), storage.uri)
 
             def read(self, storage):
-                return self._describe(mylib.read_mrec_frame(storage.uri))
+                return self._describe(mylib.read_frame(storage.uri))
 
     ``read`` may return any duck shaped like ``FrameModel``. This door is a
-    bare frame at a storage root; an implementation that only writes whole
-    records (molrs: ``molrs.io.write_mrec_frame`` / ``read_mrec_frame``) is judged on the
-    same frame cases through :class:`RecordAdapter`, which runs each of them
-    inside a record.
+    bare frame at a storage root. molrs writes a whole record
+    (``molpy.io.write_mrec``) and reads the frame section back through
+    ``molpy.io.mrec.MrecFile.frame``; those frame cases reach it through
+    :class:`RecordAdapter`, which runs each of them inside a record.
     """
 
     module: ClassVar[str] = "core"

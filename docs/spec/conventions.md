@@ -29,11 +29,11 @@ row (`<dtype>[N]`, no trailing axes), at the dtype the trees below give it.
 |------|-------|
 | `x` `y` `z` `vx` `vy` `vz` `fx` `fy` `fz` `charge` `mass` | `f64` |
 | `quatw` `quati` `quatj` `quatk` `mux` `muy` `muz` `axis_x` `axis_y` `axis_z` `occupancy` `b_factor` | `f64` |
-| `id` `atomic_number` `type_id` `mol_id` `res_id` `atom_map` | `u64` |
+| `id` `atomic_number` `type_id` `mol_id` `res_id` `atom_map` `n_bonds` | `u64` |
 | `atomi` `atomj` `atomk` `atoml` `atomm` `ibead` `bond_type` `bond_number` | `u64` |
 | `formal_charge` | `i64` |
 | `ix` `iy` `iz` | `i32` |
-| `free` `is_14` `exclude_14` | `bool` |
+| `free` `exclude_14` | `bool` |
 | `element` `type` `name` `res_name` `bead_type` `chain` `icode` `altloc` `style` | `string` |
 
 The table is published as
@@ -231,8 +231,7 @@ is no float `order` column.
 | `angles` | `atomi`, `atomj` (vertex), `atomk` | `type`, `type_id`, `style` |
 | `dihedrals` | `atomi` … `atoml` | `type`, `type_id`, `style`, `exclude_14` |
 | `impropers` | `atomi` … `atoml` | `type`, `type_id`, `style`, `exclude_14` |
-| `pairs` | `atomi`, `atomj` | `type_id`, `is_14`, `epsilon`, `sigma`, `charge_product`, `lj_scale`, `coul_scale` |
-| `exclusions` | `atomi`, `atomj` | — |
+| `pairs` | `atomi`, `atomj`, and the required `n_bonds` | `epsilon`, `sigma`, `charge_product`, `lj_scale`, `coul_scale` |
 | `constraints` | `atomi`, `atomj` | `type`, `type_id`, `style` |
 | `virtual_sites` | `atomi` (the site), `atomj`, `atomk`, `atoml` (constructing atoms) | `type`, `type_id`, `style` |
 | `drudes` | `atomi` (core), `atomj` (Drude particle) | `type`, `type_id`, `style` |
@@ -245,13 +244,24 @@ format-local ordinal (LAMMPS) and plays no part in linking. A relation may
 carry per-instance parameters as further columns named as its style names
 them (`r0` on `constraints`, `kb` on an MMFF `bonds`).
 
-`is_14` marks a `pairs` row as a 1-4 pair; `exclude_14` marks a torsion whose
-1-4 non-bonded term is suppressed (AMBER's negative third index). A `pairs`
-row links no force-field row: its pair is priced by the pair styles through
-its atoms' types, and its nullable `f64` columns `epsilon`, `sigma`,
-`charge_product`, `lj_scale` and `coul_scale` override them for that one pair
-([pair overrides](forcefield.md#pair-overrides)).
-`exclusions` lists pairs excluded from non-bonded interaction.
+`pairs` lists the system's **special pairs**: the pairs of atoms the pair
+styles price otherwise than at full strength. Every pair of atoms no row
+names is priced at full strength. A row names its unordered pair once and
+carries `n_bonds`, the pair's class: the number of bonds on the
+shortest path between its atoms (1, 2 or 3 for a 1-2, 1-3 or 1-4 pair,
+whose weight is the force field's `special_bonds` of that class), or for a
+pair a format names that the bonds do not class (a GROMACS `[ exclusions ]`
+row beyond three bonds) its actual distance, `0` when no bonds connect it.
+A row links no force-field row: its pair is priced by the pair styles
+through its atoms' types, and its nullable `f64` columns `epsilon`,
+`sigma`, `charge_product`, `lj_scale` and `coul_scale` override them for
+that one pair ([special pairs](forcefield.md#special-pairs)); an excluded
+pair is a row whose scales are `0`. A system with bonds and no `pairs`
+block states no special pairs: every pair, bonded ones included, is at full
+strength, which is rarely what a force field means, so a writer of one
+**SHOULD** generate the rows with its angles and dihedrals.
+`exclude_14` marks a torsion whose 1-4 non-bonded term is suppressed
+(AMBER's negative third index).
 
 A `virtual_sites` row constructs the particle `atomi` (an `atoms` row,
 usually massless) from up to three others; a site built from fewer leaves

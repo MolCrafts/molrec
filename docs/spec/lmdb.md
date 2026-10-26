@@ -7,6 +7,12 @@ small records read in shuffled order wants one memory-mapped file, one key per
 record part, and a value whose numeric buffers a reader *can* view in place.
 That is this binding.
 
+This chapter is the layout. The codec in this repository
+(`src/molrec/core/bindings/lmdb.py`) is the plain reference: it writes these
+keys and the frame bytes, and reads them back. The conformance suite judges
+a collection against that codec. The collection store a training job opens
+is molhub's.
+
 It stores the same logical content the model defines, and the trajectory with
 the same **sparse update** semantics as the [ragged layout](ragged.md): a
 block is written at the frames where it changes and carries forward
@@ -167,5 +173,7 @@ and a buffer that runs past the value.
 * Not a replacement for the [Zarr root](storage.md). A single record is
   still a `*.mrec` package; this binding exists for many records read at
   random.
+* Not the collection store. molhub owns that. The codec here is the plain
+  reference the suite reads and writes.
 * Not an ASE database. A reader of ASE / FairChem LMDB files maps their rows
   onto these conventions; this layout is not theirs.

@@ -33,8 +33,9 @@ code, and the **fixtures**:
   drift, and on any schema file no model produces).
 - `src/molrec/core/bindings/` — the reference codecs: **Zarr V3** (`zarr.py`:
   bare frame, record, trajectory, force field; the arbiter the conformance
-  suite reads and writes through) and **LMDB** (`lmdb.py`: a collection of
-  records in one file). `src/molrec/observables/` — the observables codec.
+  suite reads and writes through) and **LMDB** (`lmdb.py`: the plain
+  reference for a collection in one file). The collection store training
+  jobs open is molhub's. `src/molrec/observables/` — the observables codec.
 - `src/molrec/*suite*.py`, `core/suite.py` — the **conformance suite**:
   cases per module (`core`, `record`, `trajectory`, `collection`,
   `forcefield`, `observables`; drafts only when named). An implementation writes an
@@ -55,9 +56,11 @@ code, and the **fixtures**:
   encoding is the ragged CSR layout (`docs/spec/ragged.md`). Binding
   starts at `docs/spec/zarr.md`.
 - **Collections:** many records under one trajectory declaration
-  (`docs/spec/collection.md`), bound to one LMDB file (`docs/spec/lmdb.md`).
+  (`docs/spec/collection.md`), one LMDB file (`docs/spec/lmdb.md`).
+  `lmdb.py` is the plain reference codec the suite judges. molhub owns the
+  collection store.
 
-Reference implementation of containers + Zarr I/O: `MolCrafts/molrs`.
+Reference implementation of containers + Zarr I/O: `MolCrafts/molpy` (its Rust core, molrs).
 Consumers: molpy, molnex, molexp, molvis, molhub — they adopt the contract.
 
 ## Commands
@@ -117,10 +120,10 @@ run`) alike -- to the first of:
    pull request's head branch; locally: the checked-out branch), looked up
    first on the fork the build comes from (`<owner>/molrs`, where `<owner>`
    owns the pull request's head repository or the repository CI runs in; in a
-   git hook, the remote being pushed to), then on MolCrafts/molrs;
+   git hook, the remote being pushed to), then on MolCrafts/molpy;
 2. outside CI only, that branch in the sibling clone `../molrs`, when it has
    one and neither remote does yet;
-3. MolCrafts/molrs's `dev`.
+3. MolCrafts/molpy's `dev`.
 
 A change to the contract between molrec and molrs (molrs's adapter, the
 conformance suite) lands as two same-named branches, never by skipping a gate:

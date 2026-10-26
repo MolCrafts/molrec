@@ -89,7 +89,7 @@ Full specification: [docs/index.md](docs/index.md) ·
 
 ```bash
 pip install molrec          # models, reference codecs (Zarr V3), conformance suite
-pip install "molrec[lmdb]"  # + the LMDB collection binding
+pip install "molrec[lmdb]"  # the plain LMDB reference codec
 ```
 
 From a checkout, with [uv](https://docs.astral.sh/uv/):
@@ -99,7 +99,7 @@ uv sync --locked --extra test               # everything but the reference imple
 uv run --locked pytest -q -m "not molrs"    # the suite judging molrec's own codecs
 ```
 
-The `dev` extra adds [molrs](https://github.com/MolCrafts/molrs), built from
+The `dev` extra adds [molpy](https://github.com/MolCrafts/molpy), built from
 the sibling checkout `../molrs` (Rust; a build machine is needed):
 
 ```bash
@@ -148,7 +148,7 @@ the adapter for molrs.
 
 ## Reference implementation
 
-[molrs](https://github.com/MolCrafts/molrs) is the reference implementation:
+[molpy](https://github.com/MolCrafts/molpy) is the reference implementation:
 its containers and its Zarr reader and writer implement the binding this
 repository specifies. The binding itself is the specification, not molrs's
 code. Other packages **consume** the contract; they must not ship a parallel
@@ -158,8 +158,7 @@ product name for the same layout.
 
 | Project | Role |
 |---------|------|
-| [molpy](https://github.com/MolCrafts/molpy) | Python toolkit & workflows |
-| [molrs](https://github.com/MolCrafts/molrs) | Rust core — containers & compute (reference MolRec implementation) |
+| [molpy](https://github.com/MolCrafts/molpy) | Rust core (molrs) and its bindings — containers & compute (reference MolRec implementation) |
 | [molpack](https://github.com/MolCrafts/molpack) | Molecular packing |
 | [molvis](https://github.com/MolCrafts/molvis) | Visualization |
 | [molexp](https://github.com/MolCrafts/molexp) | Experiment / run management |

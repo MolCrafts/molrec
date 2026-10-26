@@ -104,5 +104,5 @@ types that do not change in time belong in [system](system.md).
 The reference binding stores each block as a sparse update series (an
 append-first CSR layout). That encoding is specified under
 [Ragged trajectory](ragged.md); the reference streaming writer is
-`molrs.io.mrec.MrecWriter`, the whole-sequence doors
-`molrs.io.write_mrec_trajectory` / `read_mrec_trajectory`.
+`molpy.io.mrec.MrecWriter`, and `MrecReader` reads the sequence back.
+A record that carries a trajectory is `molpy.io.write_mrec(..., trajectory=)`.

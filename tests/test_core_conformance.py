@@ -215,7 +215,7 @@ CODEC_MATRIX = ["core", "record", TRAJECTORY_MODULE, "collection", "forcefield"]
 #: ``core`` is deliberately absent: molrs ships no door for a bare frame at a
 #: storage root, and `tests/molrs_adapter.py` says so in as many words. The
 #: frame cases reach molrs inside records instead.
-MOLRS_MATRIX = ["record", TRAJECTORY_MODULE, "forcefield"]
+MOLRS_MATRIX = ["record", TRAJECTORY_MODULE, "forcefield", "observables"]
 
 
 @pytest.mark.parametrize("module", CODEC_MATRIX)
@@ -293,5 +293,5 @@ def test_molrs_reads_an_absent_boundary_as_all_periodic(tmp_path, molrs) -> None
     box.create_array("origin", shape=(3,), dtype="float64")[...] = np.zeros(3)
     assert "boundary" not in box, "the storage under test must not carry the array"
 
-    frame = molrs.io.read_mrec_frame(path)
+    frame = molrs.io.mrec.MrecFile(path).frame()
     assert [bool(flag) for flag in np.asarray(frame.box.pbc)] == [True, True, True]

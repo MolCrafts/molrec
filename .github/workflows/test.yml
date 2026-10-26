@@ -64,8 +64,8 @@ jobs:
       - uses: MolCrafts/molcrafts-ci/actions/setup-rust@master
         with:
           toolchain-dir: ../molrs
-          cache: molrs-python
-          workspaces: ../molrs/molrs-python -> ../target
+          cache: molpy
+          workspaces: ../molrs/molpy -> ../target
       # molrec alone, no extras, must import.
       - run: uv run --isolated --locked --python 3.12 python -c "import molrec"
       - run: uv run --locked --python 3.12 --extra dev python -X warn_default_encoding -m pytest -q

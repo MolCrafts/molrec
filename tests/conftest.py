@@ -20,18 +20,18 @@ REQUIRE_MOLRS = os.environ.get("MOLREC_REQUIRE_MOLRS") == "1"
 
 @pytest.fixture(scope="session")
 def molrs():
-    """``molrs``, or a skip when it is not installed at all.
+    """The ``molpy`` package, or a skip when it is not installed at all.
 
     Installed but stale (built before the rulings the suite now judges) is
-    not a skip: those tests run and go red until molrs is rebuilt. With
-    ``MOLREC_REQUIRE_MOLRS=1`` an absent molrs is not a skip either.
+    not a skip: those tests run and go red until molpy is rebuilt. With
+    ``MOLREC_REQUIRE_MOLRS=1`` an absent molpy is not a skip either.
     """
-    if REQUIRE_MOLRS:
-        try:
-            return importlib.import_module("molrs")
-        except ImportError as exc:
-            pytest.fail(f"MOLREC_REQUIRE_MOLRS=1 but molrs cannot be imported: {exc}")
-    return pytest.importorskip("molrs")
+    try:
+        return importlib.import_module("molpy")
+    except ImportError as exc:
+        if REQUIRE_MOLRS:
+            pytest.fail(f"MOLREC_REQUIRE_MOLRS=1 but molpy cannot be imported: {exc}")
+        return pytest.importorskip("molpy")
 
 
 @pytest.fixture(scope="session")

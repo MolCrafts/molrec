@@ -29,6 +29,8 @@ from molrec.core.model import (
     META_TYPES_ATTR,
     NUMPY_DTYPE,
     STORED,
+    ArrayModel,
+    ArrayNodeModel,
     BlockModel,
     BoxModel,
     BoxUpdateModel,
@@ -36,19 +38,25 @@ from molrec.core.model import (
     CollectionMetaModel,
     CollectionModel,
     ColumnModel,
+    EngineModel,
     ForceFieldModel,
     FrameModel,
     MetaModel,
     MetaSeriesModel,
+    MethodModel,
+    NodeModel,
     RecordModel,
     SequenceBlockModel,
     SequenceColumnModel,
+    StatusModel,
     TrajectoryBoxModel,
     TrajectoryModel,
 )
+from molrec.observables.model import ObservableMetaModel, ObservableModel, ObservablesModel
 from molrec.precision import quantum
 from molrec.registry import REGISTRY
 from molrec.report import Violation
+from molrec.safe_name import safe_name
 from molrec.suite import Suite
 
 
@@ -1052,10 +1060,7 @@ def _canonical_topology() -> FrameModel:
             "impropers": relation(
                 4, [[1, 0, 2, 0]], **labels(1, "i"), exclude_14=_column("bool", [False])
             ),
-            "pairs": relation(
-                2, [[0, 2]], type_id=_column("u64", [0]), is_14=_column("bool", [True])
-            ),
-            "exclusions": relation(2, [[0, 1], [1, 2]]),
+            "pairs": relation(2, [[0, 1], [0, 2], [1, 2]], n_bonds=_column("u64", [1, 2, 1])),
             "constraints": relation(2, [[1, 2]], **labels(1, "c"), r0=_column("f64", [0.96])),
             "virtual_sites": BlockModel(
                 count=1,
@@ -2210,6 +2215,112 @@ class RecordSuite(Suite):
         )
 
         yield Case(
+            id="status-only-record",
+            exercises="meta and status alone are a record: a run, its unknown keys kept",
+            model=RecordModel(
+                meta=meta,
+                status=StatusModel.model_validate(
+                    {"state": "running", "stage": "train", "global_step": 2, "x_note": None}
+                ),
+            ),
+        )
+
+        yield Case(
+            id="method-workflow",
+            exercises="a workflow method keeps its stage order and each stage's own method "
+            "document, beside the status that makes the record a run",
+            model=RecordModel(
+                meta=meta,
+                status=StatusModel(state="succeeded"),
+                method=MethodModel(
+                    type="workflow",
+                    description="relax, then score",
+                    engine=EngineModel(name="molpy"),
+                    order=["relax", "score"],
+                    stages={
+                        "relax": MethodModel(
+                            type="classical",
+                            description="minimize",
+                            engine=EngineModel(name="lammps", version="2024"),
+                        ),
+                        "score": MethodModel(
+                            type="ml",
+                            description="evaluate",
+                            engine=EngineModel(name="molnex"),
+                        ),
+                    },
+                ),
+            ),
+        )
+
+        loss = safe_name("train/loss")
+        yield Case(
+            id="metrics-series",
+            exercises="a closed metrics section keeps its catalog, the f64 series, the i64 "
+            "steps and the RFC 3339 times, under the series key's safe name",
+            model=RecordModel(
+                meta=meta,
+                status=StatusModel(state="succeeded"),
+                metrics=NodeModel(
+                    attributes={
+                        "wal": {"lines": 2, "bytes": 10},
+                        "series": {
+                            "train/loss": {
+                                "type": "scalar",
+                                "count": 2,
+                                "latest_step": 2,
+                                "latest_timestamp": "2026-08-04T00:00:02+00:00",
+                            }
+                        },
+                    },
+                    groups={
+                        "series": NodeModel(arrays={loss: _metric_array("f64", [0.5, 0.25])}),
+                        "steps": NodeModel(arrays={loss: _metric_array("i64", [1, 2])}),
+                        "wall_time": NodeModel(
+                            arrays={
+                                loss: _metric_array(
+                                    "string",
+                                    [
+                                        "2026-08-04T00:00:01+00:00",
+                                        "2026-08-04T00:00:02+00:00",
+                                    ],
+                                )
+                            }
+                        ),
+                    },
+                ),
+            ),
+        )
+
+        yield Case(
+            id="record-with-observable",
+            exercises="a named observable rides beside the snapshot: its document and its array",
+            model=RecordModel(
+                meta=meta,
+                frame=FrameModel(
+                    blocks={"atoms": BlockModel(count=1, columns={"x": _column("f64", [0.5])})}
+                ),
+                observables=ObservablesModel(
+                    observables={
+                        "energy": ObservableModel(
+                            meta=ObservableMetaModel(
+                                kind="scalar",
+                                description="total energy",
+                                time_dependent=False,
+                                unit="hartree",
+                            ),
+                            data=ArrayModel(
+                                dtype="f64",
+                                shape=(),
+                                values=np.array(-76.4),
+                            ),
+                        )
+                    }
+                ),
+            ),
+        )
+
+        yield Case(
             id="record-with-box",
             exercises="the cell rides on the frame section, under the name box",
             model=RecordModel(
@@ -2227,6 +2338,12 @@ class RecordSuite(Suite):
                 ),
             ),
         )
+
+
+def _metric_array(dtype: str, values: list[Any]) -> ArrayNodeModel:
+    """One dense metrics column: ``string`` stays text, every other dtype is exact."""
+    array = np.asarray(values, dtype=None if dtype == "string" else NUMPY_DTYPE[dtype])
+    return ArrayNodeModel(dtype=dtype, shape=array.shape, values=array)
 
 
 def _linked_forcefield() -> ForceFieldModel:
@@ -2313,7 +2430,7 @@ def _overridden_pairs() -> FrameModel:
                 columns={
                     "atomi": _column("u64", [2, 3, 4]),
                     "atomj": _column("u64", [5, 5, 5]),
-                    "is_14": _column("bool", [True, True, True]),
+                    "n_bonds": _column("u64", [3, 3, 3]),
                     "epsilon": _column("f64", [0.05, 0.03, 0.0], validity=on),
                     "sigma": _column("f64", [2.9, 2.5, 0.0], validity=on),
                     "charge_product": _column(
