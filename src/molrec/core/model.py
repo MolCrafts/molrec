@@ -1893,6 +1893,17 @@ Category = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
 EndpointKey = Literal["type", "class", "smirks"]
 ParamValue = Annotated[float, Field(allow_inf_nan=False)] | str
 Weight = Annotated[float, Field(allow_inf_nan=False)]
+RoleName = Literal[
+    "complete:coul",
+    "complete:lj",
+    "additive",
+    "additive:lj",
+    "additive:coul",
+    "correction:coul",
+    "correction:lj",
+]
+SelectionName = Literal["all", "polarizable_except_own", "mixed_roles"]
+ChargeName = Literal["atom", "type", "drude"]
 
 
 class ForceFieldUnitsModel(DocumentModel):
@@ -1960,6 +1971,8 @@ class StyleModel(DocumentModel):
     The table is the block :attr:`block` -- a function of ``(category,
     style)``, so the two can never disagree. ``params`` and ``endpoint_key``
     are written only when they say something (non-empty, not ``"type"``).
+    ``role``, ``selection`` and ``charge`` are a pair style's registry
+    declaration, written only when stated.
     """
 
     category: Category
@@ -1967,6 +1980,9 @@ class StyleModel(DocumentModel):
     params: dict[str, ParamValue] = Field(default_factory=dict)
     expression: str | None = None
     endpoint_key: EndpointKey = "type"
+    role: RoleName | None = None
+    selection: SelectionName | None = None
+    charge: ChargeName | None = None
 
     @model_validator(mode="after")
     def _reserved_params(self) -> StyleModel:
@@ -1985,6 +2001,10 @@ class StyleModel(DocumentModel):
             raise ValueError(
                 f"pair.lj/charmm params.one_four is one of {ONE_FOUR_VALUES}, found {one_four!r}"
             )
+        if self.category != "pair" and (
+            self.role is not None or self.selection is not None or self.charge is not None
+        ):
+            raise ValueError("role, selection and charge are stated on a pair style")
         return self
 
     @model_serializer(mode="wrap")

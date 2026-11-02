@@ -26,7 +26,7 @@ forcefield
  +-- (special_bonds)
  |    +-- lj: f64[3]
  |    +-- coul: f64[3]
- +-- styles: [{category, style, (params), (expression), (endpoint_key)}, ...]
+ +-- styles: [{category, style, (params), (expression), (endpoint_key), (role), (selection), (charge)}, ...]
  \-- <category>.<style>             one block per entry of styles
       \-- name: string[T]
       \-- (itom | jtom | ktom | ltom | mtom: string[T])
@@ -127,10 +127,25 @@ Required (it may be empty). An ordered list; each entry is one style:
 | `params` | no | style-level parameters: a map of name to a finite number or a string (`cutoff`, `mixing`) |
 | `expression` | no | the energy expression of one term ([Expressions](#expressions)) |
 | `endpoint_key` | no | `"type"` (default), `"class"` or `"smirks"`: what a row's endpoints name ([Endpoints](#endpoints)) |
+| `role` | no | a pair style's composition, the registry's own: `complete:coul`, `complete:lj`, `additive` (dispersion), `additive:lj`, `additive:coul`, `correction:coul`, `correction:lj` |
+| `selection` | no | which pairs a pair style prices: `all`, `polarizable_except_own`, `mixed_roles` |
+| `charge` | no | where an electrostatic pair style reads charge: `atom`, `type` or `drude`; absent when the style prices no charge |
 
 A `(category, style)` pair appears at most once. Order is preserved; it
 carries no physical meaning. Every entry has exactly one table, at the block
 name below, even when the table has no rows.
+
+`role`, `selection` and `charge` are the registry's declaration of a pair
+style, not parameters, and only a pair style states them. Absent, they mean
+that declaration. Present, they **MUST** equal it. A style the registry does
+not hold states none of them. `complete` is the whole interaction of that
+contribution (at most one complete style of a contribution is priced);
+`additive` stacks; `correction` is priced only beside a complete style of the
+same contribution. molrs registers no correction style. `pair.thole` and
+`pair.coul/tt` are `complete:coul`, selection `all`, charge `type`.
+`pair.coul/cut`, `pair.coul/charmm` and `pair.coul/long/pme` are
+`complete:coul`, selection `all`, charge `atom`. Every other registered pair
+style is `additive:lj`, selection `all`, and states no `charge`.
 
 Three style-level parameter names are reserved on pair styles. `params.special`
 (`"lj"` or `"coul"`) gives an unregistered pair style its special class.
@@ -425,7 +440,8 @@ parameter enters it converted from degrees.
 | `pair.morse` | d0·[(1 − e^{−alpha(r − r0)})² − 1] | `d0` E, `alpha` 1/L, `r0` L | `cutoff` L |
 | `pair.coul/cut` | coulomb·qᵢqⱼ / (dielectric·(r + delta)), r < cutoff | — (charges from `atoms.charge`) | `coulomb` E·L/Q², `dielectric` 1, `delta` L, `cutoff` L |
 | `pair.coul/long/pme` | Ewald-summed coulomb·qᵢqⱼ/r (particle-mesh) | — (charges from `atoms.charge`) | `coulomb` E·L/Q², `cutoff` L, `alpha` 1/L, `order` 1, `grid_x`, `grid_y`, `grid_z` 1 |
-| `pair.thole` | T(r)·C·qᵢqⱼ/r, T = 1 − (1 + s·r/2)·e^{−s·r}, s = ½(dampᵢ + dampⱼ)/(alphaᵢ·alphaⱼ)^{1/6}, C the Coulomb constant of `units` | `charge` Q, `alpha` L³, `damp` 1 | — |
+| `pair.thole` | T(r)·C·qᵢqⱼ/r, T = 1 − (1 + s·r/2)·e^{−s·r}, s = ½(dampᵢ + dampⱼ)/(alphaᵢ·alphaⱼ)^{1/6}, C the Coulomb constant of `units`. Expression: `coulomb*charge1*charge2/r*(1-(1+s*r/2)*exp(-s*r)); s=(damp1+damp2)/2/(alpha1*alpha2)^(1/6)` | `charge` Q, `alpha` L³, `damp` 1 | `coulomb` E·L/Q² |
+| `pair.coul/tt` | C·fₙ(r)·qᵢqⱼ/r, fₙ = 1 − c·e^{−b·r}·Σ_{k=0}^{n} (b·r)^k/k!, n = `order` | `charge` Q | `coulomb` E·L/Q², `b` 1/L (4.5), `c` 1 (1), `order` 1 (4) |
 | `constraint.fixed` | \|rᵢ − rⱼ\| = r0 | `r0` L | — |
 | `virtual_site.average2` | x = w1·x_j + w2·x_k | `w1`, `w2` 1 | — |
 | `virtual_site.average3` | x = w1·x_j + w2·x_k + w3·x_l | `w1`, `w2`, `w3` 1 | — |
@@ -443,9 +459,11 @@ inner outer [inner2 outer2]`, whose two halves are `pair.lj/charmm` and
 
 Special classes: `pair.lj/cut`, `pair.lj/charmm`, `pair.lj/class2`,
 `pair.buck`, `pair.morse` take `special_bonds.lj`; `pair.coul/cut`,
-`pair.coul/charmm`, `pair.coul/long/pme` and `pair.thole` take
+`pair.coul/charmm`, `pair.coul/long/pme`, `pair.thole` and `pair.coul/tt` take
 `special_bonds.coul`. An
 unregistered pair style takes `lj` unless its `params.special` is `"coul"`.
+`pair.coul/tt` has no expression: fₙ sums to the style parameter `order`,
+and an expression has no sum.
 
 A `pair.lj/charmm` self row whose `epsilon14` or `sigma14` is null has the
 row's `epsilon` or `sigma` there (LAMMPS's default), and `mixing` mixes

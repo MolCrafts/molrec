@@ -90,6 +90,22 @@ class TestDocument:
         with pytest.raises(ValidationError, match="special"):
             StyleModel(category="pair", style="x", params={"special": "both"})
 
+    def test_a_pair_style_states_its_declaration(self) -> None:
+        stated = StyleModel(
+            category="pair",
+            style="thole",
+            role="complete:coul",
+            selection="all",
+            charge="type",
+        )
+        assert stated.model_dump()["role"] == "complete:coul"
+        bare = StyleModel(category="pair", style="lj/cut")
+        assert "role" not in bare.model_dump()
+        with pytest.raises(ValidationError, match="role"):
+            StyleModel(category="pair", style="thole", role="screened")
+        with pytest.raises(ValidationError, match="pair style"):
+            StyleModel(category="bond", style="harmonic", role="additive:lj")
+
     def test_the_document_is_every_field_but_the_tables(self) -> None:
         document = round_trip_forcefield().document()
         assert "tables" not in document
