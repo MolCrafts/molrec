@@ -114,4 +114,5 @@ The collection suite (`module = "collection"`) pins down:
 * refusal of an aligned block that shares a name with a `system` block, and
   of one whose row count differs from its target's.
 
-The one binding is [LMDB](lmdb.md).
+The layout is [LMDB](lmdb.md). molrec ships the plain reference codec.
+molhub ships the collection store.

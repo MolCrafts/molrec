@@ -1,4 +1,8 @@
-"""The LMDB binding: a collection in one file (``docs/spec/lmdb.md``).
+"""The plain LMDB reference: a collection in one file (``docs/spec/lmdb.md``).
+
+The conformance suite judges a collection against this codec. The collection
+store a training job opens is molhub's; this module stays a direct reading
+of the layout.
 
 Two codecs: a :class:`~molrec.core.model.CollectionModel` (module
 ``collection``), and a bare trajectory (module ``trajectory``), which is a
