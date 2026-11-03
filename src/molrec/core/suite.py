@@ -2491,7 +2491,14 @@ class CollectionSuite(Suite):
     module: ClassVar[str] = "collection"
     model_type: ClassVar[type[CollectionModel]] = CollectionModel
 
-    UNITS: ClassVar[dict[str, str]] = {"length": "angstrom", "energy": "kcal/mol"}
+    UNITS: ClassVar[dict[str, str]] = {
+        "length": "angstrom",
+        "energy": "kcal/mol",
+        # Frames carry fx; the precision case also carries mass. The collection
+        # is the one unit system, so both are stated here.
+        "force": "kcal/mol/angstrom",
+        "mass": "amu",
+    }
 
     def cases(self) -> Iterable[Case]:
         schema_meta = {"pe": MetaSeriesModel(dtype="f64")}

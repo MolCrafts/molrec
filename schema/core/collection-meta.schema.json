@@ -1,18 +1,137 @@
 {
-  "additionalProperties": true,
-  "description": "The collection's document. ``units`` is required; other keys are kept.\n\n``units`` maps a quantity (``length``, ``energy``, ``force``, ``charge``,\n``mass``, ``time``) to a unit string. It is the only place a collection's\nnumbers get a unit: columns and per-step tags carry none.",
-  "properties": {
-    "units": {
-      "additionalProperties": {
-        "type": "string"
+  "$defs": {
+    "UnitsModel": {
+      "additionalProperties": true,
+      "description": "One unit system: a label per quantity, never a conversion.\n\nEvery field is optional. A missing field is absent, not ``null``. An\nunknown key is kept. This is not :class:`ForceFieldUnitsModel`: a force\nfield states its own base units, and this object does not accept a\npreset.",
+      "properties": {
+        "angle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Angle"
+        },
+        "charge": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Charge"
+        },
+        "energy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Energy"
+        },
+        "force": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Force"
+        },
+        "length": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Length"
+        },
+        "mass": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mass"
+        },
+        "pressure": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pressure"
+        },
+        "temperature": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Temperature"
+        },
+        "time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Time"
+        }
       },
-      "title": "Units",
+      "title": "UnitsModel",
       "type": "object"
     }
   },
-  "required": [
-    "units"
-  ],
+  "additionalProperties": true,
+  "description": "The collection's document. ``units`` is the one system for every member.\n\nIt may be absent when no member carries a continuous quantity that needs\none. A member does not restate it.",
+  "properties": {
+    "units": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UnitsModel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
   "title": "CollectionMetaModel",
   "type": "object"
 }
