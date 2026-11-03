@@ -25,6 +25,8 @@ from molrec.core.bindings.zarr import (
     ZarrRecordStorage,
     ZarrTrajectoryCodec,
     ZarrTrajectoryStorage,
+    read_block,
+    write_block,
 )
 from molrec.core.model import (
     BlockModel,
@@ -397,7 +399,11 @@ def test_the_record_codec_carries_unknown_content_through(tmp_path: Path) -> Non
     )
     record = RecordModel.model_validate(
         {
-            "meta": {"x_vendor_version": 7, "x_reviewed": None},
+            "meta": {
+                "x_vendor_version": 7,
+                "x_reviewed": None,
+                "units": {"length": "angstrom"},
+            },
             "status": {"state": "running", "x_note": None},
             "frame": FrameModel(blocks={"atoms": block}),
             "x_vendor": vendor,
@@ -407,7 +413,43 @@ def test_the_record_codec_carries_unknown_content_through(tmp_path: Path) -> Non
     ZarrRecordCodec().write(record, storage)
     root = storage.root(mode="r")
     assert dict(root["frame/atoms"].attrs) == {"count": 1, "x_vendor_flag": True}
-    assert dict(root["meta"].attrs) == {"x_vendor_version": 7, "x_reviewed": None}
+    assert dict(root["meta"].attrs) == {
+        "x_vendor_version": 7,
+        "x_reviewed": None,
+        "units": {"length": "angstrom"},
+    }
     back = ZarrRecordCodec().read(storage)
     assert back == record
     assert back.model_extra == {"x_vendor": vendor}
+
+
+class TestColumnUnit:
+    def test_frame_array_stores_unit(self, tmp_path: Path) -> None:
+        values = np.array([1.0])
+        stated = ColumnModel(dtype="f64", shape=values.shape, values=values, unit="nm")
+        bare = ColumnModel(dtype="f64", shape=values.shape, values=values)
+        group = zarr.open_group(tmp_path / "frame.zarr", mode="w")
+        write_block(group, "atoms", BlockModel(count=1, columns={"x": stated}))
+        write_block(group, "bare", BlockModel(count=1, columns={"x": bare}))
+        assert group["atoms"]["x"].attrs["unit"] == "nm"
+        assert "unit" not in group["bare"]["x"].attrs
+        assert read_block(group["atoms"]).columns["x"].unit == "nm"
+
+    def test_trajectory_array_stores_unit(self, tmp_path: Path) -> None:
+        values = np.array([1.0])
+        column = ColumnModel(dtype="f64", shape=values.shape, values=values, unit="nm")
+        model = TrajectoryModel(
+            frames=[FrameModel(blocks={"atoms": BlockModel(count=1, columns={"x": column})})],
+            step=[0],
+        )
+        storage = ZarrTrajectoryStorage(tmp_path / "unit.mrec")
+        ZarrTrajectoryCodec().write(model, storage)
+        array = storage.root(mode="r")["trajectory"]["atoms"]["x"]
+        assert array.attrs["unit"] == "nm"
+        back = ZarrTrajectoryCodec().read(storage)
+        assert back.frames[0].blocks["atoms"].columns["x"].unit == "nm"
+
+    def test_record_write_refuses_coordinates_without_length(self, tmp_path: Path) -> None:
+        record = RecordModel(meta=MetaModel(), frame=FrameModel(blocks={"atoms": _atoms(0.0)}))
+        with pytest.raises(ValueError, match="length"):
+            ZarrRecordCodec().write(record, ZarrRecordStorage(tmp_path / "bare.mrec"))

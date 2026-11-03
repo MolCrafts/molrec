@@ -26,7 +26,7 @@ forcefield
  +-- (special_bonds)
  |    +-- lj: f64[3]
  |    +-- coul: f64[3]
- +-- styles: [{category, style, (params), (expression), (endpoint_key)}, ...]
+ +-- styles: [{category, style, (params), (expression), (endpoint_key), (role), (selection), (charge)}, ...]
  \-- <category>.<style>             one block per entry of styles
       \-- name: string[T]
       \-- (itom | jtom | ktom | ltom | mtom: string[T])
@@ -108,12 +108,13 @@ lowercase hex digits) of the source file's bytes.
 
 `special_bonds`
 
-Optional. The scale applied to non-bonded interactions between atoms that are
-1-2, 1-3 and 1-4 neighbours through bonds: `lj` for the van-der-Waals styles,
-`coul` for the electrostatic ones, each `[w12, w13, w14]`. `0` excludes the
-class, `1` leaves it at full strength. Pairs further apart are at full
-strength. Absent means the force field declares no weights; a consumer
-supplies its own default and **SHOULD** say so. Which weight set a pair style
+Optional. The scale applied to the non-bonded interactions of a system's
+special pairs of class 1-2, 1-3 and 1-4 (a `pairs` row's `n_bonds`, [special
+pairs](#special-pairs)): `lj` for the van-der-Waals styles, `coul` for the
+electrostatic ones, each `[w12, w13, w14]`. `0` excludes the class, `1`
+leaves it at full strength. A pair no `pairs` row names, or one of another
+class, is at full strength. Absent means the force field declares no
+weights; a consumer supplies its own default and **SHOULD** say so. Which weight set a pair style
 takes is its registry entry's *special class* ([Style registry](#style-registry)).
 
 `styles`
@@ -127,10 +128,25 @@ Required (it may be empty). An ordered list; each entry is one style:
 | `params` | no | style-level parameters: a map of name to a finite number or a string (`cutoff`, `mixing`) |
 | `expression` | no | the energy expression of one term ([Expressions](#expressions)) |
 | `endpoint_key` | no | `"type"` (default), `"class"` or `"smirks"`: what a row's endpoints name ([Endpoints](#endpoints)) |
+| `role` | no | a pair style's composition, the registry's own: `complete:coul`, `complete:lj`, `additive` (dispersion), `additive:lj`, `additive:coul`, `correction:coul`, `correction:lj` |
+| `selection` | no | which pairs a pair style prices: `all`, `polarizable_except_own`, `mixed_roles` |
+| `charge` | no | where an electrostatic pair style reads charge: `atom`, `type` or `drude`; absent when the style prices no charge |
 
 A `(category, style)` pair appears at most once. Order is preserved; it
 carries no physical meaning. Every entry has exactly one table, at the block
 name below, even when the table has no rows.
+
+`role`, `selection` and `charge` are the registry's declaration of a pair
+style, not parameters, and only a pair style states them. Absent, they mean
+that declaration. Present, they **MUST** equal it. A style the registry does
+not hold states none of them. `complete` is the whole interaction of that
+contribution (at most one complete style of a contribution is priced);
+`additive` stacks; `correction` is priced only beside a complete style of the
+same contribution. molrs registers no correction style. `pair.thole` and
+`pair.coul/tt` are `complete:coul`, selection `all`, charge `type`.
+`pair.coul/cut`, `pair.coul/charmm` and `pair.coul/long/pme` are
+`complete:coul`, selection `all`, charge `atom`. Every other registered pair
+style is `additive:lj`, selection `all`, and states no `charge`.
 
 Three style-level parameter names are reserved on pair styles. `params.special`
 (`"lj"` or `"coul"`) gives an unregistered pair style its special class.
@@ -278,8 +294,8 @@ cannot.
 
 Per-type 1-4 parameters are the `epsilon14` and `sigma14` of a
 `pair.lj/charmm` row, as in LAMMPS ([Style registry](#style-registry)); a
-pair's own 1-4 parameters or weights are [pair overrides](#pair-overrides)
-on the system's `pairs` rows.
+pair's own 1-4 parameters or weights are cells of its row of the system's
+[special pairs](#special-pairs).
 
 ## Linking a system
 
@@ -310,15 +326,14 @@ parameters of a system row:
    refuse the row rather than write it as a self row of either endpoint.
    Failing a row, a `pair` style uses its `mixing` of the two self rows
    `{a, a}` and `{b, b}`. Every pair style of the force field applies to
-   every non-excluded pair, weighted by `special_bonds` (`lj` or `coul` per
-   the style's special class), except where the pair's `pairs` row
-   overrides it (rule 4).
+   every pair of atoms, at full strength unless the pair is a special pair
+   (rule 4).
 4. A relation block may carry a parameter column named as its style names
    it, with the table column's dtype and trailing shape. Its value, where not
    null, is that row's parameter and overrides the table; a style whose table has no rows takes every parameter from the
    relation (a *per-instance* style, as MMFF and UFF are). The `pairs`
-   block carries the [pair overrides](#pair-overrides), which override the
-   pair styles for one pair of atoms.
+   block lists the [special pairs](#special-pairs), which the pair styles
+   price at their weight and with their own parameters.
 5. `type_id`, where present, is a format-local ordinal and plays no part in
    linking.
 
@@ -327,12 +342,16 @@ refuse a record for it; a validator **SHOULD** report it. Two pair rows that
 price one pair differently (rule 3) are a format error: the table cannot say
 which applies.
 
-### Pair overrides
+### Special pairs
 
-A `pairs` row (`atomi`, `atomj`, and `is_14` for a 1-4 pair) may carry these
-columns, each `f64` and nullable. A non-null cell overrides, for that one
-pair of atoms, what the pair styles would give it; a null cell, or an absent
-column, leaves the style's value:
+A system's `pairs` block lists its special pairs ([conventions](conventions.md)):
+each row a pair of atoms (one row per unordered pair) and its class
+`n_bonds`. The pair styles price every pair of atoms; a pair no row names
+at full strength, a row's pair at the `special_bonds` weight of its class
+(`n_bonds` 1, 2 or 3; a row of another class weighs `1`). A row may carry
+these columns, each `f64` and nullable. A non-null cell overrides, for that
+one pair of atoms, what the pair styles would give it; a null cell, or an
+absent column, leaves the style's value:
 
 | Column | Overrides |
 |--------|-----------|
@@ -351,15 +370,17 @@ epsilon)` is `charge_product`, `sigma`, `epsilon` with both scales `1`; a
 GROMACS `[ pairs ]` funct-1 row with its own parameters is `sigma`,
 `epsilon`, `lj_scale` `1`; an AMBER torsion whose `SCEE` / `SCNB` differ from
 the force field's gives its 1-4 pair `coul_scale = 1/SCEE`,
-`lj_scale = 1/SCNB`. An `exclusions` row excludes its pair whatever `pairs`
-says. A `pairs` block names an unordered pair at most once; two rows that
-name one pair with different overrides cannot say which applies, and a
-validator **SHOULD** report them.
+`lj_scale = 1/SCNB`; a pair a format excludes beyond what its class gives
+(a GROMACS `[ exclusions ]` row) is a row whose scales are `0`. A `pairs`
+block names an unordered pair at most once: a reader **MUST** refuse two
+rows naming one pair, in either order, and a row pairing an atom with
+itself.
 
-LAMMPS has no per-pair parameters or weights, so a writer to it (a data
-file, a coefficient include) **MUST** refuse a frame whose `pairs` carry a
-non-null override, rather than drop it; so does a writer to any other format
-without a form for one.
+LAMMPS has no per-pair parameters or weights: it derives its special pairs
+from the bonds. A writer to it (a data file, a coefficient include) **MUST**
+refuse a frame whose `pairs` are not exactly the pairs within three bonds,
+each of its bond-path class, or carry a non-null override, rather than drop
+them; so does a writer to any other format without a form for them.
 
 ## Style registry
 
@@ -425,7 +446,8 @@ parameter enters it converted from degrees.
 | `pair.morse` | d0·[(1 − e^{−alpha(r − r0)})² − 1] | `d0` E, `alpha` 1/L, `r0` L | `cutoff` L |
 | `pair.coul/cut` | coulomb·qᵢqⱼ / (dielectric·(r + delta)), r < cutoff | — (charges from `atoms.charge`) | `coulomb` E·L/Q², `dielectric` 1, `delta` L, `cutoff` L |
 | `pair.coul/long/pme` | Ewald-summed coulomb·qᵢqⱼ/r (particle-mesh) | — (charges from `atoms.charge`) | `coulomb` E·L/Q², `cutoff` L, `alpha` 1/L, `order` 1, `grid_x`, `grid_y`, `grid_z` 1 |
-| `pair.thole` | T(r)·C·qᵢqⱼ/r, T = 1 − (1 + s·r/2)·e^{−s·r}, s = ½(dampᵢ + dampⱼ)/(alphaᵢ·alphaⱼ)^{1/6}, C the Coulomb constant of `units` | `charge` Q, `alpha` L³, `damp` 1 | — |
+| `pair.thole` | T(r)·C·qᵢqⱼ/r, T = 1 − (1 + s·r/2)·e^{−s·r}, s = ½(dampᵢ + dampⱼ)/(alphaᵢ·alphaⱼ)^{1/6}, C the Coulomb constant of `units`. Expression: `coulomb*charge1*charge2/r*(1-(1+s*r/2)*exp(-s*r)); s=(damp1+damp2)/2/(alpha1*alpha2)^(1/6)` | `charge` Q, `alpha` L³, `damp` 1 | `coulomb` E·L/Q² |
+| `pair.coul/tt` | C·fₙ(r)·qᵢqⱼ/r, fₙ = 1 − c·e^{−b·r}·Σ_{k=0}^{n} (b·r)^k/k!, n = `order` | `charge` Q | `coulomb` E·L/Q², `b` 1/L (4.5), `c` 1 (1), `order` 1 (4) |
 | `constraint.fixed` | \|rᵢ − rⱼ\| = r0 | `r0` L | — |
 | `virtual_site.average2` | x = w1·x_j + w2·x_k | `w1`, `w2` 1 | — |
 | `virtual_site.average3` | x = w1·x_j + w2·x_k + w3·x_l | `w1`, `w2`, `w3` 1 | — |
@@ -443,9 +465,11 @@ inner outer [inner2 outer2]`, whose two halves are `pair.lj/charmm` and
 
 Special classes: `pair.lj/cut`, `pair.lj/charmm`, `pair.lj/class2`,
 `pair.buck`, `pair.morse` take `special_bonds.lj`; `pair.coul/cut`,
-`pair.coul/charmm`, `pair.coul/long/pme` and `pair.thole` take
+`pair.coul/charmm`, `pair.coul/long/pme`, `pair.thole` and `pair.coul/tt` take
 `special_bonds.coul`. An
 unregistered pair style takes `lj` unless its `params.special` is `"coul"`.
+`pair.coul/tt` has no expression: fₙ sums to the style parameter `order`,
+and an expression has no sum.
 
 A `pair.lj/charmm` self row whose `epsilon14` or `sigma14` is null has the
 row's `epsilon` or `sigma` there (LAMMPS's default), and `mixing` mixes
@@ -455,14 +479,13 @@ every non-excluded pair with `epsilon` and `sigma`, weighted by
 `sigma14` are read only by `dihedral.charmm` — unless the style's `one_four`
 says otherwise:
 
-| `one_four` | A `special_bonds` 1-4 pair — one no `w > 0` dihedral and no [pair override](#pair-overrides) covers — is priced at |
+| `one_four` | A 1-4 special pair (`n_bonds` 3) — one no `w > 0` dihedral and no parameter cell of its `pairs` row covers — is priced at |
 |---|---|
 | absent or `"regular"` | `epsilon`, `sigma` (LAMMPS) |
 | `"epsilon14"` | `epsilon14`, `sigma14`: the cross row's for an explicit pair, else the two types' mixed by `mixing` (OpenMM's `<LennardJonesForce>`, GROMACS `[ pairtypes ]`, a chamber prmtop's 1-4 table) |
 
 A reader **MUST** refuse any other `one_four`. LAMMPS has no
-`"epsilon14"` form: a writer to it refuses the style parameter, unless every
-such 1-4 pair of the system is a pair override row stating its parameters.
+`"epsilon14"` form: a writer to it refuses the style parameter.
 
 `dihedral.charmm`'s `w` is LAMMPS's weighting factor: the dihedral prices,
 besides its torsion, the 1-4 pair of its end atoms (those of `itom` and
@@ -478,8 +501,8 @@ the sum of their `w`. CHARMM sets w = 1, ½ for a torsion in a six-membered
 ring and 0 in a four- or five-membered one, so each 1-4 pair is counted once;
 `w = 0` prices the torsion alone (AMBER's use of the style).
 
-**Precedence**, per pair and per quantity: a [pair override](#pair-overrides)
-beats `w`, and `w` beats `special_bonds`. For a pair at the ends of `w > 0`
+**Precedence**, per pair and per quantity: a cell of the pair's `pairs` row
+([special pairs](#special-pairs)) beats `w`, and `w` beats `special_bonds`. For a pair at the ends of `w > 0`
 dihedrals, ε₁₄, σ₁₄, qᵢqⱼ and the weight Σw apply unless the pair's `pairs`
 row states its own `epsilon`, `sigma`, `charge_product`, `lj_scale` or
 `coul_scale`; a stated scale **replaces** Σw, it does not multiply it.
@@ -626,8 +649,7 @@ priced. An array parameter is not a variable of an expression; a style with
 one is priced by a registered kernel.
 
 **Pair styles.** A pair style's term is a pair of atoms of types *a* and
-*b*, *a* the type of the first atom (`atomi` of a `pairs` row, the lower
-index otherwise). A parameter name `x` binds the **pair's** value: the cross
+*b*, *a* the type of the first atom (the lower index). A parameter name `x` binds the **pair's** value: the cross
 row `{a, b}` where it has a non-null `x`, else, for `epsilon` and `sigma`
 (and `epsilon14`, `sigma14`), the style's `mixing` of the self rows
 `{a, a}` and `{b, b}`, else — a like pair — the self row. An unlike pair
@@ -637,7 +659,7 @@ and `x2` bind the self rows of *a* and *b* (OpenMM's per-particle spelling:
 `q`, and none whose name is another's followed by `1` or `2`; and a pair
 expression is symmetric under exchanging `1` and `2`. The expression is the
 pair's energy before any weight: the consumer multiplies it by the pair's
-`special_bonds` weight or [pair override](#pair-overrides) scale, and
+weight ([special pairs](#special-pairs)), and
 prices it for r < `cutoff` when the style states one. The compound functions
 are not available to pair styles.
 
@@ -702,7 +724,7 @@ wildcard `""`, and a row naming neither is refused.
 | `<NonbondedForce><Atom type charge sigma epsilon>` (no `<LennardJonesForce>`) | `pair.lj/cut` self row (`itom = jtom = type`) with `sigma`, `epsilon`, and `mixing` as `<ForceField>` says; `charge` → `atom.full.charge`; a `pair.coul/cut` style with no rows, `coulomb` = 138.93545764438198 (OpenMM's `ONE_4PI_EPS0`, kJ·nm/(mol·e²); 332.06371329919216 in `real`). Neither style has a `cutoff`: OpenMM's cutoff and long-range method are `createSystem` arguments, not file values, so the consumer states them (`coul/long/pme` is not read from the file) |
 | `<LennardJonesForce lj14scale><Atom type sigma epsilon [sigma14 epsilon14]>` | `pair.lj/charmm` self rows (`epsilon14`, `sigma14` where given), `mixing arithmetic`, and `pair.coul/charmm` (`coulomb` as above) in place of `lj/cut` and `coul/cut`: the `<NonbondedForce>` beside it gives the charges and **MUST** have `epsilon` 0 (two Lennard-Jones forces are refused); `special_bonds.lj` `[0, 0, lj14scale]`; `one_four` = `"epsilon14"` when a type's 1-4 parameters differ from its regular ones |
 | `<LennardJonesForce><NBFixPair type1 type2 sigma epsilon>` | a `pair.lj/charmm` cross row, `epsilon14` and `sigma14` null (OpenMM prices the pair's 1-4 with the NBFIX values too: LAMMPS's two-number cross row). An `<NBFixPair>` of one type with itself is refused |
-| a `NonbondedForce` exception (a built system) | a [pair override](#pair-overrides): `charge_product`, `sigma`, `epsilon`, `lj_scale` = `coul_scale` = 1 |
+| a `NonbondedForce` exception (a built system) | a [special pair](#special-pairs): `charge_product`, `sigma`, `epsilon`, `lj_scale` = `coul_scale` = 1 |
 | every other `<Custom*Force>` | refused on read: a translator does not guess which style an arbitrary energy is, nor stores one as an unregistered style. Writing an unregistered style that carries an `expression` as the `Custom*Force` of its category, the expression rewritten into OpenMM's units, is the planned writer (molrs ff-ir-02) |
 | `<Script>`, `<InitializationScript>`, and every force OpenMM's `app.ForceField` does not build from this schema (AMOEBA multipoles, GBSA, Drude, …) | refused |
 | `<Residues>`, `<Patches>`, `<Info>` beyond `<Source>` | not carried |
@@ -758,7 +780,7 @@ halved; its angles and phases are degrees and stay degrees. A reader into
 | `[ dihedraltypes ]` funct 2 | `improper.harmonic`, centre first (endpoints as written): `k` = k_ξ/2, `chi0` = ξ₀ ∈ {0°, 180°} — GROMACS's signed form equals k(\|φ\| − chi0)² there and nowhere else, so another ξ₀ is refused |
 | `[ dihedraltypes ]` funct 4 | `improper.periodic`, endpoints as written (AMBER's order; GROMACS prices φ(i, j, k, l)) |
 | `[ cmaptypes ]` funct 1 | `cmap.charmm`, the grid as stored (φ-major from −180°, [CMAP](#cmap)) |
-| `[ pairs ]` funct 1 / 2 with parameters (a molecule's) | [pair overrides](#pair-overrides): funct 1 `sigma`, `epsilon`, `lj_scale` = 1, `coul_scale` = fudgeQQ; funct 2 also `charge_product` and its own fudgeQQ |
+| `[ moleculetype ] nrexcl`, `[ pairs ]`, `[ exclusions ]` | the system's [special pairs](#special-pairs): every pair within three chemical bonds (bonds funct 1 and 3, constraints funct 1) with its `n_bonds`, the scales `0` where `nrexcl` excludes it and it is no `[ pairs ]` row; a `[ pairs ]` row at the fudges, and with parameters funct 1 `sigma`, `epsilon`, `lj_scale` = 1, `coul_scale` = fudgeQQ, funct 2 also `charge_product` and its own fudgeQQ; an `[ exclusions ]` row its scales `0` |
 | `[ constrainttypes ]` funct 1, `[ constraints ]`, `[ settles ]` | `constraint.fixed` (`r0`); the system's `constraints` |
 | endpoint `X` | `""` |
 | virtual sites, restraints, polarization, free-energy B states | refused, by name |
@@ -798,9 +820,10 @@ name of its slot. No coefficient converts.
 | type labels (`Atom Type Labels`) | `name`; without labels the decimal type number |
 | `*` (outside a cross `pair_coeff`) | `""` |
 
-A LAMMPS writer refuses what LAMMPS cannot hold: a [pair
-override](#pair-overrides), a cross row of a style LAMMPS gives none, a
-style with no LAMMPS form.
+A LAMMPS writer refuses what LAMMPS cannot hold: special pairs other than
+the bond graph's ([special pairs](#special-pairs)), a cross row of a style
+LAMMPS gives none, a style with no LAMMPS form. A LAMMPS reader writes the
+special pairs of the data file's bonds.
 
 ### AMBER prmtop
 
@@ -817,7 +840,8 @@ or masses); its LJ class is its `ATOM_TYPE_INDEX`.
 | `DIHEDRAL_FORCE_CONSTANT` PK, `DIHEDRAL_PERIODICITY`, `DIHEDRAL_PHASE` (a proper torsion) | `dihedral.periodic`: the rows of one quartet, and each negative-`PN` chain, are one type, terms `k<m>` = PK, `periodicity<m>`, `phase<m>` in degrees, sorted by periodicity |
 | the same, a negative fourth atom index (an improper) | `improper.periodic` in AMBER's order (centre third, as written). An improper of several terms (several rows, or a chain) is one type per term, named `<quartet>@<n>` (`<quartet>` the name a one-term improper of those types gets, *n* the periodicity), and one `impropers` row per term, since `improper.periodic` holds one term; two terms of one improper with one periodicity are refused |
 | a `DIHEDRAL_PHASE` within 4·10⁻³ rad of ±π | ±180° exactly, as sander's `rdparm` snaps it (tleap prints π as `3.14159400`) |
-| `SCEE_SCALE_FACTOR`, `SCNB_SCALE_FACTOR` (per torsion type; absent, 1.2 and 2.0) | `special_bonds` `coul [0, 0, 1/SCEE]`, `lj [0, 0, 1/SCNB]` of the divisors most 1-4 rows carry; every 1-4 pair weighted otherwise (another divisor, as GLYCAM's 1.0 beside ff14SB's 1.2 / 2.0; a pair two rows list; a 1-4 pair no row lists) is a `pairs` row of the system with its `coul_scale`, `lj_scale` ([pair overrides](#pair-overrides)), only the differing cells set |
+| `SCEE_SCALE_FACTOR`, `SCNB_SCALE_FACTOR` (per torsion type; absent, 1.2 and 2.0) | `special_bonds` `coul [0, 0, 1/SCEE]`, `lj [0, 0, 1/SCNB]` of the divisors most 1-4 rows carry; every 1-4 pair weighted otherwise (another divisor, as GLYCAM's 1.0 beside ff14SB's 1.2 / 2.0; a pair two rows list; a 1-4 pair no row lists) carries its `coul_scale`, `lj_scale` on its `pairs` row ([special pairs](#special-pairs)), only the differing cells set |
+| `NUMBER_EXCLUDED_ATOMS`, `EXCLUDED_ATOMS_LIST` | the system's [special pairs](#special-pairs): every pair within three bonds with its `n_bonds`; a pair the list leaves out is priced in full (scales `1` where its class weighs otherwise), and a listed pair beyond three bonds is a row at its distance with scales `0`. The 1-4 weight of a pair adds to its exclusion as sander sums them |
 | `LENNARD_JONES_ACOEF` A, `LENNARD_JONES_BCOEF` B on the diagonal of `NONBONDED_PARM_INDEX` | `pair.lj/cut` self row of every type name on that LJ class: `sigma` = (A/B)^{1/6}, `epsilon` = B²/(4A); `params.mixing arithmetic` |
 | an off-diagonal A, B that is the Lorentz–Berthelot mix of its two classes' self terms | no row: `mixing` gives it |
 | an off-diagonal A, B that is not (NBFIX, ParmEd `changeLJPair`) | a cross row, with σ and ε of that entry, for every pair of type names on the two LJ classes, endpoints in byte order |
@@ -893,7 +917,7 @@ The force-field suite (`module = "forcefield"`) pins down:
 The record suite adds `record-with-forcefield` (a `system` whose `atoms.type`
 and `bonds.type` link into it), `forcefield-only-record` and
 `record-pair-overrides` (a `system` whose `pairs` rows carry every
-[pair override](#pair-overrides), null in some rows, beside a
+[special-pair](#special-pairs) column, null in some rows, beside a
 `pair.lj/charmm` force field); the collection
 suite adds `collection-forcefield` and `collection-cmap` (a `cmap` grid under
 the LMDB key `ff`, linked from `cmaps` rows).

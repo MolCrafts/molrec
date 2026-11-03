@@ -288,7 +288,7 @@ def precision_fixture_model() -> RecordModel:
         )
     }
     return RecordModel(
-        meta=MetaModel(),
+        meta=MetaModel(units={"length": "angstrom"}),
         frame=FrameModel(blocks={"atoms": coordinates(positions, 1e-3)}),
         trajectory=TrajectoryModel(frames=frames, step=[0, 10, 20, 30], blocks=declared),
     )

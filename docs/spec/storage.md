@@ -6,7 +6,7 @@ binding. How arrays are chunked, sharded, compressed, and packed is
 [Metrics WAL](metrics-wal.md). The trajectory encoding is
 [Ragged trajectory](ragged.md).
 
-Implemented first in [molrs](https://github.com/MolCrafts/molrs). Run hosts
+Implemented first in [molpy](https://github.com/MolCrafts/molpy). Run hosts
 (molexp / molnex) own the metrics WAL.
 
 ## Design in one sentence
@@ -218,11 +218,11 @@ Each [column dtype](frame.md#data-types) is stored as exactly one Zarr V3
 
 ## Array groups
 
-Reference implementation: molrs — `molrs.io.write_mrec` (one door for
-`meta` and whichever state sections are given) and the streaming
-`molrs.io.mrec.MrecWriter`, with `molrs.io.mrec.MrecFile` (`sections` /
-`meta` / `frame` / `system` / `forcefield`) and `molrs.io.mrec.MrecReader`
-(the trajectory) on the way back.
+Reference implementation: molrs, Python package `molpy`.
+`molpy.io.write_mrec` writes the record. `molpy.io.mrec.MrecFile` reads
+`meta`, `frame`, `system`, `forcefield`, `status`, `method`, `metrics` and
+`observables` (`sections` names what is present). `MrecWriter` streams
+`trajectory`; `MrecReader` reads it back.
 
 - A frame-shaped section (`frame/`, `system/`) is a
   [frame-shaped group](#frame-shaped-group).

@@ -14,7 +14,12 @@ from molrec.core.model import (
     META_TAGS,
     BlockModel,
     BlockState,
+    BoxModel,
+    CollectionMetaModel,
+    CollectionModel,
     ColumnModel,
+    ForceFieldModel,
+    ForceFieldUnitsModel,
     FrameModel,
     MetaModel,
     MetaSeriesModel,
@@ -22,9 +27,12 @@ from molrec.core.model import (
     SequenceBlockModel,
     SequenceColumnModel,
     StatusModel,
+    StyleModel,
     TrajectoryModel,
+    UnitsModel,
     coerce_meta_value,
     meta_tag_parts,
+    require_stated_units,
 )
 
 
@@ -530,3 +538,267 @@ class TestRowReferences:
         FrameModel(blocks={"members": self._members("sites", [])})
         with pytest.raises(ValidationError, match="not there"):
             FrameModel(blocks={"members": self._members("sites", [0])})
+
+
+def _f64(name: str, value: float = 0.0) -> BlockModel:
+    array = np.array([value])
+    return BlockModel(
+        count=1, columns={name: ColumnModel(dtype="f64", shape=array.shape, values=array)}
+    )
+
+
+def _f64_unit(name: str, unit: str, value: float = 0.0) -> BlockModel:
+    array = np.array([value])
+    return BlockModel(
+        count=1,
+        columns={name: ColumnModel(dtype="f64", shape=array.shape, values=array, unit=unit)},
+    )
+
+
+class TestUnitsModel:
+    """Record and collection units: one stated system, no silent defaults.
+
+    ``require_stated_units`` is the record-level check. ``RecordModel`` does
+    not call it; ``CollectionModel`` does.
+    """
+
+    @staticmethod
+    def _frame(frame: FrameModel) -> RecordModel:
+        return RecordModel(meta=MetaModel(), frame=frame)
+
+    def test_element_only_collection_needs_no_units(self) -> None:
+        record = RecordModel(
+            meta=MetaModel(),
+            system=FrameModel(
+                blocks={
+                    "atoms": BlockModel(
+                        count=1,
+                        columns={
+                            "element": ColumnModel(
+                                dtype="string", shape=(1,), values=np.array(["O"])
+                            )
+                        },
+                    )
+                }
+            ),
+        )
+        require_stated_units(record, None)
+        collection = CollectionModel(meta=CollectionMetaModel(), records=[record])
+        assert collection.meta.units is None
+        assert collection.records[0].system is not None
+        element = collection.records[0].system.blocks["atoms"].columns["element"]
+        assert element.values is not None and element.values.tolist() == ["O"]
+
+    def test_units_model_keeps_nine_fields_and_unknown_keys(self) -> None:
+        units = UnitsModel.model_validate(
+            {
+                "length": "angstrom",
+                "energy": "kcal/mol",
+                "force": "kcal/mol/angstrom",
+                "angle": "degree",
+                "charge": "e",
+                "mass": "amu",
+                "time": "fs",
+                "pressure": "atm",
+                "temperature": "kelvin",
+                "note": "kept",
+            }
+        )
+        assert units.length == "angstrom"
+        assert units.energy == "kcal/mol"
+        assert units.force == "kcal/mol/angstrom"
+        assert units.angle == "degree"
+        assert units.charge == "e"
+        assert units.mass == "amu"
+        assert units.time == "fs"
+        assert units.pressure == "atm"
+        assert units.temperature == "kelvin"
+        assert units.model_extra is not None and units.model_extra["note"] == "kept"
+
+    def test_meta_preserves_an_unknown_key_beside_units(self) -> None:
+        meta = MetaModel.model_validate({"units": {"length": "angstrom"}, "x_vendor": 1})
+        assert meta.units is not None and meta.units.length == "angstrom"
+        assert meta.model_extra == {"x_vendor": 1}
+
+    def test_x_requires_length(self) -> None:
+        record = self._frame(FrameModel(blocks={"atoms": _x(0.0)}))
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, None)
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, UnitsModel(energy="kcal/mol"))
+
+    def test_y_requires_length(self) -> None:
+        record = self._frame(FrameModel(blocks={"atoms": _f64("y")}))
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, None)
+
+    def test_z_requires_length(self) -> None:
+        record = self._frame(FrameModel(blocks={"atoms": _f64("z")}))
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, None)
+
+    def test_pe_requires_energy(self) -> None:
+        record = self._frame(FrameModel(meta={"pe": 1.0}))
+        with pytest.raises(ValueError, match="energy"):
+            require_stated_units(record, None)
+        with pytest.raises(ValueError, match="energy"):
+            require_stated_units(record, UnitsModel(length="angstrom"))
+
+    def test_ke_requires_energy(self) -> None:
+        record = self._frame(FrameModel(meta={"ke": 1.0}))
+        with pytest.raises(ValueError, match="energy"):
+            require_stated_units(record, None)
+
+    def test_etotal_requires_energy(self) -> None:
+        record = self._frame(FrameModel(meta={"etotal": 1.0}))
+        with pytest.raises(ValueError, match="energy"):
+            require_stated_units(record, None)
+
+    def test_force_columns_require_force(self) -> None:
+        for name in ("fx", "fy", "fz"):
+            record = self._frame(FrameModel(blocks={"atoms": _f64(name)}))
+            with pytest.raises(ValueError, match="force"):
+                require_stated_units(record, None)
+
+    def test_time_requires_time(self) -> None:
+        record = RecordModel(
+            meta=MetaModel(),
+            trajectory=TrajectoryModel(frames=[FrameModel()], step=[0], time=[0.0]),
+        )
+        with pytest.raises(ValueError, match="time"):
+            require_stated_units(record, None)
+
+    def test_press_requires_pressure(self) -> None:
+        record = self._frame(FrameModel(meta={"press": 1.0}))
+        with pytest.raises(ValueError, match="pressure"):
+            require_stated_units(record, None)
+
+    def test_temp_requires_temperature(self) -> None:
+        record = self._frame(FrameModel(meta={"temp": 300.0}))
+        with pytest.raises(ValueError, match="temperature"):
+            require_stated_units(record, None)
+
+    def test_mass_requires_mass(self) -> None:
+        block = _f64("mass", 1.0)
+        assert block.columns["mass"].unit is None
+        record = self._frame(FrameModel(blocks={"atoms": block}))
+        with pytest.raises(ValueError, match="mass"):
+            require_stated_units(record, None)
+        assert record.frame is not None
+        assert record.frame.blocks["atoms"].columns["mass"].unit != "amu"
+
+    def test_charge_requires_charge(self) -> None:
+        block = _f64("charge", 1.0)
+        assert block.columns["charge"].unit is None
+        record = self._frame(FrameModel(blocks={"atoms": block}))
+        with pytest.raises(ValueError, match="charge"):
+            require_stated_units(record, None)
+        assert record.frame is not None
+        assert record.frame.blocks["atoms"].columns["charge"].unit != "e"
+
+    def test_declared_trajectory_column_counts_with_zero_frames(self) -> None:
+        record = RecordModel(
+            meta=MetaModel(),
+            trajectory=TrajectoryModel(
+                frames=[],
+                step=[],
+                blocks={
+                    "atoms": SequenceBlockModel(columns={"x": SequenceColumnModel(dtype="f64")})
+                },
+            ),
+        )
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, None)
+
+    def test_energy_charge_volume_meta_keys_do_not_trigger(self) -> None:
+        for key in ("energy", "charge", "volume"):
+            require_stated_units(self._frame(FrameModel(meta={key: 1.0})), None)
+        require_stated_units(self._frame(FrameModel(blocks={"atoms": _f64("vx")})), None)
+        boxed = self._frame(FrameModel(box=BoxModel(vectors=np.eye(3))))
+        require_stated_units(boxed, None)
+
+    def test_column_unit_does_not_satisfy_length(self) -> None:
+        array = np.array([0.0])
+        stated = ColumnModel(dtype="f64", shape=array.shape, values=array, unit="nm")
+        bare = ColumnModel(dtype="f64", shape=array.shape, values=array)
+        assert stated != bare
+        record = self._frame(
+            FrameModel(blocks={"atoms": BlockModel(count=1, columns={"x": stated})})
+        )
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, None)
+
+    def test_member_must_not_restate_units(self) -> None:
+        system = FrameModel(blocks={"atoms": _x(0.0)})
+        units = UnitsModel(length="angstrom")
+        restated = (
+            MetaModel.model_validate({"units": {"length": "angstrom"}}),
+            MetaModel(units=UnitsModel()),
+        )
+        for meta in restated:
+            with pytest.raises(ValidationError):
+                CollectionModel(
+                    meta=CollectionMetaModel(units=units),
+                    records=[RecordModel(meta=meta, system=system)],
+                )
+        kept = CollectionModel(
+            meta=CollectionMetaModel(units=units),
+            records=[RecordModel(meta=MetaModel(), system=system)],
+        )
+        assert kept.records[0].meta.units is None
+
+    def test_frame_meta_units_is_not_the_unit_system(self) -> None:
+        record = self._frame(
+            FrameModel(blocks={"atoms": _x(0.0)}, meta={"units": {"length": "nm"}})
+        )
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, None)
+        assert record.frame is not None and "units" in record.frame.meta
+        quiet = self._frame(FrameModel(meta={"units": {"length": "nm"}}))
+        require_stated_units(quiet, None)
+        assert quiet.frame is not None and "units" in quiet.frame.meta
+
+    def test_forcefield_column_unit_is_refused(self) -> None:
+        assert "force" not in ForceFieldUnitsModel.model_fields
+        assert "pressure" not in ForceFieldUnitsModel.model_fields
+        assert "temperature" not in ForceFieldUnitsModel.model_fields
+        names = np.array(["CT"])
+        sigma = np.array([0.1])
+        with pytest.raises(ValidationError):
+            ForceFieldModel(
+                name="test",
+                units=ForceFieldUnitsModel(preset="real"),
+                styles=[StyleModel(category="atom", style="full")],
+                tables={
+                    "atom.full": BlockModel(
+                        count=1,
+                        columns={
+                            "name": ColumnModel(dtype="string", shape=(1,), values=names),
+                            "sigma": ColumnModel(dtype="f64", shape=(1,), values=sigma, unit="nm"),
+                        },
+                    )
+                },
+            )
+
+    def test_trajectory_column_unit_is_one_string(self) -> None:
+        with pytest.raises(ValidationError):
+            TrajectoryModel(
+                frames=[
+                    FrameModel(blocks={"atoms": _f64_unit("x", "nm", 0.0)}),
+                    FrameModel(blocks={"atoms": _f64_unit("x", "angstrom", 1.0)}),
+                ],
+                step=[0, 1],
+            )
+        trajectory = TrajectoryModel(
+            frames=[
+                FrameModel(blocks={"atoms": _f64_unit("x", "nm", 0.0)}),
+                FrameModel(blocks={"atoms": _f64("x", 1.0)}),
+            ],
+            step=[0, 1],
+        )
+        for frame in trajectory.frames:
+            assert frame.blocks["atoms"].columns["x"].unit == "nm"
+
+    def test_mass_and_charge_are_not_defaulted(self) -> None:
+        assert _f64("mass", 1.0).columns["mass"].unit is None
+        assert _f64("charge", 1.0).columns["charge"].unit is None

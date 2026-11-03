@@ -64,7 +64,7 @@ class Implementation:
 
         class Molrs(Implementation):
             name    = "molrs"
-            version = importlib.metadata.version("molcrafts-molrs")
+            version = importlib.metadata.version("molcrafts-molpy")
             record  = MolrsRecordAdapter()
     """
 

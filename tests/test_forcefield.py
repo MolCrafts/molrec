@@ -90,6 +90,22 @@ class TestDocument:
         with pytest.raises(ValidationError, match="special"):
             StyleModel(category="pair", style="x", params={"special": "both"})
 
+    def test_a_pair_style_states_its_declaration(self) -> None:
+        stated = StyleModel(
+            category="pair",
+            style="thole",
+            role="complete:coul",
+            selection="all",
+            charge="type",
+        )
+        assert stated.model_dump()["role"] == "complete:coul"
+        bare = StyleModel(category="pair", style="lj/cut")
+        assert "role" not in bare.model_dump()
+        with pytest.raises(ValidationError, match="role"):
+            StyleModel(category="pair", style="thole", role="screened")
+        with pytest.raises(ValidationError, match="pair style"):
+            StyleModel(category="bond", style="harmonic", role="additive:lj")
+
     def test_the_document_is_every_field_but_the_tables(self) -> None:
         document = round_trip_forcefield().document()
         assert "tables" not in document
@@ -357,7 +373,7 @@ class TestOneFour:
 
 
 def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:
-    """A cmap table molrec's codec writes is a ``molrs.ff.forcefield.CmapType`` per row,
+    """A cmap table molrec's codec writes is a ``CmapType`` per row,
     its ``grid`` a float64 numpy array equal bit for bit."""
     grids = np.stack([cmap_grid(24, 0.1), cmap_grid(24, -0.35)])
     model = forcefield([atoms(["C", "NH1", "CT1"], mass=[12.011, 14.007, 12.011]), cmap(grids)])
@@ -366,17 +382,17 @@ def test_molrs_reads_a_cmap_grid_as_a_cmap_type(tmp_path, molrs) -> None:
 
     ff = molrs.io.mrec.MrecFile(storage.path).forcefield().to_forcefield()
     style_ = ff.get_style("cmap", "charmm")
-    assert isinstance(style_, molrs.ff.forcefield.CmapStyle)
+    assert isinstance(style_, molrs._core.CmapStyle)
     types = sorted(style_.get_types(), key=lambda t: t.name)
     assert [t.name for t in types] == ["cmap0", "cmap1"]
     for row, cmap_type in enumerate(types):
-        assert isinstance(cmap_type, molrs.ff.forcefield.CmapType)
+        assert isinstance(cmap_type, molrs._core.CmapType)
         ends = [t.name for t in cmap_type.endpoints]
         expected = model.tables["cmap.charmm"].columns
         assert ends == [
             str(expected[c].values[row]) for c in ("itom", "jtom", "ktom", "ltom", "mtom")
         ]
-        grid = cmap_type["grid"]
+        grid = cmap_type.params["grid"]
         assert isinstance(grid, np.ndarray) and grid.dtype == np.float64
         assert grid.tobytes() == grids[row].tobytes()
 

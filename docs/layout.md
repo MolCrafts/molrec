@@ -90,7 +90,7 @@ with its kind, its attribute keys and its children.
 <!-- BEGIN generated:overview -->
 ```text
 tour.mrec/          the root group; its attributes: {}
- \-- meta/          document         attributes: creator, created_at
+ \-- meta/          document         attributes: creator, created_at, units
  \-- system/        frame-shaped     attributes: smiles, total_charge, _meta_types
  |                                   children:   atoms/, bonds/, angles/, dihedrals/
  \-- frame/         frame-shaped     attributes: smiles, total_charge, units,
@@ -125,6 +125,7 @@ its two bonds, a small density grid and a cubic box.
 ```text
 water.mrec/
  \-- meta/
+ |    +-- units: {"length": "angstrom", "mass": "amu"}
  \-- frame/
       +-- smiles: "O"
       +-- total_charge: 0
@@ -232,6 +233,12 @@ potential energy and temperature of each frame.
 ```text
 vibration.mrec/
  \-- meta/
+ |    +-- units: {
+ |           "length": "angstrom",
+ |           "energy": "kcal/mol",
+ |           "time": "fs",
+ |           "temperature": "kelvin"
+ |         }
  \-- system/
  |    +-- smiles: "OO"
  |    +-- total_charge: 0

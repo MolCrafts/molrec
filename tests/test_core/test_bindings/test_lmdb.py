@@ -20,6 +20,8 @@ from molrec.core.bindings.lmdb import (
     META_KEY,
     LmdbCollectionCodec,
     LmdbCollectionStorage,
+    LmdbTrajectoryCodec,
+    LmdbTrajectoryStorage,
     decode_frame,
     encode_frame,
     key,
@@ -62,7 +64,7 @@ def _collection() -> CollectionModel:
         frames=frames, step=[0, 1, 2], meta={"pe": MetaSeriesModel(dtype="f64")}
     )
     return CollectionModel(
-        meta=CollectionMetaModel(units={"length": "angstrom"}),
+        meta=CollectionMetaModel(units={"length": "angstrom", "energy": "kcal/mol"}),
         records=[RecordModel(meta=MetaModel(), trajectory=trajectory)],
     )
 
@@ -128,7 +130,7 @@ def test_n_atoms_is_the_system_count_even_when_zero(tmp_path):
 
     empty_atoms = FrameModel(blocks={"atoms": BlockModel(count=0)})
     collection = CollectionModel(
-        meta=CollectionMetaModel(units={}),
+        meta=CollectionMetaModel(units={"length": "angstrom", "energy": "kcal/mol"}),
         records=[
             RecordModel(meta=MetaModel(), system=empty_atoms),
             _collection().records[0],
@@ -142,3 +144,40 @@ def test_n_atoms_is_the_system_count_even_when_zero(tmp_path):
     env.close()
     assert index.columns["n_atoms"].values.tolist() == [0, 2]
     assert index.columns["has_trajectory"].values.tolist() == [False, True]
+
+
+class TestColumnUnit:
+    def test_header_stores_unit_beside_precision(self) -> None:
+        values = np.array([1.0])
+        stated = ColumnModel(dtype="f64", shape=values.shape, values=values, unit="nm")
+        bare = ColumnModel(dtype="f64", shape=values.shape, values=values)
+        stated_frame = decode_frame(
+            encode_frame({"atoms": BlockModel(count=1, columns={"x": stated})}, {})
+        )
+        bare_frame = decode_frame(
+            encode_frame({"atoms": BlockModel(count=1, columns={"x": bare})}, {})
+        )
+        assert stated_frame.blocks["atoms"].columns["x"].unit == "nm"
+        assert bare_frame.blocks["atoms"].columns["x"].unit is None
+
+    def test_bare_trajectory_round_trips_without_units(self, tmp_path) -> None:
+        values = np.array([1.0])
+        model = TrajectoryModel(
+            frames=[
+                FrameModel(
+                    blocks={
+                        "atoms": BlockModel(
+                            count=1,
+                            columns={
+                                "x": ColumnModel(dtype="f64", shape=values.shape, values=values)
+                            },
+                        )
+                    }
+                )
+            ],
+            step=[0],
+        )
+        storage = LmdbTrajectoryStorage(tmp_path / "bare.mrec.lmdb")
+        LmdbTrajectoryCodec().write(model, storage)
+        back = LmdbTrajectoryCodec().read(storage)
+        assert back.frames[0].blocks["atoms"].columns["x"].values.tolist() == [1.0]
