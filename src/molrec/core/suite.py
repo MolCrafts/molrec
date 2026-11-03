@@ -2008,6 +2008,21 @@ class TrajectorySuite(Suite):
         )
 
 
+# A standalone record states its own unit system. Frame cases reused inside a
+# record carry coordinates, forces, and charges, so every quantity is named.
+_RECORD_UNITS: dict[str, str] = {
+    "length": "angstrom",
+    "energy": "kcal/mol",
+    "force": "kcal/mol/angstrom",
+    "charge": "e",
+    "mass": "amu",
+    "time": "fs",
+    "angle": "degree",
+    "pressure": "atm",
+    "temperature": "kelvin",
+}
+
+
 @REGISTRY.suite
 class RecordSuite(Suite):
     """The record root -- the shape a real producer actually writes.
@@ -2034,7 +2049,7 @@ class RecordSuite(Suite):
         them in front of a real implementation instead of only in front of
         molrec's own codec.
         """
-        meta = MetaModel()
+        meta = MetaModel(units=_RECORD_UNITS)
         for case in FrameSuite().rooted("frame/"):
             yield Case(
                 id=f"frame/{case.id}",
@@ -2063,7 +2078,7 @@ class RecordSuite(Suite):
             }
         )
 
-        meta = MetaModel()
+        meta = MetaModel(units=_RECORD_UNITS)
 
         yield Case(
             id="system-and-frame",
@@ -2095,6 +2110,7 @@ class RecordSuite(Suite):
                 meta=MetaModel(
                     record_id="8f14e45f-ea8f-4b6d-9c1a-000000000001",
                     content_hash="sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                    units=_RECORD_UNITS,
                 ),
                 frame=atoms,
             ),
@@ -2107,6 +2123,7 @@ class RecordSuite(Suite):
             model=RecordModel(
                 meta=MetaModel.model_validate(
                     {
+                        "units": _RECORD_UNITS,
                         "creator": {"name": "molrec-suite", "version": "0.1.0"},
                         "modules": {"qm": {"spec": "https://example.org/qm", "basis": "def2-svp"}},
                         "x_vendor_local": {"anything": [1, 2, 3]},

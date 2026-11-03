@@ -87,6 +87,7 @@ from molrec.core.model import (
     decode_typed_meta,
     document,
     encode_typed_meta,
+    require_stated_units,
     revalidated,
     same_bits,
 )
@@ -1373,8 +1374,7 @@ class ZarrRecordCodec(Codec):
         self._forcefields = ZarrForceFieldCodec()
 
     def write(self, model: RecordModel, storage: ZarrRecordStorage) -> None:
-        # Units are the collection's one system. A record does not restate
-        # them, and RecordModel does not enforce them; CollectionModel does.
+        require_stated_units(model, model.meta.units)
         storage.clear()
         root = storage.root(mode="w")
         root.create_group(RECORD_META).attrs.update(document(model.meta))
@@ -1432,6 +1432,7 @@ class ZarrRecordCodec(Codec):
                 if isinstance(member, zarr.Group) and name not in RECORD_SECTIONS
             },
         )
+        require_stated_units(record, record.meta.units)
         return record
 
     @staticmethod
