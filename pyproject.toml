@@ -42,14 +42,13 @@ docs = [
   "molcrafts-zensical-theme>=0.2.5",
 ]
 
-# The reference implementation is the folded molpy package in the sibling
-# molrs checkout, so the suite judges the layout molrs writes now, not the
-# last published wheel. The path is relative to this file.
+# The reference implementation is the molpy package in the sibling MolCrafts/molpy
+# checkout. The path is relative to this file.
 #
 # uv rebuilds that wheel when the checkout's commit moves. Uncommitted edits
-# in ../molrs need `uv sync --extra dev --reinstall-package molcrafts-molpy`.
+# in ../molpy need `uv sync --extra dev --reinstall-package molcrafts-molpy`.
 [tool.uv.sources]
-molcrafts-molpy = { path = "../molrs/molpy" }
+molcrafts-molpy = { path = "../molpy/molpy" }
 
 [tool.hatch.version]
 path = "src/molrec/__init__.py"

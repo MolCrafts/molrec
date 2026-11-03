@@ -365,7 +365,7 @@ wheels = [
 
 [[package]]
 name = "molcrafts-molpy"
-source = { directory = "../molrs/molpy" }
+source = { directory = "../molpy/molpy" }
 dependencies = [
     { name = "molcrafts-molcfg" },
     { name = "molcrafts-mollog" },
@@ -442,7 +442,7 @@ requires-dist = [
     { name = "lmdb", marker = "extra == 'dev'", specifier = ">=1.4" },
     { name = "lmdb", marker = "extra == 'lmdb'", specifier = ">=1.4" },
     { name = "lmdb", marker = "extra == 'test'", specifier = ">=1.4" },
-    { name = "molcrafts-molpy", marker = "extra == 'dev'", directory = "../molrs/molpy" },
+    { name = "molcrafts-molpy", marker = "extra == 'dev'", directory = "../molpy/molpy" },
     { name = "molcrafts-zensical-theme", marker = "extra == 'docs'", specifier = ">=0.2.5" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pydantic", specifier = ">=2.7" },
