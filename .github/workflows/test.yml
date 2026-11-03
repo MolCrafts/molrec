@@ -60,12 +60,12 @@ jobs:
       - uses: actions/checkout@v7
       - uses: MolCrafts/molcrafts-ci/actions/setup-python@03352583738d9424ce37996ef9e04df9290087ba
       - uses: MolCrafts/molcrafts-ci/actions/setup-partners@03352583738d9424ce37996ef9e04df9290087ba
-      # molrs/rust-toolchain.toml pins the compiler that builds the molrs wheel.
+      # molpy/rust-toolchain.toml pins the compiler that builds the molpy wheel.
       - uses: MolCrafts/molcrafts-ci/actions/setup-rust@03352583738d9424ce37996ef9e04df9290087ba
         with:
-          toolchain-dir: ../molrs
+          toolchain-dir: ../molpy
           cache: molpy
-          workspaces: ../molrs/molpy -> ../target
+          workspaces: ../molpy/molpy -> ../target
       # molrec alone, no extras, must import.
       - run: uv run --isolated --locked --python 3.12 python -c "import molrec"
       - run: uv run --locked --python 3.12 --extra dev python -X warn_default_encoding -m pytest -q
