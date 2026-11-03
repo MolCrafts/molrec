@@ -483,10 +483,23 @@ def run_record() -> RecordModel:
 
 
 def overview_record() -> RecordModel:
-    """Every root section at once -- more than a real record carries."""
+    """Every root section at once -- more than a real record carries.
+
+    The sections state length, mass, energy, temperature, and time, so the
+    record meta names those units. The run fixture's meta does not, because
+    that record has none of those quantities.
+    """
     run = run_record()
+    stated = run.meta.model_dump(mode="python")
+    stated["units"] = {
+        "length": "angstrom",
+        "mass": "amu",
+        "energy": "kcal/mol",
+        "temperature": "kelvin",
+        "time": "fs",
+    }
     return RecordModel(
-        meta=run.meta,
+        meta=MetaModel.model_validate(stated),
         frame=water_frame(),
         system=h2o2_system(),
         trajectory=fixed_trajectory(),
@@ -845,7 +858,11 @@ def _is_group(path: Path) -> bool:
 def block_frame(work: Path) -> str:
     root = work / "water.mrec"
     ZarrRecordCodec().write(
-        RecordModel(meta=MetaModel(), frame=water_frame()), ZarrRecordStorage(root)
+        RecordModel(
+            meta=MetaModel(units={"length": "angstrom", "mass": "amu"}),
+            frame=water_frame(),
+        ),
+        ZarrRecordStorage(root),
     )
     return fence(zarr_tree(root, "water.mrec/"))
 
@@ -853,7 +870,16 @@ def block_frame(work: Path) -> str:
 def block_trajectory_fixed(work: Path) -> str:
     root = work / "vibration.mrec"
     record = RecordModel(
-        meta=MetaModel(), system=h2o2_system(full=False), trajectory=fixed_trajectory()
+        meta=MetaModel(
+            units={
+                "length": "angstrom",
+                "energy": "kcal/mol",
+                "temperature": "kelvin",
+                "time": "fs",
+            }
+        ),
+        system=h2o2_system(full=False),
+        trajectory=fixed_trajectory(),
     )
     ZarrRecordCodec().write(record, ZarrRecordStorage(root))
     return fence(zarr_tree(root, "vibration.mrec/"))
