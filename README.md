@@ -100,7 +100,7 @@ uv run --locked pytest -q -m "not molrs"    # the suite judging molrec's own cod
 ```
 
 The `dev` extra adds [molpy](https://github.com/MolCrafts/molpy), built from
-the sibling checkout `../molrs` (Rust; a build machine is needed):
+the sibling checkout `../molpy` (Rust; a build machine is needed):
 
 ```bash
 uv sync --locked --extra dev

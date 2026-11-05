@@ -1,7 +1,7 @@
 # Managed by prek / pre-commit: `prek install` (installs both hook types).
 # CI parity: every job in .github/workflows/{lint,test,docs}.yml has a hook here, running
-# the same command against the same molrs commit (scripts/partners.py runs
-# molcrafts-ci's resolver on .github/partners.env, whose MOLRS_REF is used
+# the same command against the same molpy commit (scripts/partners.py runs
+# molcrafts-ci's resolver on .github/partners.env, whose MOLPY_REF is used
 # exactly as declared).
 #
 #   pre-commit  file hygiene + ruff, on the staged files. Cheap: runs in place.
@@ -69,7 +69,7 @@ repos:
         stages: [pre-push]
 
       # uv.lock records the molcrafts-molrs metadata the RESOLVED molrs carries,
-      # not the sibling ../molrs's: checked in CI's layout.
+      # not the sibling ../molpy's: checked in CI's layout.
       - id: uv-lock
         name: "uv.lock is current against the resolved molrs (lint.yml)"
         entry: python3 scripts/partners.py run -- uv lock --check

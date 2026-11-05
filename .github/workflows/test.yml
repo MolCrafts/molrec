@@ -1,7 +1,7 @@
 name: test
 
 # The whole suite -- the molrs-marked conformance cases included, judging
-# molrs built from the commit .github/partners.env declares (MOLRS_REF, used
+# molpy built from the commit .github/partners.env declares (MOLPY_REF, used
 # exactly as written) -- in two tiers (`test / context` decides):
 #
 #   fast  a feature-branch push to MolCrafts: Linux.
