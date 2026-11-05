@@ -1,7 +1,7 @@
 name: lint
 
 # The commit-stage hooks on every file (hygiene, ruff format + ruff), the
-# partners check, and uv.lock against the resolved molrs (metadata only,
+# partners check, and uv.lock against the resolved molpy (metadata only,
 # nothing compiles), and the workflows against the CI scheme
 # (check-workflows). Same in every context; see "CI" in CLAUDE.md.
 on:
