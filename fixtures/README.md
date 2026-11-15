@@ -18,8 +18,7 @@ golden is always something a real writer emitted. The one exception is
 build included — are held to decoding a declared-precision store another
 implementation wrote.
 
-Fixture rules: no root `parameters/`, cell key `box` only,
-`meta.molrec_version` stamped (the integer `1`). Physical forms
+Fixture rules: no root `parameters/`, cell key `box` only. Physical forms
 follow [docs/spec/storage.md](../docs/spec/storage.md):
 
 - Documents → Zarr **group attributes** (payloads under `attrs/` for text goldens)

@@ -4,7 +4,7 @@ A module can land in more than one backend (a trajectory in the Zarr record
 root or in an LMDB collection; the draft observables in Zarr or a JSONL
 WAL), so a binding is the unit that owns:
 
-* how to mint a :class:`~molrec.store.Store` for that pair, and
+* how to mint a :class:`~molrec.storage.Storage` for that pair, and
 * the official codec -- the arbiter that turns a model into bytes and back.
 
 Adding a backend means adding one binding module. No model changes.
@@ -18,11 +18,11 @@ from typing import ClassVar
 
 from pydantic import BaseModel
 
-from molrec.store import Store
+from molrec.storage import Storage
 
 
 class Codec(ABC):
-    """The official model <-> store translation for one binding.
+    """The official model <-> storage translation for one binding.
 
     This is the arbiter every conformance comparison runs through, which is
     why it must stay thin enough to read end to end. Convenience methods do
@@ -30,10 +30,10 @@ class Codec(ABC):
     """
 
     @abstractmethod
-    def write(self, model: BaseModel, store: Store) -> None: ...
+    def write(self, model: BaseModel, storage: Storage) -> None: ...
 
     @abstractmethod
-    def read(self, store: Store) -> BaseModel: ...
+    def read(self, storage: Storage) -> BaseModel: ...
 
 
 class Binding(ABC):
@@ -43,8 +43,8 @@ class Binding(ABC):
     backend: ClassVar[str]
 
     @abstractmethod
-    def new_store(self, workdir: Path) -> Store:
-        """Mint an empty store. ``workdir`` is suite-owned scratch space."""
+    def new_storage(self, workdir: Path) -> Storage:
+        """Mint an empty storage. ``workdir`` is suite-owned scratch space."""
 
     @abstractmethod
     def codec(self) -> Codec: ...

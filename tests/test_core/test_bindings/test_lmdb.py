@@ -1,4 +1,4 @@
-"""Store-level pins for the LMDB binding.
+"""Storage-level pins for the LMDB binding.
 
 Mirrors ``src/molrec/core/bindings/lmdb.py``.
 
@@ -19,7 +19,9 @@ from molrec.core.bindings.lmdb import (
     FRAME_PREFIX,
     META_KEY,
     LmdbCollectionCodec,
-    LmdbCollectionStore,
+    LmdbCollectionStorage,
+    LmdbTrajectoryCodec,
+    LmdbTrajectoryStorage,
     decode_frame,
     encode_frame,
     key,
@@ -34,11 +36,13 @@ from molrec.core.model import (
     MetaSeriesModel,
     RecordModel,
     TrajectoryModel,
+    document,
 )
 
 
 def _column(dtype: str, values: list) -> ColumnModel:
-    array = np.asarray(values, dtype={"f64": "float64", "u64": "uint64", "i8": "int8"}[dtype])
+    numpy = {"f64": "float64", "u64": "uint64", "i8": "int8", "string": str}[dtype]
+    array = np.asarray(values, dtype=numpy)
     return ColumnModel(dtype=dtype, shape=array.shape, values=array)
 
 
@@ -60,57 +64,42 @@ def _collection() -> CollectionModel:
         frames=frames, step=[0, 1, 2], meta={"pe": MetaSeriesModel(dtype="f64")}
     )
     return CollectionModel(
-        meta=CollectionMetaModel(units={"length": "angstrom"}),
+        meta=CollectionMetaModel(units={"length": "angstrom", "energy": "kcal/mol"}),
         records=[RecordModel(meta=MetaModel(), trajectory=trajectory)],
     )
 
 
 class TestLmdbCollectionCodec:
     def test_an_unchanged_block_is_written_once(self, tmp_path):
-        store = LmdbCollectionStore(tmp_path / "c.mrec.lmdb")
-        LmdbCollectionCodec().write(_collection(), store)
-        env = store.open()
+        storage = LmdbCollectionStorage(tmp_path / "c.mrec.lmdb")
+        LmdbCollectionCodec().write(_collection(), storage)
+        env = storage.open()
         with env.begin() as txn:
             rows = [decode_frame(txn.get(key(FRAME_PREFIX, j))) for j in range(3)]
         env.close()
         assert set(rows[0].blocks) == {"atoms", "bonds"}
         assert [set(row.blocks) for row in rows[1:]] == [{"atoms"}, {"atoms"}]
 
-    def test_a_store_without_meta_is_refused(self, tmp_path):
-        store = LmdbCollectionStore(tmp_path / "c.mrec.lmdb")
-        LmdbCollectionCodec().write(_collection(), store)
-        env = store.open(write=True)
+    def test_a_storage_without_meta_is_refused(self, tmp_path):
+        storage = LmdbCollectionStorage(tmp_path / "c.mrec.lmdb")
+        LmdbCollectionCodec().write(_collection(), storage)
+        env = storage.open(write=True)
         with env.begin(write=True) as txn:
             txn.delete(META_KEY)
         env.close()
         with pytest.raises(ValueError, match="not a committed collection"):
-            LmdbCollectionCodec().read(store)
+            LmdbCollectionCodec().read(storage)
 
-    def test_the_collection_document_is_stamped(self, tmp_path):
-        store = LmdbCollectionStore(tmp_path / "c.mrec.lmdb")
-        LmdbCollectionCodec().write(_collection(), store)
-        env = store.open()
+    def test_the_collection_document_is_written_as_given(self, tmp_path):
+        collection = _collection()
+        storage = LmdbCollectionStorage(tmp_path / "c.mrec.lmdb")
+        LmdbCollectionCodec().write(collection, storage)
+        env = storage.open()
         with env.begin() as txn:
             meta = json.loads(bytes(txn.get(META_KEY)))
         env.close()
-        assert meta["layout_version"] == 1
-        assert meta["collection"]["molrec_version"] == 1
-
-    @pytest.mark.parametrize("version", [None, 0, 2, "1", 1.0])
-    def test_an_unsupported_layout_version_is_refused(self, tmp_path, version):
-        store = LmdbCollectionStore(tmp_path / "c.mrec.lmdb")
-        LmdbCollectionCodec().write(_collection(), store)
-        env = store.open(write=True)
-        with env.begin(write=True) as txn:
-            meta = json.loads(bytes(txn.get(META_KEY)))
-            if version is None:
-                del meta["layout_version"]
-            else:
-                meta["layout_version"] = version
-            txn.put(META_KEY, json.dumps(meta).encode())
-        env.close()
-        with pytest.raises(ValueError, match="layout_version"):
-            LmdbCollectionCodec().read(store)
+        assert meta["layout"] == "mrec-lmdb"
+        assert meta["collection"] == document(collection.meta)
 
 
 class TestFrameBytes:
@@ -141,17 +130,81 @@ def test_n_atoms_is_the_system_count_even_when_zero(tmp_path):
 
     empty_atoms = FrameModel(blocks={"atoms": BlockModel(count=0)})
     collection = CollectionModel(
-        meta=CollectionMetaModel(units={}),
+        meta=CollectionMetaModel(units={"length": "angstrom", "energy": "kcal/mol"}),
         records=[
             RecordModel(meta=MetaModel(), system=empty_atoms),
             _collection().records[0],
         ],
     )
-    store = LmdbCollectionStore(tmp_path / "n.mrec.lmdb")
-    LmdbCollectionCodec().write(collection, store)
-    env = store.open()
+    storage = LmdbCollectionStorage(tmp_path / "n.mrec.lmdb")
+    LmdbCollectionCodec().write(collection, storage)
+    env = storage.open()
     with env.begin() as txn:
         index = decode_frame(txn.get(INDEX_KEY)).blocks[INDEX_BLOCK]
     env.close()
     assert index.columns["n_atoms"].values.tolist() == [0, 2]
     assert index.columns["has_trajectory"].values.tolist() == [False, True]
+
+
+def test_an_id_restated_beside_the_system_round_trips(tmp_path):
+    """``id`` is the one column a system block and its trajectory block both
+    carry (``docs/spec/trajectory.md``); each side comes back with its own."""
+    ids = _column("u64", [7, 8])
+    system = FrameModel(blocks={"atoms": BlockModel(count=2, columns={"id": ids})})
+    frames = [
+        FrameModel(
+            blocks={"atoms": BlockModel(count=2, columns={"id": ids, "x": _column("f64", [x, x])})}
+        )
+        for x in (0.0, 1.0)
+    ]
+    record = RecordModel(
+        meta=MetaModel(), system=system, trajectory=TrajectoryModel(frames=frames, step=[0, 1])
+    )
+    storage = LmdbCollectionStorage(tmp_path / "id.mrec.lmdb")
+    LmdbCollectionCodec().write(
+        CollectionModel(meta=CollectionMetaModel(units={"length": "angstrom"}), records=[record]),
+        storage,
+    )
+    back = LmdbCollectionCodec().read(storage).records[0]
+    assert back.system.blocks["atoms"].columns["id"].values.tolist() == [7, 8]
+    for frame, x in zip(back.trajectory.frames, (0.0, 1.0), strict=True):
+        atoms = frame.blocks["atoms"]
+        assert atoms.columns["id"].values.tolist() == [7, 8]
+        assert atoms.columns["x"].values.tolist() == [x, x]
+
+
+class TestColumnUnit:
+    def test_header_stores_unit_beside_precision(self) -> None:
+        values = np.array([1.0])
+        stated = ColumnModel(dtype="f64", shape=values.shape, values=values, unit="nm")
+        bare = ColumnModel(dtype="f64", shape=values.shape, values=values)
+        stated_frame = decode_frame(
+            encode_frame({"atoms": BlockModel(count=1, columns={"x": stated})}, {})
+        )
+        bare_frame = decode_frame(
+            encode_frame({"atoms": BlockModel(count=1, columns={"x": bare})}, {})
+        )
+        assert stated_frame.blocks["atoms"].columns["x"].unit == "nm"
+        assert bare_frame.blocks["atoms"].columns["x"].unit is None
+
+    def test_bare_trajectory_round_trips_without_units(self, tmp_path) -> None:
+        values = np.array([1.0])
+        model = TrajectoryModel(
+            frames=[
+                FrameModel(
+                    blocks={
+                        "atoms": BlockModel(
+                            count=1,
+                            columns={
+                                "x": ColumnModel(dtype="f64", shape=values.shape, values=values)
+                            },
+                        )
+                    }
+                )
+            ],
+            step=[0],
+        )
+        storage = LmdbTrajectoryStorage(tmp_path / "bare.mrec.lmdb")
+        LmdbTrajectoryCodec().write(model, storage)
+        back = LmdbTrajectoryCodec().read(storage)
+        assert back.frames[0].blocks["atoms"].columns["x"].values.tolist() == [1.0]

@@ -14,7 +14,7 @@ Each positive case runs in both directions:
   files.
 
 Negative cases run in one direction each. A read-direction negative lays down
-malformed content with the codec (optionally tampering with the store
+malformed content with the codec (optionally tampering with the storage
 afterwards) and requires the implementation to refuse it; a write-direction
 negative hands the implementation a model the contract forbids and requires
 it to refuse to write.
@@ -154,15 +154,15 @@ class Suite(ABC):
         self, case: Case, adapter: Adapter, binding: Binding, codec: Codec, workdir: Path
     ) -> CaseResult:
         try:
-            store = binding.new_store(workdir / f"{case.id}.write")
+            storage = binding.new_storage(workdir / f"{case.id}.write")
         except Exception as exc:
             return self._error(case, binding, "write", f"could not prepare the case: {_why(exc)}")
         try:
-            adapter.write(case.model, store)
+            adapter.write(case.model, storage)
         except Exception as exc:
             return self._raised(case, adapter, binding, "write", exc)
         try:
-            recovered = codec.read(store)
+            recovered = codec.read(storage)
         except Exception as exc:
             return self._fail(
                 case,
@@ -180,14 +180,14 @@ class Suite(ABC):
         self, case: Case, adapter: Adapter, binding: Binding, codec: Codec, workdir: Path
     ) -> CaseResult:
         try:
-            store = binding.new_store(workdir / f"{case.id}.read")
-            codec.write(case.model, store)
+            storage = binding.new_storage(workdir / f"{case.id}.read")
+            codec.write(case.model, storage)
             if case.tamper is not None:
-                case.tamper(store)
+                case.tamper(storage)
         except Exception as exc:
             return self._error(case, binding, "read", f"could not prepare the case: {_why(exc)}")
         try:
-            returned = adapter.read(store)
+            returned = adapter.read(storage)
         except Exception as exc:
             return self._raised(case, adapter, binding, "read", exc)
 
@@ -222,19 +222,19 @@ class Suite(ABC):
         a harness ``error`` -- never a pass by proxy.
         """
         try:
-            store = binding.new_store(workdir / f"{case.id}.reject")
-            codec.write(case.model, store)
+            storage = binding.new_storage(workdir / f"{case.id}.reject")
+            codec.write(case.model, storage)
         except Exception as exc:
             return self._error(
-                case, binding, "read", f"could not lay the malformed store down: {_why(exc)}"
+                case, binding, "read", f"could not lay the malformed storage down: {_why(exc)}"
             )
         if case.tamper is not None:
             try:
-                case.tamper(store)
+                case.tamper(storage)
             except Exception as exc:
                 return self._error(case, binding, "read", f"tamper failed: {_why(exc)}")
         try:
-            adapter.read(store)
+            adapter.read(storage)
         except Exception as exc:
             return self._judged(case, adapter, binding, "read", exc)
         return self._fail(
@@ -248,11 +248,11 @@ class Suite(ABC):
         self, case: Case, adapter: Adapter, binding: Binding, workdir: Path
     ) -> CaseResult:
         try:
-            store = binding.new_store(workdir / f"{case.id}.reject")
+            storage = binding.new_storage(workdir / f"{case.id}.reject")
         except Exception as exc:
             return self._error(case, binding, "write", f"could not prepare the case: {_why(exc)}")
         try:
-            adapter.write(case.model, store)
+            adapter.write(case.model, storage)
         except Exception as exc:
             return self._judged(case, adapter, binding, "write", exc)
         return self._fail(

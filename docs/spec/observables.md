@@ -36,8 +36,10 @@ observables
 - **The pairing is mandatory.** A data array without its metadata group, or
   a metadata group without its data array, is malformed and a reader refuses
   it.
-- `<name>` is one node name: non-empty, no `/`, not `.` or `..`, no leading
-  `__`, and not `meta`, which names the metadata group.
+- `<name>` is one [node name](frame.md#names) — non-empty, no `/`, not `.`,
+  `..` or `zarr.json`, no leading `__` — and not `meta`, which names the
+  metadata group. No two observables differ only in the case of their ASCII
+  letters, and none is a case variant of `meta`.
 
 ## Metadata
 
@@ -85,6 +87,6 @@ Every other key is a producer's: a reader preserves it verbatim, a
 A dims-based redesign of this section (named dimensions instead of `kind` /
 `time_dependent`, xarray-style shared coordinates) exists as a **draft**
 (`schema/draft/observables/`, the `draft/observables` conformance module).
-It is not part of version 1, and a conformance run that names no modules
+It is not part of the contract, and a conformance run that names no modules
 does not judge an implementation by it. Adopting it is a normative change
-and requires a `molrec_version` bump.
+to this section.

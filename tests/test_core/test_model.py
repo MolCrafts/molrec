@@ -1,4 +1,4 @@
-"""The models' own rules: the optional version key, the per-step tag set, and
+"""The models' own rules: the meta document, the per-step tag set, and
 the three block states of a trajectory.
 
 Mirrors ``src/molrec/core/model.py``.
@@ -12,21 +12,29 @@ from pydantic import ValidationError
 
 from molrec.core.model import (
     META_TAGS,
-    MOLREC_VERSION,
     BlockModel,
     BlockState,
+    BoxModel,
+    CollectionMetaModel,
+    CollectionModel,
     ColumnModel,
+    EngineModel,
+    ForceFieldModel,
+    ForceFieldUnitsModel,
     FrameModel,
     MetaModel,
     MetaSeriesModel,
+    MethodModel,
     RecordModel,
     SequenceBlockModel,
     SequenceColumnModel,
     StatusModel,
+    StyleModel,
     TrajectoryModel,
+    UnitsModel,
     coerce_meta_value,
     meta_tag_parts,
-    stamp_version,
+    require_stated_units,
 )
 
 
@@ -52,26 +60,6 @@ def _bonds(count: int) -> BlockModel:
 
 
 class TestMetaModel:
-    def test_an_absent_version_is_a_pre_1_store(self) -> None:
-        assert MetaModel().molrec_version is None
-        assert MetaModel.model_validate({}).molrec_version is None
-
-    def test_accepts_version_one(self) -> None:
-        assert MetaModel(molrec_version=1).molrec_version == 1
-
-    @pytest.mark.parametrize("bad", [0, 2, None, "1", 1.0, True])
-    def test_a_present_version_is_validated(self, bad: object) -> None:
-        with pytest.raises(ValidationError, match="molrec_version"):
-            MetaModel.model_validate({"molrec_version": bad})
-
-    def test_writers_stamp_the_version_and_keep_a_producer_one(self) -> None:
-        assert stamp_version({}) == {"molrec_version": MOLREC_VERSION}
-        assert stamp_version({"molrec_version": 1, "x": 2}) == {"molrec_version": 1, "x": 2}
-
-    def test_the_published_schema_forbids_null(self) -> None:
-        schema = MetaModel.model_json_schema()["properties"]["molrec_version"]
-        assert schema["type"] == "integer" and "default" not in schema
-
     def test_preserves_unknown_keys(self) -> None:
         meta = MetaModel.model_validate({"x_vendor_local": "kept"})
         assert meta.model_extra == {"x_vendor_local": "kept"}
@@ -80,11 +68,11 @@ class TestMetaModel:
         meta = MetaModel.model_validate(
             {
                 "creator": {"name": "molrs", "version": "0.14"},
-                "modules": {"qm": {"version": [1, 0]}},
+                "modules": {"qm": {"spec": "https://example.org/qm"}},
             }
         )
         assert meta.creator is not None and meta.creator.name == "molrs"
-        assert meta.modules is not None and meta.modules["qm"].version == (1, 0)
+        assert meta.modules is not None and meta.modules["qm"].spec == "https://example.org/qm"
 
 
 class TestRecordModel:
@@ -188,7 +176,10 @@ class TestMetaTags:
 
 
 class TestBlockStates:
-    """S1: present / empty / absent, with omission carrying forward."""
+    """Present / empty / absent, with omission carrying forward.
+
+    ``docs/spec/ragged.md#the-three-states-of-a-block``.
+    """
 
     def test_omitted_block_carries_forward(self) -> None:
         trajectory = TrajectoryModel(
@@ -246,7 +237,10 @@ class TestBlockStates:
             )
 
     def test_structural_shape_fixes_the_row_count(self) -> None:
-        """S4: the shape is pinned, and BlockModel pins the count to the shape."""
+        """A grid's row count is fixed: the shape is pinned, and BlockModel pins the count to it.
+
+        ``docs/spec/ragged.md#per-block-sparse-updates-csr``.
+        """
         grid = BlockModel(
             count=8,
             structural_shape=(2, 2, 2),
@@ -390,8 +384,8 @@ class TestPreservation:
     def test_a_document_keeps_a_null_valued_unknown_key(self) -> None:
         from molrec.core.model import document
 
-        meta = MetaModel.model_validate({"molrec_version": 1, "x_reviewed": None})
-        assert document(meta) == {"molrec_version": 1, "x_reviewed": None}
+        meta = MetaModel.model_validate({"x_vendor": 1, "x_reviewed": None})
+        assert document(meta) == {"x_vendor": 1, "x_reviewed": None}
         assert document(MetaModel()) == {}
 
     def test_a_document_refuses_nan(self) -> None:
@@ -445,6 +439,43 @@ class TestRecordAlignment:
         with pytest.raises(ValidationError, match="align 1:1"):
             RecordModel(meta=MetaModel(), system=system, trajectory=trajectory)
 
+    @staticmethod
+    def _ids(*ids: int, **columns: ColumnModel) -> BlockModel:
+        values = np.array(ids, dtype="uint64")
+        id_column = ColumnModel(dtype="u64", shape=values.shape, values=values)
+        return BlockModel(count=len(ids), columns={"id": id_column, **columns})
+
+    @staticmethod
+    def _f64_column(*values: float) -> ColumnModel:
+        array = np.array(values, dtype="float64")
+        return ColumnModel(dtype="f64", shape=array.shape, values=array)
+
+    def _sharing(self, column: str) -> tuple[FrameModel, TrajectoryModel]:
+        """A system and a one-step trajectory whose ``atoms`` both carry ``id``,
+        and both carry ``column`` when it is not ``id``."""
+        extra = {} if column == "id" else {column: self._f64_column(0.0, 1.0)}
+        system = FrameModel(blocks={"atoms": self._ids(7, 8, **extra)})
+        update = self._ids(7, 8, x=self._f64_column(0.0, 1.0), **extra)
+        return system, TrajectoryModel(frames=[FrameModel(blocks={"atoms": update})], step=[0])
+
+    def test_id_is_the_one_column_both_sides_carry(self) -> None:
+        system, trajectory = self._sharing("id")
+        record = RecordModel(meta=MetaModel(), system=system, trajectory=trajectory)
+        CollectionModel(meta=CollectionMetaModel(units={"length": "angstrom"}), records=[record])
+
+    def test_any_other_column_is_in_system_or_in_the_trajectory(self) -> None:
+        system, trajectory = self._sharing("charge")
+        with pytest.raises(ValidationError, match="time-independent or not"):
+            RecordModel(meta=MetaModel(), system=system, trajectory=trajectory)
+
+    def test_a_frame_and_a_system_are_independent_sections(self) -> None:
+        """Nothing aligns ``frame`` with ``system``: a coarse-grained system
+        beside its all-atom frame names both row sets ``atoms``
+        (``docs/spec/system.md``)."""
+        system = FrameModel(blocks={"atoms": self._ids(7, 8)})
+        frame = FrameModel(blocks={"atoms": self._ids(1, 2, 3)})
+        RecordModel(meta=MetaModel(), system=system, frame=frame)
+
 
 class TestRunDocuments:
     @pytest.mark.parametrize("stamp", ["2026-08-04T12:00:00", "2026-08-04", "yesterday"])
@@ -459,6 +490,40 @@ class TestRunDocuments:
     def test_counters_are_non_negative_integers(self) -> None:
         with pytest.raises(ValidationError):
             StatusModel(state="running", epoch=-1)
+
+    @staticmethod
+    def _method(kind: str = "classical", **keys: object) -> MethodModel:
+        return MethodModel(
+            type=kind, description="a stage", engine=EngineModel(name="lammps"), **keys
+        )
+
+    def test_a_workflow_names_every_stage_once_in_order(self) -> None:
+        stages = {"relax": self._method(), "score": self._method("ml")}
+        kept = self._method("workflow", order=["relax", "score"], stages=stages)
+        assert kept.order == ["relax", "score"]
+
+    @pytest.mark.parametrize(
+        ("keys", "why"),
+        [
+            ({}, "order and stages"),
+            ({"order": ["relax"]}, "order and stages"),
+            ({"stages": {}}, "order and stages"),
+            ({"order": ["relax", "relax"], "stages": {"relax": None}}, "twice"),
+            ({"order": ["relax", "score"], "stages": {"relax": None}}, "score"),
+            ({"order": ["relax"], "stages": {"relax": None, "score": None}}, "score"),
+        ],
+    )
+    def test_a_workflow_whose_order_and_stages_disagree_is_refused(
+        self, keys: dict, why: str
+    ) -> None:
+        if "stages" in keys:
+            keys = {**keys, "stages": {name: self._method() for name in keys["stages"]}}
+        with pytest.raises(ValidationError, match=why):
+            self._method("workflow", **keys)
+
+    def test_order_and_stages_mean_nothing_outside_a_workflow(self) -> None:
+        kept = self._method("classical", order=["anything"])
+        assert kept.order == ["anything"]
 
 
 class TestTypedFrameMeta:
@@ -546,3 +611,356 @@ class TestRowReferences:
         FrameModel(blocks={"members": self._members("sites", [])})
         with pytest.raises(ValidationError, match="not there"):
             FrameModel(blocks={"members": self._members("sites", [0])})
+
+
+def _f64(name: str, value: float = 0.0) -> BlockModel:
+    array = np.array([value])
+    return BlockModel(
+        count=1, columns={name: ColumnModel(dtype="f64", shape=array.shape, values=array)}
+    )
+
+
+def _f64_unit(name: str, unit: str, value: float = 0.0) -> BlockModel:
+    array = np.array([value])
+    return BlockModel(
+        count=1,
+        columns={name: ColumnModel(dtype="f64", shape=array.shape, values=array, unit=unit)},
+    )
+
+
+class TestUnitsModel:
+    """Record and collection units: one stated system, no silent defaults.
+
+    ``require_stated_units`` is the record-level check. ``RecordModel`` does
+    not call it; ``CollectionModel`` does.
+    """
+
+    @staticmethod
+    def _frame(frame: FrameModel) -> RecordModel:
+        return RecordModel(meta=MetaModel(), frame=frame)
+
+    def test_element_only_collection_needs_no_units(self) -> None:
+        record = RecordModel(
+            meta=MetaModel(),
+            system=FrameModel(
+                blocks={
+                    "atoms": BlockModel(
+                        count=1,
+                        columns={
+                            "element": ColumnModel(
+                                dtype="string", shape=(1,), values=np.array(["O"])
+                            )
+                        },
+                    )
+                }
+            ),
+        )
+        require_stated_units(record, None)
+        collection = CollectionModel(meta=CollectionMetaModel(), records=[record])
+        assert collection.meta.units is None
+        assert collection.records[0].system is not None
+        element = collection.records[0].system.blocks["atoms"].columns["element"]
+        assert element.values is not None and element.values.tolist() == ["O"]
+
+    def test_units_model_keeps_nine_fields_and_unknown_keys(self) -> None:
+        units = UnitsModel.model_validate(
+            {
+                "length": "angstrom",
+                "energy": "kcal/mol",
+                "force": "kcal/mol/angstrom",
+                "angle": "degree",
+                "charge": "e",
+                "mass": "amu",
+                "time": "fs",
+                "pressure": "atm",
+                "temperature": "kelvin",
+                "note": "kept",
+            }
+        )
+        assert units.length == "angstrom"
+        assert units.energy == "kcal/mol"
+        assert units.force == "kcal/mol/angstrom"
+        assert units.angle == "degree"
+        assert units.charge == "e"
+        assert units.mass == "amu"
+        assert units.time == "fs"
+        assert units.pressure == "atm"
+        assert units.temperature == "kelvin"
+        assert units.model_extra is not None and units.model_extra["note"] == "kept"
+
+    def test_meta_preserves_an_unknown_key_beside_units(self) -> None:
+        meta = MetaModel.model_validate({"units": {"length": "angstrom"}, "x_vendor": 1})
+        assert meta.units is not None and meta.units.length == "angstrom"
+        assert meta.model_extra == {"x_vendor": 1}
+
+    def test_x_requires_length(self) -> None:
+        record = self._frame(FrameModel(blocks={"atoms": _x(0.0)}))
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, None)
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, UnitsModel(energy="kcal/mol"))
+
+    def test_y_requires_length(self) -> None:
+        record = self._frame(FrameModel(blocks={"atoms": _f64("y")}))
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, None)
+
+    def test_z_requires_length(self) -> None:
+        record = self._frame(FrameModel(blocks={"atoms": _f64("z")}))
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, None)
+
+    def test_pe_requires_energy(self) -> None:
+        record = self._frame(FrameModel(meta={"pe": 1.0}))
+        with pytest.raises(ValueError, match="energy"):
+            require_stated_units(record, None)
+        with pytest.raises(ValueError, match="energy"):
+            require_stated_units(record, UnitsModel(length="angstrom"))
+
+    def test_ke_requires_energy(self) -> None:
+        record = self._frame(FrameModel(meta={"ke": 1.0}))
+        with pytest.raises(ValueError, match="energy"):
+            require_stated_units(record, None)
+
+    def test_etotal_requires_energy(self) -> None:
+        record = self._frame(FrameModel(meta={"etotal": 1.0}))
+        with pytest.raises(ValueError, match="energy"):
+            require_stated_units(record, None)
+
+    def test_force_columns_require_force(self) -> None:
+        for name in ("fx", "fy", "fz"):
+            record = self._frame(FrameModel(blocks={"atoms": _f64(name)}))
+            with pytest.raises(ValueError, match="force"):
+                require_stated_units(record, None)
+
+    def test_time_requires_time(self) -> None:
+        record = RecordModel(
+            meta=MetaModel(),
+            trajectory=TrajectoryModel(frames=[FrameModel()], step=[0], time=[0.0]),
+        )
+        with pytest.raises(ValueError, match="time"):
+            require_stated_units(record, None)
+
+    def test_press_requires_pressure(self) -> None:
+        record = self._frame(FrameModel(meta={"press": 1.0}))
+        with pytest.raises(ValueError, match="pressure"):
+            require_stated_units(record, None)
+
+    def test_temp_requires_temperature(self) -> None:
+        record = self._frame(FrameModel(meta={"temp": 300.0}))
+        with pytest.raises(ValueError, match="temperature"):
+            require_stated_units(record, None)
+
+    def test_mass_requires_mass(self) -> None:
+        block = _f64("mass", 1.0)
+        assert block.columns["mass"].unit is None
+        record = self._frame(FrameModel(blocks={"atoms": block}))
+        with pytest.raises(ValueError, match="mass"):
+            require_stated_units(record, None)
+        assert record.frame is not None
+        assert record.frame.blocks["atoms"].columns["mass"].unit != "amu"
+
+    def test_charge_requires_charge(self) -> None:
+        block = _f64("charge", 1.0)
+        assert block.columns["charge"].unit is None
+        record = self._frame(FrameModel(blocks={"atoms": block}))
+        with pytest.raises(ValueError, match="charge"):
+            require_stated_units(record, None)
+        assert record.frame is not None
+        assert record.frame.blocks["atoms"].columns["charge"].unit != "e"
+
+    def test_declared_trajectory_column_counts_with_zero_frames(self) -> None:
+        record = RecordModel(
+            meta=MetaModel(),
+            trajectory=TrajectoryModel(
+                frames=[],
+                step=[],
+                blocks={
+                    "atoms": SequenceBlockModel(columns={"x": SequenceColumnModel(dtype="f64")})
+                },
+            ),
+        )
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, None)
+
+    def test_energy_charge_volume_meta_keys_do_not_trigger(self) -> None:
+        for key in ("energy", "charge", "volume"):
+            require_stated_units(self._frame(FrameModel(meta={key: 1.0})), None)
+        require_stated_units(self._frame(FrameModel(blocks={"atoms": _f64("vx")})), None)
+        boxed = self._frame(FrameModel(box=BoxModel(vectors=np.eye(3))))
+        require_stated_units(boxed, None)
+
+    def test_column_unit_does_not_satisfy_length(self) -> None:
+        array = np.array([0.0])
+        stated = ColumnModel(dtype="f64", shape=array.shape, values=array, unit="nm")
+        bare = ColumnModel(dtype="f64", shape=array.shape, values=array)
+        assert stated != bare
+        record = self._frame(
+            FrameModel(blocks={"atoms": BlockModel(count=1, columns={"x": stated})})
+        )
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, None)
+
+    def test_member_must_not_restate_units(self) -> None:
+        system = FrameModel(blocks={"atoms": _x(0.0)})
+        units = UnitsModel(length="angstrom")
+        restated = (
+            MetaModel.model_validate({"units": {"length": "angstrom"}}),
+            MetaModel(units=UnitsModel()),
+        )
+        for meta in restated:
+            with pytest.raises(ValidationError):
+                CollectionModel(
+                    meta=CollectionMetaModel(units=units),
+                    records=[RecordModel(meta=meta, system=system)],
+                )
+        kept = CollectionModel(
+            meta=CollectionMetaModel(units=units),
+            records=[RecordModel(meta=MetaModel(), system=system)],
+        )
+        assert kept.records[0].meta.units is None
+
+    def test_frame_meta_units_is_not_the_unit_system(self) -> None:
+        record = self._frame(
+            FrameModel(blocks={"atoms": _x(0.0)}, meta={"units": {"length": "nm"}})
+        )
+        with pytest.raises(ValueError, match="length"):
+            require_stated_units(record, None)
+        assert record.frame is not None and "units" in record.frame.meta
+        quiet = self._frame(FrameModel(meta={"units": {"length": "nm"}}))
+        require_stated_units(quiet, None)
+        assert quiet.frame is not None and "units" in quiet.frame.meta
+
+    def test_forcefield_column_unit_is_refused(self) -> None:
+        assert "force" not in ForceFieldUnitsModel.model_fields
+        assert "pressure" not in ForceFieldUnitsModel.model_fields
+        assert "temperature" not in ForceFieldUnitsModel.model_fields
+        names = np.array(["CT"])
+        sigma = np.array([0.1])
+        with pytest.raises(ValidationError):
+            ForceFieldModel(
+                name="test",
+                units=ForceFieldUnitsModel(preset="real"),
+                styles=[StyleModel(category="atom", style="full")],
+                tables={
+                    "atom.full": BlockModel(
+                        count=1,
+                        columns={
+                            "name": ColumnModel(dtype="string", shape=(1,), values=names),
+                            "sigma": ColumnModel(dtype="f64", shape=(1,), values=sigma, unit="nm"),
+                        },
+                    )
+                },
+            )
+
+    def test_trajectory_column_unit_is_one_string(self) -> None:
+        with pytest.raises(ValidationError):
+            TrajectoryModel(
+                frames=[
+                    FrameModel(blocks={"atoms": _f64_unit("x", "nm", 0.0)}),
+                    FrameModel(blocks={"atoms": _f64_unit("x", "angstrom", 1.0)}),
+                ],
+                step=[0, 1],
+            )
+        trajectory = TrajectoryModel(
+            frames=[
+                FrameModel(blocks={"atoms": _f64_unit("x", "nm", 0.0)}),
+                FrameModel(blocks={"atoms": _f64("x", 1.0)}),
+            ],
+            step=[0, 1],
+        )
+        for frame in trajectory.frames:
+            assert frame.blocks["atoms"].columns["x"].unit == "nm"
+
+    def test_mass_and_charge_are_not_defaulted(self) -> None:
+        assert _f64("mass", 1.0).columns["mass"].unit is None
+        assert _f64("charge", 1.0).columns["charge"].unit is None
+
+
+class TestNames:
+    """``docs/spec/frame.md``, names: a block, a column, a per-step meta key
+    and a section are each one node name, and no two siblings differ only in
+    the case of their ASCII letters."""
+
+    @pytest.mark.parametrize("name", ["", ".", "..", "a/b", "__private", "zarr.json"])
+    def test_a_column_is_one_node_name(self, name: str) -> None:
+        column = ColumnModel(dtype="f64", shape=(1,), values=np.array([1.0]))
+        with pytest.raises(ValidationError, match="node name"):
+            BlockModel(count=1, columns={name: column})
+
+    @pytest.mark.parametrize("name", ["", ".", "..", "a/b", "__private", "zarr.json"])
+    def test_a_block_is_one_node_name(self, name: str) -> None:
+        with pytest.raises(ValidationError, match="node name"):
+            FrameModel(blocks={name: _x(0.0)})
+
+    def test_columns_do_not_differ_only_in_case(self) -> None:
+        column = ColumnModel(dtype="f64", shape=(1,), values=np.array([1.0]))
+        with pytest.raises(ValidationError, match="only in case"):
+            BlockModel(count=1, columns={"E": column, "e": column})
+
+    def test_blocks_do_not_differ_only_in_case(self) -> None:
+        with pytest.raises(ValidationError, match="only in case"):
+            FrameModel(blocks={"Sites": _x(0.0), "sites": _x(1.0)})
+
+    @pytest.mark.parametrize("name", ["Box", "BOX"])
+    def test_a_block_is_no_case_variant_of_the_cell(self, name: str) -> None:
+        with pytest.raises(ValidationError, match="only in case"):
+            FrameModel(blocks={name: _x(0.0)})
+
+    def test_a_column_is_no_case_variant_of_the_validity_group(self) -> None:
+        column = ColumnModel(dtype="f64", shape=(1,), values=np.array([1.0]))
+        with pytest.raises(ValidationError, match="only in case"):
+            BlockModel(count=1, columns={"_Validity": column})
+
+    def test_a_per_step_meta_key_is_one_node_name(self) -> None:
+        with pytest.raises(ValidationError, match="node name"):
+            TrajectoryModel(
+                frames=[FrameModel(blocks={"sites": _x(0.0)}, meta={"a/b": 1.0})],
+                step=[0],
+                meta={"a/b": MetaSeriesModel(dtype="f64")},
+            )
+
+    def test_per_step_meta_keys_do_not_differ_only_in_case(self) -> None:
+        with pytest.raises(ValidationError, match="only in case"):
+            TrajectoryModel(
+                frames=[FrameModel(blocks={"sites": _x(0.0)}, meta={"T": 1.0, "t": 2.0})],
+                step=[0],
+                meta={"T": MetaSeriesModel(dtype="f64"), "t": MetaSeriesModel(dtype="f64")},
+            )
+
+    @pytest.mark.parametrize("name", ["Step", "META", "Offset"])
+    def test_a_declared_name_is_no_case_variant_of_a_reserved_one(self, name: str) -> None:
+        column = SequenceColumnModel(dtype="f64")
+        with pytest.raises(ValidationError, match="only in case"):
+            block = (
+                {"sites": SequenceBlockModel(columns={name: column})}
+                if name == "Offset"
+                else {name: SequenceBlockModel(columns={"v": column})}
+            )
+            TrajectoryModel(frames=[], step=[], blocks=block)
+
+    def test_a_frame_meta_key_is_any_string(self) -> None:
+        """Meta keys of a frame are attribute names, not nodes."""
+        frame = FrameModel(meta={"a/b": 1.0, "A/B": 2.0, "..": "x"})
+        assert set(frame.meta) == {"a/b", "A/B", ".."}
+
+    @pytest.mark.parametrize("name", ["a/b", "..", "__x"])
+    def test_an_unknown_root_section_is_one_node_name(self, name: str) -> None:
+        with pytest.raises(ValidationError, match="node name"):
+            RecordModel.model_validate({"meta": {}, "status": {"state": "ok"}, name: {}})
+
+    def test_an_unknown_root_section_is_no_case_variant_of_a_section(self) -> None:
+        with pytest.raises(ValidationError, match="only in case"):
+            RecordModel.model_validate({"meta": {}, "status": {"state": "ok"}, "Frame": {}})
+
+    def test_an_unknown_subtree_holds_node_names(self) -> None:
+        from molrec.core.model import NodeModel
+
+        with pytest.raises(ValidationError, match="only in case"):
+            NodeModel.model_validate({"groups": {"a": {}, "A": {}}})
+        with pytest.raises(ValidationError, match="node name"):
+            NodeModel.model_validate({"groups": {"a/b": {}}})
+
+    def test_names_beyond_ascii_are_kept(self) -> None:
+        frame = FrameModel(blocks={"Å": _x(0.0), "原子": _x(1.0)})
+        assert set(frame.blocks) == {"Å", "原子"}

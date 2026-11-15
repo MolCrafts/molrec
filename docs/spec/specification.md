@@ -5,19 +5,21 @@ of molecular and operational data that independent tools may exchange without
 guessing private layouts. It covers molecular systems, snapshots and
 trajectories, scientific observables, and run logs (status, metrics, method).
 
-MolRec names layout and semantics. Implementations expose their own APIs
-(the reference implementation's are `molrs.io.write_mrec`,
-`write_mrec_trajectory` and the streaming `molrs.io.mrec.TrajectoryWriter`);
-the contract is the structure in the chapters that follow.
+MolRec names layout and semantics. Implementations expose their own APIs.
+The reference implementation writes one record with `molpy.io.write_mrec`
+and reads a section through `molpy.io.mrec.MrecFile`; a trajectory is
+streamed with `molpy.io.mrec.MrecWriter` and read with `MrecReader`.
+A collection is many records in one LMDB file
+([LMDB binding](lmdb.md)): molrec's codec is the plain reference, and molhub
+implements the store.
+The contract is the structure in the chapters that follow.
 
 The unit of interchange is the *record*. A `frame` section *is* a frame; a
 `trajectory` section *is* an ordered series of frames. Time-dependent data is
 a record section.
 
-Every writer stamps `meta["molrec_version"]` (currently `1`); a reader
-validates it only when present, and an absent key marks a store written
-before version 1 (see [Metadata](overview.md#metadata)). A record is
-identified by its `*.mrec` path suffix and its Zarr root.
+A record is identified by its `*.mrec` path suffix and its Zarr root (see
+[Metadata](overview.md#metadata)).
 
 ## Storage format
 
@@ -76,9 +78,14 @@ attributes. The root of a record may coincide with the Zarr root of a
 [root](overview.md). Several levels of subgroups may exist inside,
 allowing the storage and description of subsystems.
 
-The record is allowed to possess non-specified groups, arrays, or attributes
-that contain additional information such as application-specific parameters
-or data structures, leaving scope for future extensions. Only the `meta`
+The record is allowed to possess non-specified groups, and inside them any
+arrays or attributes, that contain additional information such as
+application-specific parameters or data structures, leaving scope for future
+extensions. **The root itself holds groups only**: a writer puts no array
+and no attribute on the record root, because a section is the unit a reader
+carries and the root has no document of its own. An array or attribute a
+reader nevertheless finds on the root is outside the record: it is not
+interpreted and not carried, and a validator **SHOULD** report it. Only the `meta`
 group is mandatory at the root, and it may be an empty document. All other
 root groups — `system` and `frame` included — are optional, allowing the
 user to store only relevant data. A record must nevertheless contain at
@@ -104,8 +111,8 @@ the reference models and describe the same documents for other languages:
 | Directory | Describes |
 |-----------|-----------|
 | `schema/core/` | the record, its documents (`meta`, `status`, `method`), frames, blocks, columns, cells, trajectories, collections |
-| `schema/observables/` | the v1 [observables](observables.md) section |
+| `schema/observables/` | the [observables](observables.md) section |
 | `schema/binding/` | the trajectory group's pinned `sequence_schema` attribute |
 | `schema/ref/` | a pointer from one record into another (`uri`, optional content `hash`), used by the draft observables' provenance |
 | `schema/report/` | one conformance violation — the closed vocabulary a conformance report names failures with, so implementations in other languages report the same names |
-| `schema/draft/observables/` | the dims-based observables **draft**; not part of version 1 |
+| `schema/draft/observables/` | the dims-based observables **draft**; not part of the contract |

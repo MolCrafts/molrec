@@ -1,7 +1,7 @@
 """Model comparison -- never byte comparison.
 
 Chunk size, codec, compression level, attribute key order and sharding are
-all legitimate implementation freedom: two conforming stores *should* differ
+all legitimate implementation freedom: two conforming records *should* differ
 at the byte level. So conformance is judged where the contract actually lives
 -- on the model a conforming reader reconstructs.
 

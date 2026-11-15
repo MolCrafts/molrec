@@ -4,7 +4,7 @@ An ``f64`` column may declare an absolute tolerance ``p``. The writer stores
 every value rounded to the **quantum** ``q`` -- the largest power of two not
 above ``p`` -- with round-half-to-even, so the discarded low mantissa bits are
 zeros a byte shuffle and a lossless compressor remove. Both steps are exact in
-binary64 (``q`` is a power of two), so two writers store the same bits.
+binary64 (``q`` is a power of two), so two writers storage the same bits.
 
 A reader does nothing with ``p``: it returns the stored values exactly.
 """

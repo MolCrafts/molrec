@@ -1,7 +1,7 @@
 # Chunking and packing
 
 How an array is cut up is a backend choice. A conforming reader opens any
-chunking, and two stores of the same data are expected to differ byte for
+chunking, and two records of the same data are expected to differ byte for
 byte. This chapter separates the few rules that are **normative** — what a
 reader must be able to decode, and how a writer commits — from the
 **reference writer's choices** for extents and codecs, and ends with the
@@ -19,7 +19,7 @@ decodes every array whose codec pipeline is drawn from
 bytes   gzip   zstd   numcodecs.shuffle   crc32c   vlen-utf8   sharding_indexed   transpose
 ```
 
-and a conforming writer uses no codec outside this set unless the store is
+and a conforming writer uses no codec outside this set unless the record is
 for a reader known to have it. `numcodecs.shuffle` is the byte shuffle of the
 Zarr extension registry (configuration `{"elementsize": n}`). **No lossy codec
 is admitted**: a [declared precision](frame.md#declared-precision) is a
@@ -30,7 +30,15 @@ every pipeline returns the stored bytes exactly.
 
 1. for every touched array: the chunk bytes first (positional writes into
    the shard), then its `zarr.json` replaced **atomically** (write a
-   temporary file, rename over the old one);
+   temporary file, rename over the old one). Inside a shard the same rule
+   holds one level down: the inner chunks land before the shard index that
+   points at them, and **a shard that holds committed rows is never removed
+   and written again** — a write that replaces every inner chunk of a shard
+   (the partly filled tail chunk of a short trajectory, or of a shard just
+   begun) replaces the file in one atomic rename. A sharding codec that
+   erases such a shard before rewriting it leaves, for an instant, committed
+   rows that read as fill values; a writer built on one closes that gap in
+   its store;
 2. if the flush is durable: `fsync` the touched data files, their
    `zarr.json` files, and their directories;
 3. the trajectory group's metadata last — one atomic replace carrying the
@@ -42,30 +50,89 @@ Data therefore always precedes metadata, and the `nstep` attribute is the
 commit marker. Explicit `flush()` and `close()` are durable; an automatic
 flush (see below) does not `fsync`.
 
+**Materialization order.** Step 1 has an order of its own whenever a flush
+replaces an elided form with arrays — a
+[regular block](ragged.md#per-block-sparse-updates-csr)'s index, a
+[fixed cell](ragged.md#the-cell)'s arrays. A reader picks the form by which
+arrays exist, and the group that holds the elided form is not the group that
+holds `nstep`, so the two cannot change in one atomic replace:
+
+- **An array the flush creates appears already holding the history.** Its
+  `zarr.json` is first written over the entries it restates: the regular
+  updates, the attribute cell as update 0, the default `origin` / `boundary`
+  of the updates before it. It may hold the flush's own entries too; they sit
+  at ordinals `>= nstep` and are read past.
+- **A block's index lands before its rows.** `offset` first, then
+  `step_index`, and only then do the columns and masks of that block grow.
+  Until `step_index` exists a reader counts a regular block's updates from
+  its column lengths, so rows landed first would read as a committed update
+  at the next ordinal — in every frame after it that had carried the block
+  forward.
+- **The cell's `vectors` lands last** of the `box/` arrays: `step_index`,
+  `origin` and `boundary` first, each when the cell needs it. `box/vectors`
+  is the array a reader switches on; alone it reads as one update at ordinal
+  0 with the default origin and boundary.
+- **The elided form is withdrawn afterwards**: a block's two markers, the
+  cell's `vectors` / `origin` / `boundary` attributes, once the arrays that
+  replace them exist and before `nstep` moves. A record that carries both
+  was interrupted there, and the arrays are authoritative.
+
+Stopped after any one of these writes, a record reads as its last commit.
+
+**Publishing a record.** `nstep` commits the frames of a trajectory; nothing
+in a record commits the record. A record with no trajectory — a snapshot, a
+force-field package, a run of documents — has no marker at all, and one
+written section by section is, until the last section lands, a well-formed
+smaller record. So completeness is carried by the name:
+
+- A writer that produces a record **in one shot** (a conversion, an export,
+  a rewrite of an existing record) builds it under a name that does not end
+  in `.mrec` or `.mrec.zip`, in the directory it will live in, and renames
+  it into place once every section is written (and, for a durable write,
+  synced). A record it replaces is removed only after the new one is
+  complete; a failed write removes what it built and leaves the old record.
+  The reference codec builds `.<name>.<random>.partial` beside `<name>`.
+- A **streaming** writer (a run in progress) publishes at once, so the
+  record can be watched: it creates the root, `meta/`, and every section it
+  will not append to before its first frame, and from then on the commit
+  protocol above is the whole guarantee. `status.state` says whether the run
+  is over ([Status](status.md)).
+- A reader opens only what is named `*.mrec` / `*.mrec.zip`. A directory
+  under any other name beside a record is a write that did not finish; a
+  tool may delete it, and never reads it.
+
 **What the protocol guarantees, and where.** The guarantee is scoped to the
-kind of failure and the kind of store:
+kind of failure and the kind of storage:
 
 - *Process crash* (the writer dies, the machine keeps running): after any
-  flush, automatic or explicit, the store opens at the last `nstep` the
+  flush, automatic or explicit, the record opens at the last `nstep` the
   operating system received; uncommitted tails are read past.
 - *Power loss or kernel crash*: only an **explicit** `flush()` / `close()`
   is durable. Frames landed by automatic flushes since the last explicit one
   may be lost, and an `nstep` the disk never received reads as the previous
-  one — never as a store that claims frames it lacks.
-- *One writer, no concurrent readers.* A store has exactly one writer at a
-  time. A reader that opens a store while it is being written may observe a
-  half-replaced metadata file on a store without atomic rename; reading a
-  live store is a convenience of POSIX filesystems, not a guarantee of the
+  one — never as a record that claims frames it lacks.
+- *One writer, no concurrent readers.* A record has exactly one writer at a
+  time. A reader that opens a record while it is being written may observe a
+  half-replaced metadata file on storage without atomic rename; reading a
+  live record is a convenience of POSIX filesystems, not a guarantee of the
   format.
-- *Live append needs a POSIX-like store*: positional writes into a shard,
-  atomic rename, `fsync`. An object store (S3, GCS) has none of these, so it
+- *The format holds no lock.* Nothing in a record says a writer has it
+  open, and two writers appending to one record corrupt it without either
+  noticing. Whatever starts writers arbitrates between them — a scheduler
+  that runs one job per record, a lock file the host owns beside the record
+  (never inside it), an advisory lock on the root's `zarr.json`. A writer
+  that reopens a record to append therefore needs the host's word that no
+  other writer is alive; `status.state: running` is not that word
+  ([Status](status.md)).
+- *Live append needs POSIX-like storage*: positional writes into a shard,
+  atomic rename, `fsync`. Object storage (S3, GCS) has none of these, so it
   holds **closed** records — written elsewhere, then uploaded, or packed into
   `*.mrec.zip` — and is read, never appended to.
 
-**Reopen rule.** A writer reopening a store to append, and a reader opening
+**Reopen rule.** A writer reopening a record to append, and a reader opening
 one, are bound by `nstep`:
 
-- `nstep` is the trajectory group attribute (`len(step)` for a store that
+- `nstep` is the trajectory group attribute (`len(step)` for a record that
   kept no marker attribute);
 - for every block with an index, `n_updates` is the length of the prefix of
   `step_index` whose entries are `< nstep`; `offset` has logical length
@@ -77,6 +144,14 @@ one, are bound by `nstep`:
 A reader reads only the logical lengths and tolerates a longer array — a
 tail the writer had not yet committed. A reopening writer shrinks each array
 back to its logical shape (`set_shape`) before appending.
+
+What an interrupted [materialization](#normative) leaves is read the same
+way. An `offset` without its `step_index`, and `box/` arrays without
+`box/vectors`, are not yet the block's index or the cell's arrays: a reader
+ignores them and reads the elided form, and a reopening writer discards them.
+Index arrays beside the markers, and cell arrays beside the cell attributes,
+are the arrays' to answer: a reopening writer withdraws the markers or the
+attributes.
 
 **No compaction.** There is no seal, compact or compact-tail step:
 `close()` is the last durable flush. Dead bytes arise only when an explicit
@@ -183,8 +258,8 @@ is available at any time and is durable.
 
 ## At-rest form: `*.mrec.zip`
 
-A closed store may be packed into a single file: a zip of the directory
-store. The chunks arrived already encoded, so packing is concatenation plus
+A closed record may be packed into a single file: a zip of its directory
+Zarr store. The chunks arrived already encoded, so packing is concatenation plus
 a central directory, and an entry read out of the archive is bit-identical
 to the file it replaced. The archive follows fixed rules, so any zip-backed
 Zarr store can open any packed record:

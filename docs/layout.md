@@ -90,7 +90,7 @@ with its kind, its attribute keys and its children.
 <!-- BEGIN generated:overview -->
 ```text
 tour.mrec/          the root group; its attributes: {}
- \-- meta/          document         attributes: molrec_version, creator, created_at
+ \-- meta/          document         attributes: creator, created_at, units
  \-- system/        frame-shaped     attributes: smiles, total_charge, _meta_types
  |                                   children:   atoms/, bonds/, angles/, dihedrals/
  \-- frame/         frame-shaped     attributes: smiles, total_charge, units,
@@ -125,7 +125,7 @@ its two bonds, a small density grid and a cubic box.
 ```text
 water.mrec/
  \-- meta/
- |    +-- molrec_version: 1
+ |    +-- units: {"length": "angstrom", "mass": "amu"}
  \-- frame/
       +-- smiles: "O"
       +-- total_charge: 0
@@ -173,9 +173,8 @@ water.mrec/
 
 Reading it top to bottom:
 
-- **`meta/` comes first and carries `molrec_version: 1`.** Every writer
-  creates it and stamps the version, even when the producer gave no
-  identity at all.
+- **`meta/` comes first.** Every writer creates it, even when the producer
+  gave no identity at all (here it is empty).
 - **The attributes of `frame/` are the frame's meta document.** `smiles`,
   `total_charge` and `units` are the producer's keys; there is no `meta`
   child group. `_meta_types` is the one reserved attribute: it tags each key
@@ -234,7 +233,12 @@ potential energy and temperature of each frame.
 ```text
 vibration.mrec/
  \-- meta/
- |    +-- molrec_version: 1
+ |    +-- units: {
+ |           "length": "angstrom",
+ |           "energy": "kcal/mol",
+ |           "time": "fs",
+ |           "temperature": "kelvin"
+ |         }
  \-- system/
  |    +-- smiles: "OO"
  |    +-- total_charge: 0
@@ -354,7 +358,6 @@ the previous frame.
 ```text
 reaction.mrec/
  \-- meta/
- |    +-- molrec_version: 1
  \-- trajectory/
       +-- sequence_schema: {
       |      "blocks": {
@@ -525,9 +528,9 @@ peroxide.mrec/
       |    |    zarr: chunk [1] · vlen-utf8 → gzip(1) → crc32c
       |    \-- ktom: string[1] = ["O1"]
       |    |    zarr: chunk [1] · vlen-utf8 → gzip(1) → crc32c
-      |    \-- k: f64[1] = [100.0]
+      |    \-- k: f64[1] = [50.0]
       |    |    zarr: chunk [1] · bytes → crc32c
-      |    \-- theta0: f64[1] = [1.7488]
+      |    \-- theta0: f64[1] = [100.2]
       |         zarr: chunk [1] · bytes → crc32c
       \-- atom.full/
       |    +-- count: 2
@@ -549,7 +552,7 @@ peroxide.mrec/
       |    |    zarr: chunk [2] · vlen-utf8 → gzip(1) → crc32c
       |    \-- jtom: string[2] = ["O1", "H1"]
       |    |    zarr: chunk [2] · vlen-utf8 → gzip(1) → crc32c
-      |    \-- k: f64[2] = [600.0, 1106.0]
+      |    \-- k: f64[2] = [300.0, 553.0]
       |    |    zarr: chunk [2] · bytes → crc32c
       |    \-- r0: f64[2] = [1.475, 0.967]
       |         zarr: chunk [2] · bytes → crc32c
@@ -575,7 +578,7 @@ peroxide.mrec/
       |    |    zarr: chunk [2] · bytes → crc32c
       |    \-- phase1: f64[2] = [0.0, 0.0]
       |    |    zarr: chunk [2] · bytes → crc32c
-      |    \-- phase2: f64[2] = [3.141592654, 0.0]
+      |    \-- phase2: f64[2] = [180.0, 0.0]
       |    |    zarr: chunk [2] · bytes → crc32c
       |    \-- _validity/
       |         \-- k2: bool[2] = [true, false]
@@ -601,7 +604,7 @@ peroxide.mrec/
 
 - **The document** is plain JSON in the group's attributes: the `name`; the
   `units` every number in the section is in (here the `real` preset:
-  ångström, kcal/mol, radian, e, dalton); the 1-2 / 1-3 / 1-4
+  ångström, kcal/mol, degree, e, dalton); the 1-2 / 1-3 / 1-4
   `special_bonds` weights; and the ordered `styles` list. A style may carry
   style-level parameters, as `lj/cut` does with its `cutoff` and `mixing`
   rule.
@@ -611,7 +614,8 @@ peroxide.mrec/
 - **A table has one row per type.** `name` labels the row; `itom` … `mtom`
   name the atom types at its endpoints, as many as the category has (none
   for `atom`, two for `bond`, four for `dihedral`, five for `cmap`). Every other column is a
-  parameter, `f64` or `string`.
+  parameter, `f64` or `string`; an `f64` parameter may be an array, `f64[T, S…]` (a `cmap`
+  table's `grid`, a tabulated potential's values).
 - **The empty string is a wildcard.** The second torsion row,
   `X-O1-O1-X`, has `""` at both ends: it matches any type there.
 - **Parameters may be strings.** `atom.full/ptype` is one.
@@ -663,10 +667,10 @@ category. Resolved against the tables read back from disk:
 | --- | --- | --- | --- |
 | `atoms[0]` | `H1` | `atom.full` row 0 | charge 0.41, mass 1.008 |
 | `atoms[1]` | `O1` | `atom.full` row 1 | charge -0.41, mass 15.999 |
-| `bonds[0]` | `O1-H1` | `bond.harmonic` row 1 | k 1106.0, r0 0.967 |
-| `bonds[1]` | `O1-O1` | `bond.harmonic` row 0 | k 600.0, r0 1.475 |
-| `angles[0]` | `H1-O1-O1` | `angle.harmonic` row 0 | k 100.0, theta0 1.7488 |
-| `dihedrals[0]` | `H1-O1-O1-H1` | `dihedral.periodic` row 0 | k1 1.2, k2 0.8, periodicity1 1.0, periodicity2 2.0, phase1 0.0, phase2 3.141592654 |
+| `bonds[0]` | `O1-H1` | `bond.harmonic` row 1 | k 553.0, r0 0.967 |
+| `bonds[1]` | `O1-O1` | `bond.harmonic` row 0 | k 300.0, r0 1.475 |
+| `angles[0]` | `H1-O1-O1` | `angle.harmonic` row 0 | k 50.0, theta0 100.2 |
+| `dihedrals[0]` | `H1-O1-O1-H1` | `dihedral.periodic` row 0 | k1 1.2, k2 0.8, periodicity1 1.0, periodicity2 2.0, phase1 0.0, phase2 180.0 |
 <!-- END generated:linking -->
 
 Pair styles are resolved through the atom types instead: two `O1` atoms take
@@ -723,7 +727,6 @@ a `metrics/` group holding both forms of the same three events.
 ```text
 fit.mrec/
  \-- meta/
- |    +-- molrec_version: 1
  |    +-- creator: {"name": "molrec-fixtures", "version": "0.0.0"}
  |    +-- created_at: "2026-08-04T00:00:00+00:00"
  \-- method/
@@ -843,11 +846,7 @@ index           key bytes 69 6e 64 65 78
 meta            key bytes 6d 65 74 61
     {
       "layout": "mrec-lmdb",
-      "layout_version": 1,
-      "collection": {
-        "molrec_version": 1,
-        "units": {"length": "angstrom", "energy": "kcal/mol"}
-      },
+      "collection": {"units": {"length": "angstrom", "energy": "kcal/mol"}},
       "sequence_schema": {
         "blocks": {
           "atoms": {
@@ -886,9 +885,8 @@ s ‖ u64be(1)    key bytes 73 00 00 00 00 00 00 00 01
   prefix letter followed by a big-endian `u64`, so LMDB's byte order is
   numeric order and one record's frames are one contiguous cursor range.
 - **`meta` is JSON and is written last**, in the transaction that commits
-  the collection. It carries the layout tag and version, the collection
-  document (with `molrec_version` and the `units` every record's numbers
-  are in), the one `sequence_schema` every record uses, and the counts.
+  the collection. It carries the layout tag, the collection document (with
+  the `units` every record's numbers are in), the one `sequence_schema` every record uses, and the counts.
 - **`index`** is one block `records` with a row per record: the binding's
   own `first_frame`, `n_frames`, `n_atoms`, `has_trajectory`, plus the
   collection's columns (`smiles`). Record 1's frames start at global

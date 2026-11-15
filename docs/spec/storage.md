@@ -6,7 +6,7 @@ binding. How arrays are chunked, sharded, compressed, and packed is
 [Metrics WAL](metrics-wal.md). The trajectory encoding is
 [Ragged trajectory](ragged.md).
 
-Implemented first in [molrs](https://github.com/MolCrafts/molrs). Run hosts
+Implemented first in [molpy](https://github.com/MolCrafts/molpy). Run hosts
 (molexp / molnex) own the metrics WAL.
 
 ## Design in one sentence
@@ -34,7 +34,9 @@ Rules:
    ([Metrics](metrics.md)).
 4. Live metrics → append-only UTF-8 JSONL WAL (`metrics/metrics.jsonl`);
    densify into Zarr on flush / close.
-5. Readers must preserve unknown sibling sections and unknown keys.
+5. Readers must preserve unknown sibling sections and unknown keys. A
+   section is a group: the record root carries no array and no attribute of
+   its own ([Specification](specification.md)).
 
 ## Canonical root
 
@@ -69,13 +71,10 @@ metrics so UIs (molplot) activate from those names:
  \-- executions/<id>/artifacts/
  |    \-- <stem>.mlp.jsonl     # live JSONL WAL — the metrics persist surface
  |    \-- (<name>.mlp.vl.json) # optional Vega-Lite plot artifact
- \-- (<stem>.mlp.zarr/)        # leftover dense store; ignored, never a surface
- \-- (<stem>.mlp.index.json)   # leftover host cache; never a UI trigger
 ```
 
 Default writer stem is `metrics` → `artifacts/metrics.mlp.jsonl`. Discovery
-and plugin activation match `*.mlp.jsonl` only; leftover `*.mlp.zarr/` and
-`*.mlp.index.json` are recognised solely so they can be ignored.
+and plugin activation match `*.mlp.jsonl` only.
 
 A scientific record that lands *under* the host (typically `artifacts/`) is
 still one Zarr root, named `*.mrec/` and discovered by that suffix plus the
@@ -109,7 +108,7 @@ No pure-JSON filesystem package is part of the reference binding.
 | `status` | Lifecycle snapshot | Zarr group attributes on `status/` |
 | `method` | Scientific / training context | Zarr group attributes on `method/` |
 | `metrics` (live) | Append-only events | JSONL WAL — Record: `metrics/metrics.jsonl`; host: `artifacts/<stem>.mlp.jsonl` |
-| `metrics` (closed) | Dense series catalog | Zarr arrays — Record: `metrics/`. A host keeps only the WAL; leftover `*.mlp.zarr/` is ignored |
+| `metrics` (closed) | Dense series catalog | Zarr arrays — Record: `metrics/`. A host keeps only the WAL |
 | `system` | Definition (topology, types) | a [frame-shaped group](#frame-shaped-group) |
 | `frame` | Instantaneous snapshot | a [frame-shaped group](#frame-shaped-group) |
 | `trajectory` | Ordered frames | Zarr array groups; [CSR + `step_index`, elided while regular](ragged.md) |
@@ -131,15 +130,14 @@ JSON: a document cannot carry NaN or infinity.
 
 | Section | Group path | Required keys when group exists |
 |---------|------------|----------------------------------|
-| `meta` | `meta/` | `molrec_version`, stamped by every writer (absent only on a pre-1 store; see [Metadata](overview.md#metadata)) |
+| `meta` | `meta/` | none (see [Metadata](overview.md#metadata)) |
 | `status` | `status/` | `state` |
 | `method` | `method/` | `type`, `description`, `engine.name` |
 
 Identity of a scientific record is the path suffix `*.mrec/` plus the Zarr
 root itself. Writers **MUST** create the root group `zarr.json` and the
-`meta/` group first — the caller's document with `molrec_version` stamped
-in — and only then the sections. A reader treats a missing `meta/` as an
-empty document (a pre-1 store: no version check).
+`meta/` group first — the caller's document, as given — and only then the
+sections. A reader treats a missing `meta/` as an empty document.
 
 ## Frame-shaped group
 
@@ -157,6 +155,7 @@ frame-shaped — share one normative layout:
  |    +-- (<other attribute>)     preserved
  |    \-- <column>: <dtype>[N][...]
  |         +-- (precision: f64[])      optional: the column's declared precision
+ |         +-- (unit: string[])        optional: the column's own unit
  |    \-- (_validity)            reserved: the block's validity masks
  |         \-- (<column>: bool[N])
  \-- (box)                        reserved: the cell
@@ -165,7 +164,7 @@ frame-shaped — share one normative layout:
 - **The group's attributes are the frame's `meta` document**, exactly: every
   key a writer puts there is a meta key, and a reader hands every key back
   as one — except `_meta_types`. The frame group carries no other
-  attributes (no version, no layout tag).
+  attributes.
 - **The meta document is typed.** The attribute `_meta_types` maps every key
   of the document to its [tag](ragged.md#per-step-metadata), and each value
   is in the [typed JSON form](conventions.md#typed-json-values) of that tag
@@ -176,11 +175,18 @@ frame-shaped — share one normative layout:
   other form; it infers the tag of an untagged key — `bool`; an integer in
   `[−2⁶³, 2⁶³)` as `i64`, in `[2⁶³, 2⁶⁴)` as `u64`; any other number `f64`;
   a string `string`; anything else `json` — and ignores a tag whose key is
-  absent. The `forcefield` document is plain JSON and carries no
+  absent. Inference reads the **JSON text**: `1` is an integer and `1.0` a
+  real, a distinction a parser that maps every number to binary64 has
+  already lost. It exists for a document written by hand or by a foreign
+  tool; a conforming writer tags every key, and only a tag makes the type
+  survive every reader. The `forcefield` document is plain JSON and carries no
   `_meta_types`.
 - **A column may declare a precision**: the array's attribute `precision`
   ([Declared precision](frame.md#declared-precision)). A reader preserves it
   and returns the stored values exactly.
+- **A column may state its own unit**: the array's attribute `unit`, a
+  string ([Units](conventions.md#units)). A trajectory column's array
+  carries it the same way. A reader preserves it and converts nothing.
 - **A block is a child group**; its **columns are its child arrays**. Each
   block group carries the required integer attribute `count` — a block with
   no columns still has one, and a reader refuses a block whose columns
@@ -194,7 +200,9 @@ frame-shaped — share one normative layout:
   the subgroup of [validity masks](frame.md#nullable-columns); a column named
   `_validity` is refused at write. Nothing else is reserved: `meta`,
   `atoms`, `values` are ordinary block names, because the meta document is
-  attributes.
+  attributes. A name that differs from a reserved one only in case (`Box`,
+  `_Validity`) is refused like any pair of siblings that do
+  ([Names](frame.md#names)).
 - A reader preserves a block, a column, or a block attribute it does not
   recognise.
 
@@ -222,11 +230,11 @@ Each [column dtype](frame.md#data-types) is stored as exactly one Zarr V3
 
 ## Array groups
 
-Reference implementation: molrs — `molrs.io.write_mrec` /
-`write_mrec_system` / `write_mrec_trajectory` and the streaming
-`molrs.io.mrec.TrajectoryWriter`, with `read_mrec` / `read_mrec_system` /
-`read_mrec_trajectory` / `read_mrec_meta` (and `mrec_sections`) on the way
-back.
+Reference implementation: molrs, Python package `molpy`.
+`molpy.io.write_mrec` writes the record. `molpy.io.mrec.MrecFile` reads
+`meta`, `frame`, `system`, `forcefield`, `status`, `method`, `metrics` and
+`observables` (`sections` names what is present). `MrecWriter` streams
+`trajectory`; `MrecReader` reads it back.
 
 - A frame-shaped section (`frame/`, `system/`) is a
   [frame-shaped group](#frame-shaped-group).
@@ -255,12 +263,13 @@ back.
 4. Array sections use Zarr array groups. Trajectory uses the
    [ragged CSR layout](ragged.md).
 5. Preserve unknown sections and keys.
-6. Writers create `meta/` and stamp `meta["molrec_version"]`. A reader
-   validates the key only when present: absent means a pre-1 store and no
-   version check; present means a JSON integer `>= 1`, no greater than the
-   newest the reader supports, never `null`. Scientific paths use
-   `*.mrec/` / `*.mrec.zip`.
+6. Writers create `meta/`, holding the producer's document as given; a
+   reader hands `meta` back as stored. Scientific paths use `*.mrec/` /
+   `*.mrec.zip`.
 7. Data precede metadata. A writer lands chunk bytes before it replaces an
    array's `zarr.json` (atomically), and the trajectory group's `nstep`
    attribute — the commit marker — last of all; a reader is bound by it
-   ([Chunking and packing](chunking.md#normative)).
+   ([Chunking and packing](chunking.md#normative)). A flush that replaces an
+   elided form with arrays — a regular block's index, a fixed cell's arrays —
+   lands those arrays, already holding the history, before the rows they
+   index.

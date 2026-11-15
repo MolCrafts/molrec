@@ -18,7 +18,7 @@ dependencies = [
   "zarr>=3.3",
 ]
 
-# LMDB is the one optional backend: it is imported where a store is opened,
+# LMDB is the one optional backend: it is imported where a storage is opened,
 # so a consumer that never opens a collection never needs it.
 [project.optional-dependencies]
 lmdb = ["lmdb>=1.4"]
@@ -35,30 +35,20 @@ dev = [
   # The reference implementation, so the conformance suite can actually judge
   # it. molrec's own codec passing molrec's own suite proves very little.
   # Building it compiles Rust: do that on a build machine, never a login node.
-  "molcrafts-molrs",
+  "molcrafts-molpy",
 ]
 docs = [
   "zensical>=0.0.53",
   "molcrafts-zensical-theme>=0.2.5",
 ]
 
-# The reference implementation is built from the sibling checkout
-# (../molrs, MolCrafts/molrs) so the suite judges the layout molrs writes
-# *now*, not the last published wheel. CI checks the sibling out at a pinned
-# commit (see .github/workflows/ci.yml).
+# The reference implementation is the molpy package in the sibling MolCrafts/molpy
+# checkout. The path is relative to this file.
 #
-# uv caches the built molrs wheel by the sibling's pyproject.toml only, so a
-# change to its Rust sources is not picked up by `uv sync` on its own. Either
-# rebuild explicitly -- `uv sync --extra dev --reinstall-package
-# molcrafts-molrs` -- or give molrs-python's pyproject.toml the cache keys
-# that make uv notice (that file is molrs's, not ours):
-#
-#   [tool.uv]
-#   cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" },
-#                 { file = "src/**/*.rs" }, { file = "../molrs/src/**/*.rs" },
-#                 { file = "../Cargo.lock" }]
+# uv rebuilds that wheel when the checkout's commit moves. Uncommitted edits
+# in ../molpy need `uv sync --extra dev --reinstall-package molcrafts-molpy`.
 [tool.uv.sources]
-molcrafts-molrs = { path = "../molrs/molrs-python" }
+molcrafts-molpy = { path = "../molpy/molpy" }
 
 [tool.hatch.version]
 path = "src/molrec/__init__.py"
@@ -68,8 +58,14 @@ packages = ["src/molrec"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `python -X warn_default_encoding -m pytest` (how the suite is run) makes
+# every text-mode open without encoding= warn, and this makes the warning an
+# error: Python would decode with the locale, cp1252 on Windows, so such a
+# read passes on Linux and fails only on Windows. Ruff's PLW1514 catches it
+# statically only where it can tell the receiver is a Path.
+filterwarnings = ["error::EncodingWarning"]
 markers = [
-  "molrs: judges the reference implementation (needs molcrafts-molrs built); deselect with -m 'not molrs'",
+  "molrs: judges the reference implementation (needs molcrafts-molpy built); deselect with -m 'not molrs'",
 ]
 
 [tool.ruff]
@@ -77,4 +73,10 @@ line-length = 100
 src = ["src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM"]
+# PLW1514 (a preview rule; explicit-preview-rules keeps every other preview
+# rule off): text-mode file I/O names its encoding. Unnamed, Python decodes
+# with the locale -- cp1252 on Windows -- so a read that passes every Linux
+# hook fails only on CI's Windows leg.
+select = ["E", "F", "I", "UP", "B", "SIM", "PLW1514"]
+preview = true
+explicit-preview-rules = true

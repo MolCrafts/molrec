@@ -67,10 +67,10 @@ replacing the group metadata (atomically), so a crash between two writes of
 one commit costs the uncommitted frames and nothing else. A reader takes
 `nstep` from that attribute (a non-negative JSON integer); every array is
 read to its logical length and **MAY** be longer (a tail the writer had not
-yet committed) but **MUST NOT** be shorter. A store from a writer that kept
+yet committed) but **MUST NOT** be shorter. A trajectory from a writer that kept
 no marker attribute is read to `len(step)` (zero frames when there is no
 `step` array either). The progression attributes below are only ever written
-in the same metadata update as `nstep`, so a store that carries
+in the same metadata update as `nstep`, so a trajectory that carries
 `step_progression` or `time_progression` **without** `nstep` is malformed
 and a reader refuses it. The full protocol is
 [Chunking and packing](chunking.md#normative).
@@ -136,6 +136,12 @@ The tag set is closed — exactly these sixteen:
 | `u32x3`, `u64x3` | `u32[3]`, `u64[3]` | three unsigned integers |
 | `f64x3`, `f64x6`, `f64x9` | `f64[3]`, `f64[6]`, `f64[9]` | a vector, a Voigt tensor, a 3×3 matrix (row-major) |
 
+The six components of an `f64x6` are a symmetric 3×3 tensor in **Voigt
+order**: `xx, yy, zz, yz, xz, xy`. They are the tensor's own components —
+no factor of 2 on the off-diagonal ones — so the form holds a stress, a
+virial or a strain alike; an engineering shear strain is a producer's
+convention and is stated in its key's module.
+
 There is no `f32` tag, no complex tag, and no other width: a value that
 needs one belongs in a block column. `json` is a **meta** tag only: a block
 column never carries it.
@@ -179,7 +185,11 @@ nested list, lattice vectors as columns), and `origin` / `boundary` when off
 their defaults — with no arrays at all. The first change migrates the cell
 into the arrays above (update 0 is the attribute cell, backfilled) and
 removes the `vectors` / `origin` / `boundary` attributes. A reader that finds
-no `box/vectors` array reads the attributes: one update at ordinal `0`.
+no `box/vectors` array reads the attributes: one update at ordinal `0`. So
+`box/vectors` is the **last** array a writer creates — after `step_index`,
+`origin` and `boundary`, here and when a cell first appears after ordinal
+`0` ([materialization order](chunking.md#normative)); a reader that finds the
+array beside the attributes uses the arrays.
 
 The group **MAY** carry the boolean attribute `cell_defined`. Absent means
 `true`. A writer emits it only to record `false`. It is the section's one
@@ -245,9 +255,13 @@ beside it:
   run, a zero-row update), or an update at an ordinal other than its own (a
   topology that changed at frame 5) — materializes **both** arrays,
   backfilled with the regular history, and the same commit removes **both**
-  markers for good. A committed store never carries a marker beside an index
-  array; a reader that finds both (a crash between the two writes of that
-  commit) uses the arrays, which are authoritative.
+  markers for good. The arrays land **before** the rows of that update —
+  `offset`, then `step_index`, then the columns
+  ([materialization order](chunking.md#normative)) — because the count above
+  is taken from the column lengths: rows landed first would read as an
+  update at the next ordinal. A committed trajectory never carries a marker
+  beside an index array; a reader that finds both (a commit interrupted
+  before it withdrew the markers) uses the arrays, which are authoritative.
 - A block with **no columns** has no length to count its updates by, so it
   always keeps its index.
 - One marker without the other, `uniform_rows` that is not a positive
@@ -289,7 +303,11 @@ The rules that follow from this:
   after rounding every column that declares a
   [precision](frame.md#declared-precision); an identical presentation writes
   no update. A repeated `NaN` therefore counts as unchanged, and so does a
-  change smaller than half the quantum.
+  change smaller than half the quantum. The comparison covers the stored
+  bytes of every row, **the value under a null row included**: two
+  presentations that differ only in what sits beneath a masked row are
+  different updates. A writer that wants them deduplicated writes one fixed
+  value (zero, the empty string) under every null row.
 - A reader resolving a zero-row update hands back a block with the declared
   columns and zero rows, and that block appears in the frame.
 
@@ -335,7 +353,7 @@ coordinates under proton hopping, species under grand-canonical insertion.
 - Rows correspond by position. A producer that reorders or replaces rows
   without changing their count restates the aligned block. (The two blocks
   share no column, so an `id` lives in one of them.)
-- A writer refuses a frame that breaks the rule; a reader refuses a store
+- A writer refuses a frame that breaks the rule; a reader refuses a trajectory
   that does.
 - A reader hands back two blocks. It **MAY** also offer them joined; the
   column sets are disjoint, so the join is the union of columns.
@@ -383,12 +401,9 @@ resolves exactly the declared blocks: a declared block whose group is
 missing is absent at every ordinal, and a child group of `trajectory/` the
 declaration does not name (and that is not one of the reserved names) is
 not a block of the sequence — a reader does not resolve it into frames, and
-preserves it as unknown content. Only a store that carries no
+preserves it as unknown content. Only a trajectory that carries no
 `sequence_schema` at all (a foreign writer's) is read by deriving the
 declaration from its groups.
-
-The attribute carries **no version of its own**; the record's
-`meta["molrec_version"]` covers it.
 
 ## Resolving a frame
 
@@ -424,7 +439,9 @@ Two small namespaces are owned by the layout:
 
 A block named `step` / `time` / `meta` / `box`, or a column named `offset` /
 `step_index` / `_validity`, is rejected when the sequence is declared — not
-at the first write.
+at the first write. So is a name that differs from one of them only in case,
+and every block, column and per-step key is one node name
+([Names](frame.md#names)).
 
 ## Cost tracks change
 
@@ -460,7 +477,7 @@ step.
 ```text
 growth.mrec
  \-- meta
- |    +-- molrec_version: 1
+ |    +-- units: {"length": "angstrom", "energy": "kcal/mol"}
  \-- trajectory
       +-- sequence_schema
       +-- nstep: 19
@@ -480,8 +497,9 @@ growth.mrec
            +-- vectors: [[20, 0, 0], [0, 20, 0], [0, 0, 20]]
 ```
 
-`meta/` carries `molrec_version: 1`: writers always create it and stamp the
-version. There is no `step` array (the numbering is a progression) and no
+Writers always create `meta/`; here it states the units of `x` / `y` / `z`
+and of `pe`, which a record that carries them must
+([Units](conventions.md#units)). There is no `step` array (the numbering is a progression) and no
 `box/` array (the cell is fixed from ordinal 0, so it is three attributes —
 here only `vectors`, because `origin` and `boundary` hold their defaults).
 

@@ -55,8 +55,8 @@ optional box. Each `meta` value is typed by one of the per-step
 [tags](ragged.md#per-step-metadata) — a scalar of a column dtype, a fixed
 vector (`f64x3`, `i32x3`, `bool3`, …), or `json` for a nested document — and
 a frame read back carries every value at its tag. A frame enforces no relationship between its blocks —
-counts are independent, and any block name is legal except `box`, which
-names the cell. On the reference binding the frame is a
+counts are independent, and any block [name](#names) is legal except `box`,
+which names the cell. On the reference binding the frame is a
 [frame-shaped group](storage.md#frame-shaped-group): the `meta` mapping is
 the group's attributes, not a child, so `meta` is an ordinary block name.
 
@@ -77,6 +77,30 @@ frame
 
 A `frame` section of a record is this container. A `trajectory` section
 sequences the same container over time.
+
+## Names
+
+A block, a column, a per-step `meta` key of a trajectory, a style table and a
+root section are each **one node** of the reference binding, so each name is
+one node name, on every binding:
+
+- non-empty, with no `/`;
+- not `.`, `..` or `zarr.json` (a group's own metadata key);
+- not starting with `__`, which Zarr reserves.
+
+**No two siblings differ only in the case of their ASCII letters** — two
+columns of one block (`E` and `e`), two blocks of one frame, two per-step
+keys, two sections; nor a name and a name the layout reserves beside it
+(`Box` beside the cell's `box`, `Step` among a trajectory's children). A
+directory store on a case-insensitive file system holds one node for both.
+Names outside ASCII are kept as written; a producer keeps them apart by more
+than case or normalization form, which a file system may also fold.
+
+A writer refuses a name that breaks either rule, and a reader refuses a
+record that carries one. The rule is the model's and not one binding's, so a
+[collection](lmdb.md) holds exactly the names a `*.mrec/` root can. A key of
+a frame's `meta` document is an attribute name, not a node: any string but
+`_meta_types`.
 
 ## Nullable columns
 
@@ -180,13 +204,18 @@ to target:
 - A referencing column is `u64`; a null row (validity) references nothing.
 - A same-container target **MUST** exist wherever the referencing block has
   rows, and every non-null value **MUST** be below its row count; a reader
-  refuses a store that breaks either. An absolute target is checked the same
+  refuses a record that breaks either. An absolute target is checked the same
   way when that section is present; a trajectory block is never a target
   (its row count is not fixed).
 - A `u64` column that is neither an endpoint nor declared is a plain number
   (an opaque handle, an identifier), never a reference.
-- Tools that renumber rows (subset, replicate) renumber every same-container
-  reference and leave absolute ones unchanged.
+- A tool that renumbers the rows of a block (subset, replicate, reorder)
+  renumbers **every reference into that block**: the same-container ones,
+  and the absolute ones whose target is the block it renumbered (a subset of
+  `/frame/atoms` rewrites a `members.atom` declared `/frame/atoms`). A
+  reference into a block it did not touch is left as it is. A referencing
+  row whose target row was dropped is dropped with it, or the tool refuses;
+  it is never left pointing at another row.
 - On a trajectory, `targets` is part of the block's entry in
   `sequence_schema`; on a frame it is the block group's attribute.
 
@@ -251,5 +280,5 @@ The cell applies to the whole frame. For a trajectory, each frame carries
 its own box, so fixed-cell and variable-cell runs are both natural.
 
 Absence of optional parts has a fixed meaning: two readers that default them
-differently turn one store into two different physical systems, so the
+differently turn one record into two different physical systems, so the
 defaults above are normative.

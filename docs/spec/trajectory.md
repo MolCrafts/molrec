@@ -28,6 +28,10 @@ This is the logical picture; the full on-disk tree, with the elisions that
 make the common run cost one array per column, is
 [Ragged trajectory](ragged.md#layout).
 
+Every writer writes `nstep`, the commit marker; a reader that finds a
+trajectory without it reads `len(step)` frames
+([The commit marker](ragged.md#the-commit-marker-nstep)).
+
 `step`
 
 The producer's iteration counter at each committed frame, strictly
@@ -42,7 +46,12 @@ last in a commit ([Ragged trajectory](ragged.md#the-commit-marker-nstep)).
 An optional dataset that is the same as `step`, except it is `f64`-valued
 and contains the simulation time. It is all-or-nothing: a run either
 supplies a time for every frame or for none, and a writer refuses a frame
-that breaks either way.
+that breaks either way. Unlike `step`, `time` carries **no ordering rule**:
+it need not increase (a restart that resets the clock, a replica-exchange
+ladder, a minimization that records `0` throughout), and a value may repeat.
+`step` alone orders and identifies frames; a reader that needs monotonic
+time checks it itself. A value is any `f64`, a non-finite one included: it
+is stored as it is and no reader refuses it.
 
 Two integers index a trajectory and they are not the same one. The *frame
 ordinal* `i` is a frame's position in the sequence, `0 <= i < nstep`. The
@@ -86,6 +95,10 @@ When `system/<block>` and `trajectory/<block>` coexist, they are aligned
   `system/<block>`;
 - if both carry an `id` column, the values are equal row for row, so a
   reader may join on `id` as well as on position;
+- `id` is the **only** column both may carry. A reader presents the two as
+  one block whose columns are the union, so any other column is in `system`
+  (time-independent) or in `trajectory` (state), never both: a writer
+  refuses a record that puts one in both, and a reader refuses to read one;
 - a ragged trajectory block (row count varying per frame) **MUST NOT**
   share a name with a `system` block.
 
@@ -100,5 +113,5 @@ types that do not change in time belong in [system](system.md).
 The reference binding stores each block as a sparse update series (an
 append-first CSR layout). That encoding is specified under
 [Ragged trajectory](ragged.md); the reference streaming writer is
-`molrs.io.mrec.TrajectoryWriter`, the whole-sequence doors
-`molrs.io.write_mrec_trajectory` / `read_mrec_trajectory`.
+`molpy.io.mrec.MrecWriter`, and `MrecReader` reads the sequence back.
+A record that carries a trajectory is `molpy.io.write_mrec(..., trajectory=)`.

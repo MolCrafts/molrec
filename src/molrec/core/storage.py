@@ -1,4 +1,4 @@
-"""Store bases for the core module.
+"""Storage bases for the core module.
 
 Array-tree semantics: named groups of named arrays, each array typed and
 shaped, with attribute maps hanging off groups (Zarr), or keyed values in one
@@ -12,14 +12,14 @@ database backend could never honor.
 
 from __future__ import annotations
 
-from molrec.store import Store
+from molrec.storage import Storage
 
 
-class FrameStore(Store):
+class FrameStorage(Storage):
     """Where one frame lands."""
 
 
-class TrajectoryStore(Store):
+class TrajectoryStorage(Storage):
     """Where one sequence of frames lands.
 
     Same array-tree semantics as a frame, one level up: the sections are
@@ -27,13 +27,13 @@ class TrajectoryStore(Store):
     """
 
 
-class RecordStore(Store):
+class RecordStorage(Storage):
     """Where a whole record root lands."""
 
 
-class CollectionStore(Store):
+class CollectionStorage(Storage):
     """Where a collection of records lands (``docs/spec/collection.md``)."""
 
 
-class ForceFieldStore(Store):
+class ForceFieldStorage(Storage):
     """Where one force field lands (``docs/spec/forcefield.md``)."""

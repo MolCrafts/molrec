@@ -85,14 +85,14 @@ class Bench(ABC):
     def run(self, adapter: Adapter, binding: Binding, workdir: Path) -> list[Timing]:
         timings: list[Timing] = []
         for workload in self.workloads():
-            store = binding.new_store(workdir / f"{workload.id}.bench")
+            storage = binding.new_storage(workdir / f"{workload.id}.bench")
 
             started = time.perf_counter()
-            adapter.write(workload.model, store)
+            adapter.write(workload.model, storage)
             timings.append(self._timing(workload, binding, "write", time.perf_counter() - started))
 
             started = time.perf_counter()
-            adapter.read(store)
+            adapter.read(storage)
             timings.append(self._timing(workload, binding, "read", time.perf_counter() - started))
         return timings
 

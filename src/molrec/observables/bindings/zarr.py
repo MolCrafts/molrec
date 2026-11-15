@@ -1,4 +1,4 @@
-"""The Zarr V3 binding of the v1 ``observables`` section.
+"""The Zarr V3 binding of the ``observables`` section.
 
 Layout (``docs/spec/observables.md``), inside a record root::
 
@@ -10,7 +10,7 @@ Layout (``docs/spec/observables.md``), inside a record root::
 The metadata document is the named keys (``kind``, ``description``,
 ``time_dependent``, then ``unit`` / ``axes`` / ``sampling`` / ``domain`` /
 ``target`` when set) plus every key the producer added, kept verbatim. A
-kind this version does not define is written and read back unchanged.
+kind the contract does not define is written and read back unchanged.
 """
 
 from __future__ import annotations
@@ -21,39 +21,37 @@ from typing import Any, ClassVar
 import zarr
 
 from molrec.binding import Binding, Codec
-from molrec.core.bindings.zarr import ZarrStore, create_fixed, stored_dtype
-from molrec.core.model import (
+from molrec.core.bindings.zarr import ZarrStorage, create_fixed, stored_dtype
+from molrec.core.model import ArrayModel, document
+from molrec.observables.model import (
     OBSERVABLES_META_GROUP,
-    ArrayModel,
     ObservableMetaModel,
     ObservableModel,
     ObservablesModel,
     check_observable_name,
-    document,
-    stamp_version,
 )
-from molrec.observables.store import ObservableStore
+from molrec.observables.storage import ObservableStorage
 from molrec.registry import REGISTRY
 
 #: The section's name at the record root.
 OBSERVABLES_GROUP = "observables"
 
 
-class ZarrObservableStore(ZarrStore, ObservableStore):
+class ZarrObservableStorage(ZarrStorage, ObservableStorage):
     """A record root holding ``meta`` and an ``observables`` section."""
 
 
 class ZarrObservablesCodec(Codec):
-    """The official translation of the v1 section."""
+    """The official translation of the section."""
 
-    def write(self, model: ObservablesModel, store: ZarrObservableStore) -> None:
-        store.clear()
-        root = store.root(mode="w")
-        root.create_group("meta").attrs.update(stamp_version({}))
+    def write(self, model: ObservablesModel, storage: ZarrObservableStorage) -> None:
+        storage.clear()
+        root = storage.root(mode="w")
+        root.create_group("meta")
         self.write_into(root.create_group(OBSERVABLES_GROUP), model)
 
-    def read(self, store: ZarrObservableStore) -> ObservablesModel:
-        root = store.root(mode="r")
+    def read(self, storage: ZarrObservableStorage) -> ObservablesModel:
+        root = storage.root(mode="r")
         if OBSERVABLES_GROUP not in root:
             return ObservablesModel()
         return self.read_from(root[OBSERVABLES_GROUP])
@@ -106,10 +104,10 @@ class ZarrObservableBinding(Binding):
     module: ClassVar[str] = "observables"
     backend: ClassVar[str] = "zarr"
 
-    def new_store(self, workdir: Path) -> ZarrObservableStore:
-        store = ZarrObservableStore(workdir.with_suffix(".mrec"))
-        store.clear()
-        return store
+    def new_storage(self, workdir: Path) -> ZarrObservableStorage:
+        storage = ZarrObservableStorage(workdir.with_suffix(".mrec"))
+        storage.clear()
+        return storage
 
     def codec(self) -> ZarrObservablesCodec:
         return ZarrObservablesCodec()

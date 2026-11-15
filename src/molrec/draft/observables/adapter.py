@@ -7,7 +7,7 @@ from typing import Any, ClassVar
 
 from molrec.adapter import Adapter
 from molrec.draft.observables.model import ObservablesModel
-from molrec.draft.observables.store import ObservableStore
+from molrec.draft.observables.storage import ObservableStorage
 
 
 class ObservableAdapter(Adapter):
@@ -20,7 +20,7 @@ class ObservableAdapter(Adapter):
     module: ClassVar[str] = "draft/observables"
 
     @abstractmethod
-    def write(self, model: ObservablesModel, store: ObservableStore) -> None: ...
+    def write(self, model: ObservablesModel, storage: ObservableStorage) -> None: ...
 
     @abstractmethod
-    def read(self, store: ObservableStore) -> Any: ...
+    def read(self, storage: ObservableStorage) -> Any: ...

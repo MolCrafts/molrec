@@ -1,0 +1,465 @@
+{
+  "name": "charmm-demo",
+  "special_bonds": {
+    "coul": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "lj": [
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "styles": [
+    {
+      "category": "atom",
+      "style": "full"
+    },
+    {
+      "category": "angle",
+      "style": "charmm"
+    },
+    {
+      "category": "dihedral",
+      "style": "charmm"
+    },
+    {
+      "category": "pair",
+      "params": {
+        "cutoff": 12.0,
+        "mixing": "arithmetic"
+      },
+      "style": "lj/charmm"
+    },
+    {
+      "category": "pair",
+      "params": {
+        "cutoff": 12.0
+      },
+      "style": "coul/cut"
+    }
+  ],
+  "tables": {
+    "angle.charmm": {
+      "columns": {
+        "itom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            "HA",
+            "NH1"
+          ]
+        },
+        "jtom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            "CT1",
+            "CT1"
+          ]
+        },
+        "k": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            35.5,
+            48.0
+          ]
+        },
+        "k_ub": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": [
+            true,
+            false
+          ],
+          "values": [
+            5.4,
+            0.0
+          ]
+        },
+        "ktom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            "HA",
+            "HA"
+          ]
+        },
+        "name": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            "HA-CT1-HA",
+            "NH1-CT1-HA"
+          ]
+        },
+        "r_ub": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": [
+            true,
+            false
+          ],
+          "values": [
+            1.802,
+            0.0
+          ]
+        },
+        "theta0": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            108.4,
+            108.0
+          ]
+        }
+      },
+      "count": 2,
+      "structural_shape": null,
+      "targets": null
+    },
+    "atom.full": {
+      "columns": {
+        "mass": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            3
+          ],
+          "validity": null,
+          "values": [
+            12.011,
+            1.008,
+            14.007
+          ]
+        },
+        "name": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            3
+          ],
+          "validity": null,
+          "values": [
+            "CT1",
+            "HA",
+            "NH1"
+          ]
+        }
+      },
+      "count": 3,
+      "structural_shape": null,
+      "targets": null
+    },
+    "dihedral.charmm": {
+      "columns": {
+        "itom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            "",
+            "HA"
+          ]
+        },
+        "jtom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            "CT1",
+            "CT1"
+          ]
+        },
+        "k": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            0.0,
+            0.2
+          ]
+        },
+        "ktom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            "NH1",
+            "CT1"
+          ]
+        },
+        "ltom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            "",
+            "HA"
+          ]
+        },
+        "name": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            "X-CT1-NH1-X",
+            "HA-CT1-CT1-HA"
+          ]
+        },
+        "periodicity": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            1.0,
+            3.0
+          ]
+        },
+        "phase": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            0.0,
+            180.0
+          ]
+        },
+        "w": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            2
+          ],
+          "validity": null,
+          "values": [
+            1.0,
+            0.5
+          ]
+        }
+      },
+      "count": 2,
+      "structural_shape": null,
+      "targets": null
+    },
+    "pair.coul%2Fcut": {
+      "columns": {
+        "itom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            0
+          ],
+          "validity": null,
+          "values": []
+        },
+        "jtom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            0
+          ],
+          "validity": null,
+          "values": []
+        },
+        "name": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            0
+          ],
+          "validity": null,
+          "values": []
+        }
+      },
+      "count": 0,
+      "structural_shape": null,
+      "targets": null
+    },
+    "pair.lj%2Fcharmm": {
+      "columns": {
+        "epsilon": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            4
+          ],
+          "validity": [
+            true,
+            true,
+            true,
+            false
+          ],
+          "values": [
+            0.02,
+            0.022,
+            0.2,
+            0.0
+          ]
+        },
+        "epsilon14": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            4
+          ],
+          "validity": [
+            true,
+            false,
+            false,
+            true
+          ],
+          "values": [
+            0.01,
+            0.0,
+            0.0,
+            0.0447
+          ]
+        },
+        "itom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            4
+          ],
+          "validity": null,
+          "values": [
+            "CT1",
+            "HA",
+            "NH1",
+            "CT1"
+          ]
+        },
+        "jtom": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            4
+          ],
+          "validity": null,
+          "values": [
+            "CT1",
+            "HA",
+            "NH1",
+            "NH1"
+          ]
+        },
+        "name": {
+          "dtype": "string",
+          "precision": null,
+          "shape": [
+            4
+          ],
+          "validity": null,
+          "values": [
+            "CT1",
+            "HA",
+            "NH1",
+            "CT1-NH1-14"
+          ]
+        },
+        "sigma": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            4
+          ],
+          "validity": [
+            true,
+            true,
+            true,
+            false
+          ],
+          "values": [
+            4.0538,
+            2.3876,
+            3.2963,
+            0.0
+          ]
+        },
+        "sigma14": {
+          "dtype": "f64",
+          "precision": null,
+          "shape": [
+            4
+          ],
+          "validity": [
+            true,
+            false,
+            false,
+            true
+          ],
+          "values": [
+            3.3854,
+            0.0,
+            0.0,
+            3.3409
+          ]
+        }
+      },
+      "count": 4,
+      "structural_shape": null,
+      "targets": null
+    }
+  },
+  "units": {
+    "preset": "real"
+  }
+}

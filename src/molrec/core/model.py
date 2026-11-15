@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Iterable, Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal
@@ -37,8 +38,9 @@ from pydantic import (
 )
 
 from molrec import jsonvalue
-from molrec.arrays import NDArray, arrays_equal, arrays_identical
+from molrec.arrays import NdArray, arrays_equal, arrays_identical
 from molrec.precision import PRECISION_MAX, PRECISION_MIN, quantize
+from molrec.safe_name import METADATA_KEY, percent_decode, percent_encode
 
 
 class DocumentModel(BaseModel):
@@ -214,7 +216,7 @@ def coerce_meta_value(tag: str, value: Any) -> Any:
     as ``1`` is ``1.0``; an integer given as ``1.0`` is refused, not
     rounded), a vector a list of exactly its width, a ``json`` value a plain
     finite JSON document. What a writer stores is what this returns, so two
-    implementations that were handed the same Python value store the same
+    implementations that were handed the same Python value storage the same
     thing.
     """
     if tag == "json":
@@ -311,7 +313,7 @@ def decode_typed_meta(attrs: dict[str, Any], where: str) -> tuple[dict[str, Any]
     """A stored meta document (with its ``_meta_types``) as values and tags.
 
     A tagged key is decoded under its tag and any other form is refused; an
-    untagged key gets the tag it is inferred as (a store written before
+    untagged key gets the tag it is inferred as (a storage written before
     ``_meta_types``); a tag whose key is absent is ignored.
     """
     tags = attrs.pop(META_TYPES_ATTR, {})
@@ -342,6 +344,46 @@ def decode_typed_meta(attrs: dict[str, Any], where: str) -> tuple[dict[str, Any]
 #: ``__`` prefix for node names.
 VALIDITY_GROUP = "_validity"
 
+
+def check_node_name(name: str, what: str) -> None:
+    """``name`` is one node name (``docs/spec/frame.md``, names): what a
+    block, a column, a per-step meta key and a section each are on the Zarr
+    binding. The rule is the model's, so every binding holds the same names."""
+    if (
+        not isinstance(name, str)
+        or not name
+        or name in (".", "..", METADATA_KEY)
+        or "/" in name
+        or name.startswith("__")
+    ):
+        raise ValueError(
+            f"{what} {name!r} is not one node name (non-empty, no '/', not '.', '..' or "
+            f"{METADATA_KEY!r}, no leading '__')"
+        )
+
+
+def _ascii_folded(name: str) -> str:
+    """``name`` with its ASCII letters lowered, and nothing else touched."""
+    return "".join(char.lower() if char.isascii() else char for char in name)
+
+
+def check_names(names: Iterable[str], what: str, reserved: Iterable[str] = ()) -> None:
+    """Every one of ``names`` is a node name, and no two siblings -- two of
+    them, or one of them and a ``reserved`` name of the layout -- differ only
+    in the case of their ASCII letters: a case-insensitive file system holds
+    one node for both. A name that *is* a reserved one is its owner's to
+    refuse."""
+    seen = {_ascii_folded(name): name for name in reserved}
+    for name in names:
+        check_node_name(name, what)
+        other = seen.setdefault(_ascii_folded(name), name)
+        if other != name:
+            raise ValueError(
+                f"{what} {name!r} and {other!r} differ only in case; a case-insensitive file "
+                "system stores one node for both"
+            )
+
+
 #: A column's validity mask in the published schema: one flag per row.
 _MASK = {"type": "array", "items": {"type": "boolean"}}
 
@@ -357,14 +399,14 @@ STORED: dict[str, bool] = {"stored": True}
 
 
 def _stored(info: ValidationInfo | None) -> bool:
-    """Whether a model is being built from a store (:data:`STORED`)."""
+    """Whether a model is being built from a storage (:data:`STORED`)."""
     return bool(info is not None and info.context and info.context.get("stored"))
 
 
 def _as_stored(model: BaseModel, info: ValidationInfo | None) -> bool:
     """Whether ``model`` holds stored values that must not be rounded again.
 
-    Built from a store (:data:`STORED`), or already rounded once: pydantic
+    Built from a storage (:data:`STORED`), or already rounded once: pydantic
     runs a model's after-validators again whenever the instance is handed to
     another model, so the first verdict is remembered on the instance.
     """
@@ -402,8 +444,11 @@ class ColumnModel(BaseModel):
     ``BoxModel`` materializing its defaults, a validated model holds the
     **stored** values -- rounded to the precision's binary grid
     (:func:`molrec.precision.quantize`) -- which is what a writer stores and
-    a reader hands back. A model built from a store (:data:`STORED`) keeps
+    a reader hands back. A model built from a storage (:data:`STORED`) keeps
     the values exactly as stored.
+
+    ``unit`` is an optional label for this column alone. It is not converted,
+    it has no default, and it does not stand in for the record's unit system.
     """
 
     model_config = ConfigDict(
@@ -412,9 +457,10 @@ class ColumnModel(BaseModel):
 
     dtype: DType
     shape: tuple[int, ...] = Field(min_length=1)
-    values: NDArray | None = None
-    validity: Annotated[NDArray, WithJsonSchema(_MASK)] | None = None
+    values: NdArray | None = None
+    validity: Annotated[NdArray, WithJsonSchema(_MASK)] | None = None
     precision: Precision | None = None
+    unit: str | None = None
     _as_stored: bool = PrivateAttr(default=False)
 
     @model_validator(mode="after")
@@ -451,6 +497,7 @@ class ColumnModel(BaseModel):
             self.dtype != other.dtype
             or self.shape != other.shape
             or self.precision != other.precision
+            or self.unit != other.unit
         ):
             return False
         return arrays_equal(self.values, other.values) and arrays_equal(
@@ -492,9 +539,10 @@ CANONICAL_COLUMNS: dict[str, DType] = {
     **dict.fromkeys(("axis_x", "axis_y", "axis_z", "occupancy", "b_factor"), "f64"),
     **dict.fromkeys(CANONICAL_U64, "u64"),
     "atom_map": "u64",
+    "n_bonds": "u64",
     "formal_charge": "i64",
     **dict.fromkeys(("ix", "iy", "iz"), "i32"),
-    **dict.fromkeys(("free", "is_14", "exclude_14"), "bool"),
+    **dict.fromkeys(("free", "exclude_14"), "bool"),
     **dict.fromkeys(("element", "type", "name", "res_name", "bead_type"), "string"),
     **dict.fromkeys(("chain", "icode", "altloc", "style"), "string"),
 }
@@ -609,6 +657,7 @@ class BlockModel(BaseModel):
             raise ValueError(
                 f"{VALIDITY_GROUP!r} names a block's validity masks; a column cannot take it"
             )
+        check_names(self.columns, "column", reserved=(VALIDITY_GROUP,))
         for name, column in self.columns.items():
             if column.count != self.count:
                 raise ValueError(
@@ -652,6 +701,9 @@ _FLAGS3 = {"type": "array", "items": {"type": "boolean"}, "minItems": 3, "maxIte
 
 BOX_NDIM = 3
 
+#: The child of a frame-shaped group that is the cell, not a block.
+BOX_NAME = "box"
+
 
 def _float64(value: np.ndarray, what: str) -> np.ndarray:
     """``value`` as binary64: an integer array converts exactly, anything else
@@ -677,8 +729,8 @@ class CellModel(BaseModel):
 
     model_config = ConfigDict(frozen=True, from_attributes=True)
 
-    vectors: Annotated[NDArray, WithJsonSchema(_MATRIX3)]
-    origin: Annotated[NDArray, WithJsonSchema(_VECTOR3)] | None = None
+    vectors: Annotated[NdArray, WithJsonSchema(_MATRIX3)]
+    origin: Annotated[NdArray, WithJsonSchema(_VECTOR3)] | None = None
     boundary: Annotated[tuple[bool, ...], WithJsonSchema(_FLAGS3)] | None = None
 
     @model_validator(mode="after")
@@ -711,7 +763,7 @@ class CellModel(BaseModel):
 def resolve_cell(cell: CellModel, defined: bool) -> dict[str, Any]:
     """A cell's parts with the normative meaning of every absence filled in.
 
-    Two readers that default an absent part differently turn one store into
+    Two readers that default an absent part differently turn one storage into
     two physical systems, so absence is resolved here, once:
 
     * an absent ``origin`` is the coordinate origin;
@@ -807,6 +859,11 @@ class FrameModel(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _blocks_are_named(self) -> FrameModel:
+        check_names(self.blocks, "block", reserved=(BOX_NAME,))
+        return self
+
+    @model_validator(mode="after")
     def _references_resolve(self) -> FrameModel:
         """Every declared same-container row reference is to a block of this
         frame, and in range. (An absolute one is the record's to check.)"""
@@ -899,7 +956,7 @@ class MetaSeriesModel(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _fill_arrives_in_its_json_form(cls, data: Any) -> Any:
-        """A fill read from a store is in the typed JSON form; one built in
+        """A fill read from a storage is in the typed JSON form; one built in
         Python is already a value. Both reach the same coerced value."""
         if isinstance(data, dict) and "fill" in data and isinstance(data.get("dtype"), str):
             tag, fill = data["dtype"], data["fill"]
@@ -1008,6 +1065,11 @@ class SequenceBlockModel(DocumentModel):
     aligned_with: str | None = None
 
     @model_validator(mode="after")
+    def _columns_are_named(self) -> SequenceBlockModel:
+        check_names(self.columns, "column", reserved=RESERVED_BLOCK_NAMES)
+        return self
+
+    @model_validator(mode="after")
     def _targets_are_declared_u64_columns(self) -> SequenceBlockModel:
         _targets_are_u64_columns(
             self.targets,
@@ -1024,13 +1086,16 @@ class SequenceSchemaModel(DocumentModel):
     lifetime. ``blocks`` mirrors the frame blocks; ``meta`` declares each
     per-step key as ``{dtype, fill?}`` -- the tag the array's ``meta_dtype``
     attribute repeats, and the fill an omitting frame is completed with.
-
-    The attribute carries no version of its own; the record's
-    ``meta["molrec_version"]`` covers it.
     """
 
     blocks: dict[str, SequenceBlockModel] = Field(default_factory=dict)
     meta: dict[str, MetaSeriesModel] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _sections_are_named(self) -> SequenceSchemaModel:
+        check_names(self.blocks, "block", reserved=RESERVED_TRAJECTORY_NAMES)
+        check_names(self.meta, "per-step meta key")
+        return self
 
 
 def declare_block(block: BlockModel) -> SequenceBlockModel:
@@ -1077,7 +1142,9 @@ def same_cell(left: CellModel, right: CellModel) -> bool:
 
 
 class BlockState(StrEnum):
-    """What a block *is* at one frame ordinal -- the three states of S1.
+    """What a block *is* at one frame ordinal.
+
+    The three states of ``docs/spec/ragged.md#the-three-states-of-a-block``:
 
     * ``PRESENT``: the most recent update at or before this ordinal has rows.
     * ``EMPTY``: the most recent update is a zero-row update -- the block is
@@ -1154,7 +1221,7 @@ class TrajectoryModel(BaseModel):
     This is the *logical* content, the thing a reader hands back. The physical
     form is the binding's: one CSR row range per section update, a sparse
     index of the ordinals a section changed at, and each section written again
-    only when it changed. Two conforming stores of one trajectory are expected
+    only when it changed. Two conforming records of one trajectory are expected
     to differ byte for byte, so none of that appears here.
 
     Two integers index a trajectory and they are not the same one. A frame's
@@ -1215,6 +1282,54 @@ class TrajectoryModel(BaseModel):
         return self
 
     @model_validator(mode="after")
+    def _one_unit_string_per_column(self) -> TrajectoryModel:
+        """A column states one unit string for the run.
+
+        The string is a label on the column, not a declaration in
+        ``sequence_schema``. Frames that omit it take the one string another
+        frame stated. Two different strings are refused.
+        """
+        stated: dict[tuple[str, str], str] = {}
+        for ordinal, frame in enumerate(self.frames):
+            for block_name, block in frame.blocks.items():
+                for column_name, column in block.columns.items():
+                    if column.unit is None:
+                        continue
+                    key = (block_name, column_name)
+                    previous = stated.get(key)
+                    if previous is not None and previous != column.unit:
+                        raise ValueError(
+                            f"frame {ordinal}: column {column_name!r} of block {block_name!r} "
+                            f"states unit {column.unit!r}, an earlier frame states {previous!r}"
+                        )
+                    stated[key] = column.unit
+        if not stated:
+            return self
+        frames: list[FrameModel] = []
+        changed_frames = False
+        for frame in self.frames:
+            blocks: dict[str, BlockModel] = {}
+            changed_frame = False
+            for block_name, block in frame.blocks.items():
+                columns = dict(block.columns)
+                changed_block = False
+                for column_name, column in block.columns.items():
+                    unit = stated.get((block_name, column_name))
+                    if unit is not None and column.unit != unit:
+                        columns[column_name] = column.model_copy(update={"unit": unit})
+                        changed_block = True
+                if changed_block:
+                    blocks[block_name] = block.model_copy(update={"columns": columns})
+                    changed_frame = True
+                else:
+                    blocks[block_name] = block
+            frames.append(frame.model_copy(update={"blocks": blocks}) if changed_frame else frame)
+            changed_frames = changed_frames or changed_frame
+        if changed_frames:
+            object.__setattr__(self, "frames", frames)
+        return self
+
+    @model_validator(mode="after")
     def _the_cell_is_a_section(self) -> TrajectoryModel:
         for ordinal, frame in enumerate(self.frames):
             if frame.box is not None:
@@ -1238,12 +1353,13 @@ class TrajectoryModel(BaseModel):
 
         A frame may present a **subset** of the declaration, never anything
         outside it. A run that decides halfway through to record a new block
-        or column needs a new store, so a frame that invents one is refused
+        or column needs a new storage, so a frame that invents one is refused
         here rather than half-written there. Reserved names are refused at
         declaration for the same reason.
         """
         stated = self.blocks is not None
         declared: dict[str, SequenceBlockModel] = dict(self.blocks or {})
+        check_names(self.meta, "per-step meta key")
         for name, block in declared.items():
             _refuse_reserved(name, block.columns)
             for column, spec in block.columns.items():
@@ -1322,9 +1438,11 @@ class TrajectoryModel(BaseModel):
                     declared[name] = pinned = pinned.model_copy(
                         update={"targets": presented.targets}
                     )
-                # S4: a grid block's row count is fixed. ``BlockModel`` already
-                # holds each presentation to ``count == prod(structural_shape)``,
-                # so pinning the shape pins the count.
+                # A grid block's row count is fixed
+                # (docs/spec/ragged.md#per-block-sparse-updates-csr). ``BlockModel``
+                # already holds each presentation to
+                # ``count == prod(structural_shape)``, so pinning the shape pins
+                # the count.
                 if presented.structural_shape != pinned.structural_shape:
                     raise ValueError(
                         f"block {name!r} has structural shape {presented.structural_shape} at "
@@ -1346,7 +1464,7 @@ class TrajectoryModel(BaseModel):
         Every frame holds the stored values -- rounded to its column's
         declared precision -- and neither its columns' precision nor its
         blocks' ``targets``: the declaration states both for the run. A model
-        built from a store (:data:`STORED`) keeps the values exactly as
+        built from a storage (:data:`STORED`) keeps the values exactly as
         stored.
         """
         declared = self.blocks or {}
@@ -1381,7 +1499,9 @@ class TrajectoryModel(BaseModel):
 
     @model_validator(mode="after")
     def _omission_carries_forward(self) -> TrajectoryModel:
-        """Resolve S1 once, so the frames are what a reader hands back.
+        """Resolve the block states once, so the frames are what a reader hands back.
+
+        The states are ``docs/spec/ragged.md#the-three-states-of-a-block``'s.
 
         A frame that omits a declared block carries no update for it: the
         block at that ordinal is its most recent update, rows included (or
@@ -1559,6 +1679,8 @@ def _union_nullable(
 def _refuse_reserved(name: str, columns: dict[str, Any]) -> None:
     if name in RESERVED_TRAJECTORY_NAMES:
         raise ValueError(f"{name!r} is reserved by the trajectory layout; a block cannot take it")
+    check_names((name,), "block", reserved=RESERVED_TRAJECTORY_NAMES)
+    check_names(columns, "column", reserved=RESERVED_BLOCK_NAMES)
     taken = sorted(set(columns) & RESERVED_BLOCK_NAMES)
     if taken:
         raise ValueError(
@@ -1582,10 +1704,11 @@ class AuthorModel(DocumentModel):
 
 
 class ModuleModel(DocumentModel):
-    """A shared interpretation beyond this specification, keyed by name under
-    ``meta/modules``: a major/minor ``version`` plus module-specific keys."""
+    """A shared interpretation beyond this specification that the record uses,
+    keyed by its name under ``meta/modules``: optionally the URL of its
+    specification, plus module-specific keys."""
 
-    version: tuple[int, int]
+    spec: str | None = None
 
 
 def _rfc3339(value: str) -> str:
@@ -1606,22 +1729,6 @@ Timestamp = Annotated[
     WithJsonSchema({"type": "string", "format": "date-time"}),
 ]
 
-#: The contract version this package speaks. Every writer stamps it on
-#: ``meta``; a reader validates a present key and refuses a newer one.
-MOLREC_VERSION = 1
-
-#: ``meta["molrec_version"]``: absent, or an integer in ``1..=MOLREC_VERSION``.
-#: Strict -- ``"1"``, ``1.0`` and ``true`` are not versions -- and never
-#: ``null``: present means validated.
-MolrecVersion = Annotated[StrictInt, Field(ge=1, le=MOLREC_VERSION)]
-
-_VERSION_SCHEMA = {
-    "type": "integer",
-    "minimum": 1,
-    "maximum": MOLREC_VERSION,
-    "description": "Absent on a store written before version 1; never null.",
-}
-
 
 def revalidated[M: BaseModel](model: M) -> M:
     """``model`` run through its validators again.
@@ -1635,13 +1742,24 @@ def revalidated[M: BaseModel](model: M) -> M:
     return type(model).model_validate(model.model_dump(exclude_unset=True))
 
 
-def stamp_version(document: dict[str, Any]) -> dict[str, Any]:
-    """``document`` with ``molrec_version`` stamped in when the producer gave none.
+class UnitsModel(DocumentModel):
+    """One unit system: a label per quantity, never a conversion.
 
-    Every writer -- molrec's own codecs included -- emits the version it
-    writes; a producer that set the key keeps its value.
+    Every field is optional. A missing field is absent, not ``null``. An
+    unknown key is kept. This is not :class:`ForceFieldUnitsModel`: a force
+    field states its own base units, and this object does not accept a
+    preset.
     """
-    return {"molrec_version": MOLREC_VERSION, **document}
+
+    length: str | None = None
+    energy: str | None = None
+    force: str | None = None
+    angle: str | None = None
+    charge: str | None = None
+    mass: str | None = None
+    time: str | None = None
+    pressure: str | None = None
+    temperature: str | None = None
 
 
 class MetaModel(DocumentModel):
@@ -1650,20 +1768,12 @@ class MetaModel(DocumentModel):
     ``extra="allow"`` is not convenience -- it is the preserve-the-unknown
     invariant: a reader must keep keys it does not recognize.
 
-    ``molrec_version`` is stamped by every writer (:func:`stamp_version`). A
-    reader validates it only when present: absent is a store written before
-    version 1, read best-effort; present must be an integer in
-    ``1..=MOLREC_VERSION`` -- ``null``, ``0``, a string, a float or a newer
-    version is refused. Identity of a record is the ``*.mrec`` path suffix
-    plus a Zarr root, not this key.
+    Identity of a record is the ``*.mrec`` path suffix plus a Zarr root.
 
     ``record_id`` and ``content_hash`` are optional provenance, like
     ``creator``, ``author``, ``created_at`` and ``source``.
     """
 
-    molrec_version: Annotated[MolrecVersion, WithJsonSchema(_VERSION_SCHEMA)] = Field(
-        default=None, json_schema_extra=lambda schema: schema.pop("default", None)
-    )
     creator: CreatorModel | None = None
     author: AuthorModel | None = None
     created_at: Timestamp | None = None
@@ -1671,6 +1781,7 @@ class MetaModel(DocumentModel):
     modules: dict[str, ModuleModel] | None = None
     record_id: str | None = None
     content_hash: str | None = None
+    units: UnitsModel | None = None
 
 
 class ErrorModel(DocumentModel):
@@ -1698,6 +1809,10 @@ class StatusModel(DocumentModel):
     error: ErrorModel | None = None
 
 
+#: The ``method.type`` whose document is a list of stages.
+WORKFLOW_METHOD = "workflow"
+
+
 class EngineModel(DocumentModel):
     name: str
     version: str | None = None
@@ -1715,58 +1830,24 @@ class MethodModel(DocumentModel):
     order: list[str] | None = None
     stages: dict[str, MethodModel] | None = None
 
-
-# ---------------------------------------------------------------------------
-# The v1 observables section (docs/spec/observables.md)
-#
-# Each observable is a pair -- a metadata document and one data array -- and
-# the pair is mandatory. ``kind`` says how the array is read: ``scalar`` (one
-# value per sample) or ``vector`` (an ordered tuple of components per
-# sample), with ``axes`` naming trailing axes for higher-rank data. A kind
-# this version does not define is **carried through unchanged**, and so is
-# every metadata key it does not name. The dims-based redesign is the draft
-# in :mod:`molrec.draft.observables`, not part of version 1.
-# ---------------------------------------------------------------------------
-
-#: The kinds version 1 defines. Others are carried through, never refused.
-KNOWN_KINDS: tuple[str, ...] = ("scalar", "vector")
-
-#: The child of ``observables/`` that holds the metadata groups. An
-#: observable cannot take the name.
-OBSERVABLES_META_GROUP = "meta"
-
-
-def check_observable_name(name: str) -> None:
-    """An observable is one array and one metadata group named ``name``: a
-    single Zarr node name that is not the reserved ``meta``."""
-    if (
-        not name
-        or name in (".", "..", OBSERVABLES_META_GROUP)
-        or "/" in name
-        or name.startswith("__")
-    ):
-        raise ValueError(
-            f"observable name {name!r} is not a single node name (non-empty, no '/', not "
-            f"'.', '..' or {OBSERVABLES_META_GROUP!r}, no leading '__')"
-        )
-
-
-class ObservableMetaModel(DocumentModel):
-    """The ``observables/meta/<name>`` document.
-
-    ``kind``, ``description`` and ``time_dependent`` are required; the rest
-    are written only when set. Every other key is a producer's and is kept
-    verbatim (``extra="allow"``).
-    """
-
-    kind: Annotated[str, Field(min_length=1)]
-    description: str
-    time_dependent: bool
-    unit: str | None = None
-    axes: list[str] | None = None
-    sampling: str | None = None
-    domain: str | None = None
-    target: str | None = None
+    @model_validator(mode="after")
+    def _a_workflow_orders_its_stages(self) -> MethodModel:
+        """A ``workflow`` carries ``order`` and ``stages``, and ``order`` names
+        every stage exactly once. Outside a workflow the two keys are a
+        producer's and mean nothing here."""
+        if self.type != WORKFLOW_METHOD:
+            return self
+        if self.order is None or self.stages is None:
+            raise ValueError("a workflow method carries both order and stages")
+        repeated = sorted({name for name in self.order if self.order.count(name) > 1})
+        if repeated:
+            raise ValueError(f"workflow order names stages {repeated} twice")
+        unmatched = sorted(set(self.order) ^ set(self.stages))
+        if unmatched:
+            raise ValueError(
+                f"workflow order and stages disagree on {unmatched}; order names every stage once"
+            )
+        return self
 
 
 class ArrayModel(BaseModel):
@@ -1776,7 +1857,7 @@ class ArrayModel(BaseModel):
 
     dtype: DType
     shape: tuple[int, ...] = ()
-    values: NDArray | None = None
+    values: NdArray | None = None
 
     @model_validator(mode="after")
     def _values_match_declaration(self) -> ArrayModel:
@@ -1800,39 +1881,6 @@ class ArrayModel(BaseModel):
     __hash__ = None  # type: ignore[assignment]
 
 
-class ObservableModel(BaseModel):
-    """One named result: its metadata document and its data array -- the two
-    halves the layout stores side by side."""
-
-    model_config = ConfigDict(frozen=True, from_attributes=True)
-
-    meta: ObservableMetaModel
-    data: ArrayModel
-
-    @model_validator(mode="after")
-    def _time_runs_along_the_leading_axis(self) -> ObservableModel:
-        if self.meta.time_dependent and not self.data.shape:
-            raise ValueError(
-                "a time-dependent observable's leading axis is the trajectory axis; a 0-d "
-                "array has none"
-            )
-        return self
-
-
-class ObservablesModel(BaseModel):
-    """The section: every named observable of the record."""
-
-    model_config = ConfigDict(frozen=True, from_attributes=True)
-
-    observables: dict[str, ObservableModel] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def _names_are_node_names(self) -> ObservablesModel:
-        for name in self.observables:
-            check_observable_name(name)
-        return self
-
-
 class ArrayNodeModel(ArrayModel):
     """An array of an unrecognised subtree: its values and its attributes."""
 
@@ -1852,6 +1900,15 @@ class NodeModel(BaseModel):
     attributes: dict[str, Any] = Field(default_factory=dict)
     arrays: dict[str, ArrayNodeModel] = Field(default_factory=dict)
     groups: dict[str, NodeModel] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _children_are_named(self) -> NodeModel:
+        """Arrays and groups are children of one group: one namespace."""
+        both = sorted(set(self.arrays) & set(self.groups))
+        if both:
+            raise ValueError(f"{both} name both an array and a group of one node")
+        check_names((*self.arrays, *self.groups), "node")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -1875,20 +1932,21 @@ CATEGORY_ARITY: dict[str, int] = {
     "dihedral": 4,
     "improper": 4,
     "pair": 2,
-    "pair14": 2,
     "constraint": 2,
     "virtual_site": 0,
     "drude": 2,
     "cmap": 5,
 }
 
-#: The one parameter column with trailing axes: a ``cmap`` row's correction
-#: table, ``f64[T, N, N]`` (``docs/spec/forcefield.md``, rows and columns).
+#: A ``cmap`` row's correction map, ``f64[T, N, N]`` with ``N >= 2``: the
+#: array parameter whose shape the chapter pins further (``docs/spec/
+#: forcefield.md``, rows and columns). Every other array parameter is any
+#: ``f64[T, S...]``.
 CMAP_GRID = "grid"
 
-#: The categories whose rows are resolved through the unordered pair of atom
-#: types they name (``docs/spec/forcefield.md``, linking a system, rule 3).
-PAIR_CATEGORIES: frozenset[str] = frozenset({"pair", "pair14"})
+#: The values ``pair.lj/charmm``'s style parameter ``one_four`` may take: at
+#: which parameters a ``special_bonds`` 1-4 pair is priced.
+ONE_FOUR_VALUES: tuple[str, ...] = ("regular", "epsilon14")
 
 #: Annotation columns of a style table: ``string``, nullable.
 ANNOTATION_COLUMNS: frozenset[str] = frozenset(
@@ -1896,28 +1954,37 @@ ANNOTATION_COLUMNS: frozenset[str] = frozenset(
 )
 
 #: Bytes of a style name kept verbatim in its table's block name.
-_UNRESERVED = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+STYLE_UNRESERVED: frozenset[int] = frozenset(
+    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+)
 
 #: The combining rules a van-der-Waals pair style may name.
 MIXING_RULES: tuple[str, ...] = ("arithmetic", "geometric", "sixthpower")
 
+#: 180/π, the one rounding of it every implementation multiplies by: an angle
+#: in radians times this is the same double everywhere.
+DEGREES_PER_RADIAN = 180.0 / math.pi
+
 #: The unit presets and the unit of each quantity in them; ``None`` is a
-#: quantity the preset gives no unit (reduced ``lj``). The angle is a radian
-#: in every preset.
+#: quantity the preset gives no unit (reduced ``lj``). The presets are the
+#: LAMMPS ``units`` styles plus ``openmm`` (OpenMM's and GROMACS's nm, kJ/mol,
+#: ps). The angle is a degree in every preset, as in LAMMPS: it is the unit of
+#: angle *values* (theta0, phases); a force constant is per radian whatever it
+#: says.
 UNIT_QUANTITIES: tuple[str, ...] = ("length", "energy", "angle", "charge", "mass", "time")
 UNIT_PRESETS: dict[str, dict[str, str | None]] = {
     "real": dict(
-        zip(UNIT_QUANTITIES, ("angstrom", "kcal/mol", "radian", "e", "dalton", "fs"), strict=True)
+        zip(UNIT_QUANTITIES, ("angstrom", "kcal/mol", "degree", "e", "dalton", "fs"), strict=True)
     ),
     "metal": dict(
-        zip(UNIT_QUANTITIES, ("angstrom", "eV", "radian", "e", "dalton", "ps"), strict=True)
+        zip(UNIT_QUANTITIES, ("angstrom", "eV", "degree", "e", "dalton", "ps"), strict=True)
     ),
-    "si": dict(zip(UNIT_QUANTITIES, ("m", "J", "radian", "C", "kg", "s"), strict=True)),
+    "si": dict(zip(UNIT_QUANTITIES, ("m", "J", "degree", "C", "kg", "s"), strict=True)),
     "cgs": dict(
-        zip(UNIT_QUANTITIES, ("cm", "erg", "radian", "statcoulomb", "g", "s"), strict=True)
+        zip(UNIT_QUANTITIES, ("cm", "erg", "degree", "statcoulomb", "g", "s"), strict=True)
     ),
     "electron": dict(
-        zip(UNIT_QUANTITIES, ("bohr", "hartree", "radian", "e", "dalton", "fs"), strict=True)
+        zip(UNIT_QUANTITIES, ("bohr", "hartree", "degree", "e", "dalton", "fs"), strict=True)
     ),
     "micro": dict(
         zip(
@@ -1925,7 +1992,7 @@ UNIT_PRESETS: dict[str, dict[str, str | None]] = {
             (
                 "micrometer",
                 "picogram * micrometer**2 / microsecond**2",
-                "radian",
+                "degree",
                 "picocoulomb",
                 "picogram",
                 "microsecond",
@@ -1936,21 +2003,21 @@ UNIT_PRESETS: dict[str, dict[str, str | None]] = {
     "nano": dict(
         zip(
             UNIT_QUANTITIES,
-            ("nm", "attogram * nm**2 / ns**2", "radian", "e", "attogram", "ns"),
+            ("nm", "attogram * nm**2 / ns**2", "degree", "e", "attogram", "ns"),
             strict=True,
         )
     ),
-    "lj": {**dict.fromkeys(UNIT_QUANTITIES), "angle": "radian"},
+    "lj": {**dict.fromkeys(UNIT_QUANTITIES), "angle": "degree"},
+    "openmm": dict(
+        zip(UNIT_QUANTITIES, ("nm", "kJ/mol", "degree", "e", "dalton", "ps"), strict=True)
+    ),
 }
 
 
 def style_block_name(category: str, style: str) -> str:
     """The block a style's table lives at: ``<category>.<encoded style>``, every
     byte of the UTF-8 style outside ``A-Z a-z 0-9 - _`` written ``%XX``."""
-    encoded = "".join(
-        chr(byte) if byte in _UNRESERVED else f"%{byte:02X}" for byte in style.encode("utf-8")
-    )
-    return f"{category}.{encoded}"
+    return f"{category}.{percent_encode(style, STYLE_UNRESERVED)}"
 
 
 def parse_style_block_name(name: str) -> tuple[str, str]:
@@ -1959,22 +2026,7 @@ def parse_style_block_name(name: str) -> tuple[str, str]:
     category, dot, encoded = name.partition(".")
     if not dot or not category:
         raise ValueError(f"{name!r} is no style table name (<category>.<style>)")
-    raw = bytearray()
-    i = 0
-    while i < len(encoded):
-        char = encoded[i]
-        if char == "%":
-            digits = encoded[i + 1 : i + 3]
-            if len(digits) != 2 or not all(c in "0123456789ABCDEF" for c in digits):
-                raise ValueError(f"{name!r}: {encoded[i : i + 3]!r} is no %XX escape")
-            raw.append(int(digits, 16))
-            i += 3
-            continue
-        if ord(char) not in _UNRESERVED:
-            raise ValueError(f"{name!r}: {char!r} is written as a %XX escape")
-        raw.append(ord(char))
-        i += 1
-    style = raw.decode("utf-8")
+    style = percent_decode(encoded, STYLE_UNRESERVED)
     if style_block_name(category, style) != name:
         raise ValueError(f"{name!r} escapes a byte it keeps verbatim")
     return category, style
@@ -2012,6 +2064,17 @@ Category = Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]*$")]
 EndpointKey = Literal["type", "class", "smirks"]
 ParamValue = Annotated[float, Field(allow_inf_nan=False)] | str
 Weight = Annotated[float, Field(allow_inf_nan=False)]
+RoleName = Literal[
+    "complete:coul",
+    "complete:lj",
+    "additive",
+    "additive:lj",
+    "additive:coul",
+    "correction:coul",
+    "correction:lj",
+]
+SelectionName = Literal["all", "polarizable_except_own", "mixed_roles"]
+ChargeName = Literal["atom", "type", "drude"]
 
 
 class ForceFieldUnitsModel(DocumentModel):
@@ -2028,7 +2091,9 @@ class ForceFieldUnitsModel(DocumentModel):
         }
     )
 
-    preset: Literal["real", "metal", "si", "cgs", "electron", "micro", "nano", "lj"] | None = None
+    preset: (
+        Literal["real", "metal", "si", "cgs", "electron", "micro", "nano", "lj", "openmm"] | None
+    ) = None
     length: str | None = None
     energy: str | None = None
     angle: str | None = None
@@ -2077,6 +2142,8 @@ class StyleModel(DocumentModel):
     The table is the block :attr:`block` -- a function of ``(category,
     style)``, so the two can never disagree. ``params`` and ``endpoint_key``
     are written only when they say something (non-empty, not ``"type"``).
+    ``role``, ``selection`` and ``charge`` are a pair style's registry
+    declaration, written only when stated.
     """
 
     category: Category
@@ -2084,6 +2151,9 @@ class StyleModel(DocumentModel):
     params: dict[str, ParamValue] = Field(default_factory=dict)
     expression: str | None = None
     endpoint_key: EndpointKey = "type"
+    role: RoleName | None = None
+    selection: SelectionName | None = None
+    charge: ChargeName | None = None
 
     @model_validator(mode="after")
     def _reserved_params(self) -> StyleModel:
@@ -2093,6 +2163,19 @@ class StyleModel(DocumentModel):
         mixing = self.params.get("mixing")
         if mixing is not None and mixing not in MIXING_RULES:
             raise ValueError(f"params.mixing is one of {MIXING_RULES}, found {mixing!r}")
+        one_four = self.params.get("one_four")
+        if (
+            (self.category, self.style) == ("pair", "lj/charmm")
+            and one_four is not None
+            and one_four not in ONE_FOUR_VALUES
+        ):
+            raise ValueError(
+                f"pair.lj/charmm params.one_four is one of {ONE_FOUR_VALUES}, found {one_four!r}"
+            )
+        if self.category != "pair" and (
+            self.role is not None or self.selection is not None or self.charge is not None
+        ):
+            raise ValueError("role, selection and charge are stated on a pair style")
         return self
 
     @model_serializer(mode="wrap")
@@ -2126,8 +2209,10 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
     name = table.columns.get("name")
     if name is None:
         raise ValueError(f"{where} has no name column")
-    if name.dtype != "string" or name.validity is not None:
-        raise ValueError(f"{where}: name is a string never null, found {name.dtype}")
+    if name.dtype != "string" or name.validity is not None or name.shape[1:]:
+        raise ValueError(
+            f"{where}: name is a string[T] never null, found {name.dtype}{list(name.shape[1:])}"
+        )
     names = [] if name.values is None else [str(value) for value in name.values.tolist()]
     if len(set(names)) != len(names):
         raise ValueError(f"{where}: type names are unique, found {sorted(names)}")
@@ -2149,10 +2234,15 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
         raise ValueError(f"{where}: endpoint columns {present} are no prefix of itom..mtom")
     for endpoint in present:
         column = table.columns[endpoint]
-        if column.dtype != "string" or column.validity is not None:
-            raise ValueError(f"{where}: endpoint {endpoint} is a string never null")
+        if column.dtype != "string" or column.validity is not None or column.shape[1:]:
+            raise ValueError(f"{where}: endpoint {endpoint} is a string[T] never null")
 
     for column_name, column in table.columns.items():
+        if column.unit is not None:
+            raise ValueError(
+                f"{where}: parameter {column_name!r} carries a unit; a style table's numbers "
+                "are in forcefield.units"
+            )
         if column_name == "name" or column_name in ENDPOINT_COLUMNS:
             continue
         if style.category == "cmap" and column_name == CMAP_GRID:
@@ -2165,6 +2255,9 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
             allowed = (canonical,)
         else:
             allowed = ("f64", "string")
+            if column.dtype == "f64" and column.shape[1:]:
+                _check_array_param(where, column_name, column)
+                continue
         if column.dtype not in allowed or column.shape[1:] or column.precision is not None:
             raise ValueError(
                 f"{where}: parameter {column_name!r} is {' or '.join(allowed)}[T], exact, found "
@@ -2175,12 +2268,40 @@ def _check_style_table(style: StyleModel, table: BlockModel, class_keyed: bool) 
         raise ValueError(
             f"{where}: a class-keyed style links through atom classes; no class column"
         )
-    if style.category in PAIR_CATEGORIES and present == ["itom", "jtom"]:
+    # Linking rule 3: a pair table prices each unordered pair of types once.
+    if style.category == "pair" and present == ["itom", "jtom"]:
         _check_pair_restatements(where, table, names)
 
 
+def _check_array_param(where: str, name: str, column: ColumnModel) -> None:
+    """An array parameter: ``f64[T, S...]``, every trailing axis at least 1
+    long, no precision, every value of a non-null row finite. One shape for
+    every row -- a column has one shape."""
+    trailing = column.shape[1:]
+    if column.dtype != "f64" or not all(axis >= 1 for axis in trailing):
+        raise ValueError(
+            f"{where}: array parameter {name!r} is f64[T, S...] with every S >= 1, found "
+            f"{column.dtype}{list(trailing)}"
+        )
+    if column.precision is not None:
+        raise ValueError(f"{where}: array parameter {name!r} is exact, found a declared precision")
+    _check_finite_rows(where, f"array parameter {name!r}", column)
+
+
+def _check_finite_rows(where: str, what: str, column: ColumnModel) -> None:
+    """Every value of a non-null row of an array column is finite."""
+    if column.values is None:
+        return
+    values = np.asarray(column.values)
+    rows = np.isfinite(values).reshape(values.shape[0], -1).all(axis=1)
+    if column.validity is not None:
+        rows |= ~np.asarray(column.validity)
+    if not rows.all():
+        raise ValueError(f"{where}: {what} of row {int(np.argmin(rows))} holds a non-finite value")
+
+
 def _check_cmap_grid(where: str, column: ColumnModel) -> None:
-    """The trailing-axis exception: a ``cmap`` table's grid is ``f64[T, N, N]``,
+    """A ``cmap`` table's grid: an array parameter of shape ``f64[T, N, N]``,
     ``N >= 2``, with no precision, every value of a non-null row finite."""
     trailing = column.shape[1:]
     square = len(trailing) == 2 and trailing[0] == trailing[1] and trailing[0] >= 2
@@ -2190,15 +2311,7 @@ def _check_cmap_grid(where: str, column: ColumnModel) -> None:
             f"{column.dtype}{list(trailing)}"
             + (" with a declared precision" if column.precision is not None else "")
         )
-    if column.values is None:
-        return
-    rows = np.isfinite(np.asarray(column.values)).all(axis=(1, 2))
-    if column.validity is not None:
-        rows |= ~np.asarray(column.validity)
-    if not rows.all():
-        raise ValueError(
-            f"{where}: the cmap grid of row {int(np.argmin(rows))} holds a non-finite value"
-        )
+    _check_finite_rows(where, "the cmap grid", column)
 
 
 def _cells(column: ColumnModel, count: int) -> list[Any]:
@@ -2262,6 +2375,7 @@ class ForceFieldModel(DocumentModel):
             if key in seen:
                 raise ValueError(f"style {style.category}/{style.style} is listed twice")
             seen.add(key)
+        check_names(self.tables, "table", reserved=(BOX_NAME,))
         class_keyed = any(style.endpoint_key == "class" for style in self.styles)
         for style in self.styles:
             table = self.tables.get(style.block)
@@ -2293,7 +2407,8 @@ class RecordModel(BaseModel):
     record is conforming and a reader must not require a frame beside it,
     because frames may embed full blocks including topology.
 
-    ``observables`` is the v1 section (:class:`ObservablesModel`). ``metrics``
+    ``observables`` is the section
+    (:class:`molrec.observables.model.ObservablesModel`). ``metrics``
     -- the catalog document, the dense series and the live WAL of
     ``docs/spec/metrics.md`` -- is carried verbatim as a :class:`NodeModel`:
     molrec does not interpret run-local monitoring, it only never loses it.
@@ -2319,13 +2434,14 @@ class RecordModel(BaseModel):
     status: StatusModel | None = None
     method: MethodModel | None = None
     metrics: NodeModel | None = None
-    observables: ObservablesModel | None = None
+    observables: _observables.ObservablesModel | None = None
 
     @model_validator(mode="after")
     def _unknown_sections_are_subtrees(self) -> RecordModel:
-        """An extra key is a root section this version does not define: a
+        """An extra key is a root section the contract does not define: a
         group, kept as the :class:`NodeModel` it was read as."""
         extra = self.__pydantic_extra__ or {}
+        check_names(extra, "section", reserved=type(self).model_fields)
         for name, value in extra.items():
             extra[name] = NodeModel.model_validate(value)
         return self
@@ -2334,7 +2450,10 @@ class RecordModel(BaseModel):
     def _system_and_trajectory_align(self) -> RecordModel:
         """A ``system`` block and the ``trajectory`` block of the same name are
         aligned 1:1 by row order: every update has the system block's row
-        count, and an ``id`` column both carry is equal row for row."""
+        count, and an ``id`` column both carry is equal row for row. A reader
+        presents the two as one block whose columns are the union, so ``id``
+        is the only column both may carry: any other is time-independent or
+        not, never both."""
         if self.system is None or self.trajectory is None:
             return self
         _aligned_apart_from_system(self.system, self.trajectory)
@@ -2353,6 +2472,12 @@ class RecordModel(BaseModel):
                     raise ValueError(
                         f"block {name!r}: the id column differs between system and trajectory at "
                         f"ordinal {ordinal}; blocks sharing a name align row for row"
+                    )
+                shared = sorted((set(update.columns) & set(fixed.columns)) - {"id"})
+                if shared:
+                    raise ValueError(
+                        f"columns {shared} of block {name!r} are in both system and trajectory; "
+                        "a column is time-independent or not (only id is restated)"
                     )
         return self
 
@@ -2419,19 +2544,79 @@ def _aligned_apart_from_system(system: FrameModel, trajectory: TrajectoryModel) 
 #: strings would lay the index out in a different order on every run.
 RESERVED_INDEX_COLUMNS: tuple[str, ...] = ("first_frame", "n_frames", "n_atoms", "has_trajectory")
 
+#: Column name → unit-system field. A name not listed does not require a unit.
+_UNIT_BY_COLUMN: dict[str, str] = {
+    "x": "length",
+    "y": "length",
+    "z": "length",
+    "fx": "force",
+    "fy": "force",
+    "fz": "force",
+    "mass": "mass",
+    "charge": "charge",
+}
+
+#: Per-step or frame meta key → unit-system field.
+_UNIT_BY_META: dict[str, str] = {
+    "pe": "energy",
+    "ke": "energy",
+    "etotal": "energy",
+    "press": "pressure",
+    "temp": "temperature",
+}
+
+
+def require_stated_units(record: RecordModel, units: UnitsModel | None) -> None:
+    """Refuse when a continuous quantity is present and its unit is not stated.
+
+    ``units`` is the record's or the collection's system. A column's own
+    ``unit`` label does not satisfy the check. Frame and system meta key
+    ``units`` is not this system and is ignored here.
+    """
+    needed: set[str] = set()
+
+    def take_columns(columns: Mapping[str, Any]) -> None:
+        for name in columns:
+            field = _UNIT_BY_COLUMN.get(name)
+            if field is not None:
+                needed.add(field)
+
+    def take_meta(keys: Iterable[str]) -> None:
+        for key in keys:
+            field = _UNIT_BY_META.get(key)
+            if field is not None:
+                needed.add(field)
+
+    for frame in (record.frame, record.system):
+        if frame is None:
+            continue
+        for block in frame.blocks.values():
+            take_columns(block.columns)
+        take_meta(frame.meta)
+    trajectory = record.trajectory
+    if trajectory is not None:
+        if trajectory.time is not None:
+            needed.add("time")
+        for frame in trajectory.frames:
+            for block in frame.blocks.values():
+                take_columns(block.columns)
+            take_meta(frame.meta)
+        for block in (trajectory.blocks or {}).values():
+            take_columns(block.columns)
+        take_meta(trajectory.meta)
+    for field in sorted(needed):
+        if units is None or getattr(units, field) is None:
+            raise ValueError(f"units.{field} is required")
+
 
 class CollectionMetaModel(DocumentModel):
-    """The collection's document. ``units`` is required; other keys are kept.
+    """The collection's document. ``units`` is the one system for every member.
 
-    ``units`` maps a quantity (``length``, ``energy``, ``force``, ``charge``,
-    ``mass``, ``time``) to a unit string. It is the only place a collection's
-    numbers get a unit: columns and per-step tags carry none.
+    It may be absent when no member carries a continuous quantity that needs
+    one. A member does not restate it.
     """
 
-    units: dict[str, str]
-    molrec_version: Annotated[MolrecVersion, WithJsonSchema(_VERSION_SCHEMA)] = Field(
-        default=None, json_schema_extra=lambda schema: schema.pop("default", None)
-    )
+    units: UnitsModel | None = None
 
 
 class CollectionModel(BaseModel):
@@ -2454,7 +2639,8 @@ class CollectionModel(BaseModel):
     records: list[RecordModel] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _records_are_collection_records(self) -> CollectionModel:
+    def _records_are_collection_records(self, info: ValidationInfo) -> CollectionModel:
+        bare = bool(info.context and info.context.get("bare_trajectory"))
         for r, record in enumerate(self.records):
             extra = [
                 section
@@ -2468,6 +2654,11 @@ class CollectionModel(BaseModel):
                 )
             if record.system is None and record.trajectory is None:
                 raise ValueError(f"record {r} has neither system nor trajectory")
+            if bare:
+                continue
+            if record.meta.units is not None:
+                raise ValueError(f"record {r} restates meta.units; a collection states units once")
+            require_stated_units(record, self.meta.units)
         return self
 
     @model_validator(mode="after")
@@ -2533,7 +2724,9 @@ class CollectionModel(BaseModel):
     def _shared_blocks_split_their_columns(self) -> CollectionModel:
         """In a collection a reader presents a system block and the trajectory
         block of the same name as one block whose columns are the union, so a
-        column is time-independent or not -- never both."""
+        column is time-independent or not -- never both. ``id`` alone is
+        restated (equal row for row, which the record checked). Checked again
+        here because the collection's declaration re-holds each trajectory."""
         for r, record in enumerate(self.records):
             if record.system is None or record.trajectory is None:
                 continue
@@ -2545,10 +2738,12 @@ class CollectionModel(BaseModel):
             for name, fixed in record.system.blocks.items():
                 for frame in record.trajectory.frames:
                     update = frame.blocks.get(name)
-                    shared = set() if update is None else set(update.columns) & set(fixed.columns)
+                    if update is None:
+                        continue
+                    shared = sorted((set(update.columns) & set(fixed.columns)) - {"id"})
                     if shared:
                         raise ValueError(
-                            f"record {r}: columns {sorted(shared)} of block {name!r} are in both "
+                            f"record {r}: columns {shared} of block {name!r} are in both "
                             "system and trajectory; a column is time-independent or not"
                         )
         return self
@@ -2563,3 +2758,13 @@ class CollectionModel(BaseModel):
         if reserved:
             raise ValueError(f"index columns {reserved} are reserved for the binding")
         return self
+
+
+# The record root holds the observables section, which
+# :mod:`molrec.observables.model` owns. That module builds on this one
+# (``DocumentModel``, ``ArrayModel``), so it is imported once this one is
+# complete and the two models that reach the section are finished here.
+from molrec.observables import model as _observables  # noqa: E402
+
+RecordModel.model_rebuild()
+CollectionModel.model_rebuild()

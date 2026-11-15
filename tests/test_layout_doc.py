@@ -38,7 +38,7 @@ def generated(generator) -> dict[str, str]:
 
 
 def test_every_generated_block_is_what_the_codecs_write(generator, generated) -> None:
-    written = generator.doc_blocks(generator.DOC.read_text())
+    written = generator.doc_blocks(generator.DOC.read_text(encoding="utf-8"))
     assert set(written) == set(generated), "run scripts/layout_examples.py --write"
     for name, body in generated.items():
         assert written[name] == body, (
@@ -58,13 +58,13 @@ def _slug(heading: str) -> str:
 
 
 def _anchors(page: Path) -> set[str]:
-    text = re.sub(r"```.*?```", "", page.read_text(), flags=re.DOTALL)
+    text = re.sub(r"```.*?```", "", page.read_text(encoding="utf-8"), flags=re.DOTALL)
     return {_slug(match) for match in re.findall(r"^#{1,6}\s+(.+)$", text, flags=re.MULTILINE)}
 
 
 def test_every_relative_link_of_the_chapter_resolves() -> None:
     page = DOCS / "layout.md"
-    text = re.sub(r"```.*?```", "", page.read_text(), flags=re.DOTALL)
+    text = re.sub(r"```.*?```", "", page.read_text(encoding="utf-8"), flags=re.DOTALL)
     broken = []
     for target in re.findall(r"\]\(([^)\s]+)\)", text):
         if re.match(r"[a-z]+://", target):

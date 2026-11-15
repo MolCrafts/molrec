@@ -23,24 +23,28 @@ collection
 
 `meta`
 
-A document. It **must** carry `units`: a map from quantity to unit string,
-declared once for every record and every column in the collection.
+A document. Its `units` is the collection's one
+[unit system](conventions.md#units): a map from quantity to unit string,
+stated once for every record and every column in the collection. The nine
+quantities are `length`, `energy`, `force`, `charge`, `mass`, `time`,
+`pressure`, `temperature` and `angle`; which column or meta key each is the
+unit of, and which make it required, is the table in
+[Units](conventions.md#units).
 
-| Quantity | Applies to |
-|----------|------------|
-| `length` | `x/y/z`, the cell |
-| `energy` | `pe`, `ke`, `etotal` |
-| `force` | `fx/fy/fz` |
-| `charge` | `charge`, `total_charge` |
-| `mass` | `mass` |
-| `time` | the trajectory's `time` |
+- A quantity is required exactly when some record carries it. A collection
+  whose records carry none — topologies with no coordinates, say — may leave
+  `units` out altogether; one whose records carry `x` and no `length` is
+  refused.
+- No quantity has a default: a collection whose records carry `mass` or
+  `charge` states their units.
+- **A record of a collection carries no `meta.units`.** The collection's is
+  the one statement; a record that restates it is refused, an empty object
+  included.
+- A column's own `unit` overrides the collection's unit for that column
+  alone, and does not stand in for it.
 
-A unit string is parseable by [pint](https://pint.readthedocs.io)
-(`angstrom`, `kcal/mol`, `kcal/mol/angstrom`, `eV`, `e`). A quantity the
-records do not carry may be omitted; an omitted `mass` or `charge` keeps
-its [default](conventions.md#atoms) (amu, `e`). Columns and per-step tags
-still carry no unit of their own: a collection's numbers mean what `units`
-says, for every record in it. Other keys are preserved.
+A unit string is a label (`angstrom`, `kcal/mol`, `kcal/mol/angstrom`, `eV`,
+`e`): a reader hands it back as written. Other keys of `meta` are preserved.
 
 `sequence_schema`
 
@@ -88,7 +92,8 @@ When a `system` block and a `trajectory` block share a name they are aligned
 **1:1 by row order** ([trajectory](trajectory.md#with-and-without-system)):
 every trajectory update of that block has exactly the system block's row
 count, and a reader presents the two as one block whose columns are the union.
-A column may not appear in both.
+A column may not appear in both, `id` excepted: restated, it is equal row for
+row. This is the record's own rule, not a collection's.
 
 A record whose topology *does* change — a reaction, a growing polymer —
 declares the changing block in the trajectory instead, where it is written as
@@ -107,11 +112,13 @@ The collection suite (`module = "collection"`) pins down:
   `sequence_schema`;
 * refusal of a trajectory block whose row count differs from the system block
   it shares a name with;
-* refusal of a collection without `units`;
+* refusal of a collection whose records carry coordinates, forces and
+  energies and whose `meta` states no `units`;
 * a collection-wide force field round-trips;
 * an aligned block that carries forward while its target moves, and one
   restated on growth;
 * refusal of an aligned block that shares a name with a `system` block, and
   of one whose row count differs from its target's.
 
-The one binding is [LMDB](lmdb.md).
+The layout is [LMDB](lmdb.md). molrec ships the plain reference codec.
+molhub ships the collection store.

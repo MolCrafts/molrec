@@ -27,7 +27,7 @@ import zarr
 
 from molrec.binding import Binding, Codec
 from molrec.chunking import plan
-from molrec.core.bindings.zarr import TO_ZARR, ZarrStore, stored_dtype
+from molrec.core.bindings.zarr import TO_ZARR, ZarrStorage, stored_dtype
 from molrec.core.model import document
 from molrec.draft.observables.model import (
     Array,
@@ -35,7 +35,7 @@ from molrec.draft.observables.model import (
     ObservablesModel,
     Source,
 )
-from molrec.draft.observables.store import ObservableStore
+from molrec.draft.observables.storage import ObservableStorage
 from molrec.registry import REGISTRY
 from molrec.safe_name import original_name, safe_name
 
@@ -43,16 +43,16 @@ OBSERVABLES = "observables"
 COORDINATES = "coordinates"
 
 
-class ZarrObservableStore(ZarrStore, ObservableStore):
+class ZarrObservableStorage(ZarrStorage, ObservableStorage):
     """A Zarr V3 root holding a settled draft observables section."""
 
 
 class ZarrObservableCodec(Codec):
     """The official translation."""
 
-    def write(self, model: ObservablesModel, store: ZarrObservableStore) -> None:
-        store.clear()
-        root = store.root(mode="w")
+    def write(self, model: ObservablesModel, storage: ZarrObservableStorage) -> None:
+        storage.clear()
+        root = storage.root(mode="w")
 
         coordinates = root.create_group(COORDINATES)
         for name, array in model.coordinates.items():
@@ -62,8 +62,8 @@ class ZarrObservableCodec(Codec):
         for name, observable in model.observables.items():
             self._write_one(section, name, observable)
 
-    def read(self, store: ZarrObservableStore) -> ObservablesModel:
-        root = store.root(mode="r")
+    def read(self, storage: ZarrObservableStorage) -> ObservablesModel:
+        root = storage.root(mode="r")
         coordinates = {}
         if COORDINATES in root:
             coordinates = {
@@ -130,10 +130,10 @@ class ZarrObservableBinding(Binding):
     module: ClassVar[str] = "draft/observables"
     backend: ClassVar[str] = "zarr"
 
-    def new_store(self, workdir: Path) -> ZarrObservableStore:
-        store = ZarrObservableStore(workdir.with_suffix(".zarr"))
-        store.clear()
-        return store
+    def new_storage(self, workdir: Path) -> ZarrObservableStorage:
+        storage = ZarrObservableStorage(workdir.with_suffix(".zarr"))
+        storage.clear()
+        return storage
 
     def codec(self) -> ZarrObservableCodec:
         return ZarrObservableCodec()

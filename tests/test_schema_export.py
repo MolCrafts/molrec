@@ -21,7 +21,7 @@ def test_regenerating_matches_what_is_committed(tmp_path):
     for generated in export(tmp_path):
         committed = SCHEMA / generated.relative_to(tmp_path)
         assert committed.exists(), f"{committed} is missing -- run python -m molrec.schema_export"
-        assert committed.read_text() == generated.read_text(), (
+        assert committed.read_text(encoding="utf-8") == generated.read_text(encoding="utf-8"), (
             f"{committed} is stale -- run python -m molrec.schema_export"
         )
 
@@ -33,7 +33,7 @@ def test_every_published_model_lands_on_disk(tmp_path):
 
 
 def test_the_vocabulary_is_the_canonical_table():
-    committed = json.loads((SCHEMA / VOCABULARY).read_text())
+    committed = json.loads((SCHEMA / VOCABULARY).read_text(encoding="utf-8"))
     assert committed == CANONICAL_COLUMNS
     assert set(committed.values()) <= set(DTYPES)
 
@@ -42,7 +42,7 @@ def test_committed_schemas_are_valid_json_objects():
     files = list(SCHEMA.rglob("*.schema.json"))
     assert files, "nothing was exported"
     for path in files:
-        document = json.loads(path.read_text())
+        document = json.loads(path.read_text(encoding="utf-8"))
         if "$ref" in document:  # a recursive model publishes its root as a $def
             document = document["$defs"][document["$ref"].rsplit("/", 1)[1]]
         assert document["type"] == "object"
