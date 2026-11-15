@@ -172,6 +172,10 @@ where the encoded style is the style's UTF-8 bytes with every byte outside
 `pair.lj%2Fcut%2Fcoul%2Flong`. Decoding splits at the first `.` and
 percent-decodes the rest. A reader resolves a style's table by this name; a
 block whose name no style entry produces is preserved as unknown content.
+The encoding keeps letter case and a table is one
+[node](frame.md#names), so two styles of one category that differ only in
+the case of their ASCII letters cannot share a force field, and no style's
+table is named `zarr.json`.
 
 ### Rows and columns
 

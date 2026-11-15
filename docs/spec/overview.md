@@ -95,7 +95,8 @@ Four places, in increasing size of the addition:
    containers; your names. Readers preserve them.
 3. **A new sibling section** at the root. Same four kinds: document,
    frame-shaped, array, or sequence. A reader that does not know the name
-   keeps the group.
+   keeps the group. It is always a group — a lone array or a root attribute
+   is not a section, and is not carried.
 4. **A module** under `meta/modules` when independent tools must agree on
    what that extra content means.
 
@@ -125,14 +126,18 @@ meta
  |    +-- (email: string[])
  +-- (created_at: string[])            RFC 3339 with an explicit offset
  +-- (source: string[])
+ +-- (units)
+ |    +-- (length | energy | force | charge | mass | time: string[])
+ |    +-- (pressure | temperature | angle: string[])
  \-- (modules)
       \-- <module1>
            +-- (spec: string[])          URL of the module's specification
 ```
 
-Every key of `meta` is optional; an empty document is a valid one. A
-record's identity is the path brand `*.mrec/` / `*.mrec.zip` plus a Zarr
-root, not any key of `meta`.
+Every key of `meta` is optional, with one condition: a record that carries
+a continuous quantity states its unit in `units` (below). A record that
+carries none may leave `meta` empty. A record's identity is the path brand
+`*.mrec/` / `*.mrec.zip` plus a Zarr root, not any key of `meta`.
 
 **Unknown keys.** A key this chapter does not name is the producer's: a
 reader keeps it verbatim (a `null`-valued one included) and never interprets
@@ -141,10 +146,25 @@ or refuses it, and a writer of the record writes it back as it was.
 `record_id`, `content_hash`
 
 Optional provenance: a producer-chosen identifier and a content digest.
+Both are **opaque strings**. This specification defines no digest: two
+conforming records of the same data differ byte for byte
+([Chunking](chunking.md)), so a `content_hash` is whatever its producer
+computed over whatever it chose, comparable only with another from the same
+producer. A reader preserves it and never verifies it; a tool that rewrites
+the record's content drops it or recomputes it.
 
 `creator`, `author`, `created_at`, `source`
 
 Optional provenance.
+
+`units`
+
+The record's unit system: a map from quantity to unit string. A quantity is
+required once the record carries it — `length` beside an `x` column,
+`energy` beside a `pe` key — and none has a default; the quantities, what
+makes each required, and a column's own `unit` are
+[Units](conventions.md#units). A record of a
+[collection](collection.md#model) carries none: the collection states them.
 
 `modules`
 

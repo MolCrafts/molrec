@@ -39,6 +39,8 @@ Example line:
 `w` is RFC 3339 with an explicit offset; `v` is a finite JSON number for a
 `scalar` (a non-finite measurement is the string `"NaN"` / `"Infinity"` /
 `"-Infinity"`, as for every [typed JSON value](conventions.md#typed-json-values)).
+`s` is an integer, present on every line of a key or on none
+([Metrics](metrics.md#events)).
 
 ## Writers and crashes
 
@@ -57,7 +59,11 @@ Example line:
   one JSON object, is corruption — not a crash artefact — and a reader
   refuses it rather than skip it silently.
 - Events are merged per key under the duplicate-step rule of
-  [Metrics](metrics.md#events).
+  [Metrics](metrics.md#events): the later event's value at the first
+  event's position.
+- Custom-type events and `tags` are read from the WAL and nowhere else; a
+  WAL shorter than the catalog's watermark is handled as
+  [the catalog](metrics.md#the-catalog) says.
 
 ## Authority
 

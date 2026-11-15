@@ -36,8 +36,10 @@ observables
 - **The pairing is mandatory.** A data array without its metadata group, or
   a metadata group without its data array, is malformed and a reader refuses
   it.
-- `<name>` is one node name: non-empty, no `/`, not `.` or `..`, no leading
-  `__`, and not `meta`, which names the metadata group.
+- `<name>` is one [node name](frame.md#names) — non-empty, no `/`, not `.`,
+  `..` or `zarr.json`, no leading `__` — and not `meta`, which names the
+  metadata group. No two observables differ only in the case of their ASCII
+  letters, and none is a case variant of `meta`.
 
 ## Metadata
 

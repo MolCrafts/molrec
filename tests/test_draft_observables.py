@@ -199,12 +199,13 @@ def test_dims_are_derived_not_stored():
 
 
 @pytest.mark.parametrize(
-    "name", ["train/loss", "gpu/0/util", "损失/训练", "a.b-c_d", "%", ".", "..", "__x", "_"]
+    "name",
+    ["train/loss", "gpu/0/util", "损失/训练", "a.b-c_d", "%", ".", "..", "__x", "_", "zarr.json"],
 )
 def test_safe_name_is_reversible_and_a_node_name(name):
     encoded = safe_name(name)
     assert "/" not in encoded
-    assert encoded not in (".", "..") and not encoded.startswith("__")
+    assert encoded not in (".", "..", "zarr.json") and not encoded.startswith("__")
     assert original_name(encoded) == name
 
 
@@ -212,6 +213,7 @@ def test_safe_name_edge_cases():
     assert safe_name(".") == "%2E"
     assert safe_name("..") == "%2E."
     assert safe_name("__x") == "%5F_x"
+    assert safe_name("zarr.json") == "%7Aarr.json"
     with pytest.raises(ValueError):
         safe_name("")
     with pytest.raises(ValueError):

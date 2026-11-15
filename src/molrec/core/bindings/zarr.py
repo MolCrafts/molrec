@@ -38,8 +38,12 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import shutil
+import uuid
 import zipfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -259,6 +263,30 @@ class ZarrStorage(Storage):
         if self._path.exists():
             shutil.rmtree(self._path)
 
+    @contextmanager
+    def replaced(self) -> Iterator[zarr.Group]:
+        """A fresh root to build a whole store in, published on a clean exit.
+
+        The root is a sibling directory whose name does not end in ``.mrec``
+        (``docs/spec/chunking.md``, publishing); leaving the block renames it
+        over this storage's path. A write that raises removes what it built
+        and leaves whatever the path held before, so the ``*.mrec`` name is
+        the previous store or the new one, never half of either.
+        """
+        staging = self._path.with_name(f".{self._path.name}.{uuid.uuid4().hex}{STAGING_SUFFIX}")
+        try:
+            yield zarr.open_group(store=staging, mode="w")
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
+        self.clear()
+        os.replace(staging, self._path)
+
+
+#: What the name of a store under construction ends in. Not ``.mrec``: a
+#: reader that finds one beside a record does not open it.
+STAGING_SUFFIX = ".partial"
+
 
 def pack(directory: Path, archive: Path) -> None:
     """``<stem>.mrec/`` -> ``<stem>.mrec.zip``, the at-rest form (``docs/spec/chunking.md``).
@@ -281,8 +309,8 @@ class ZarrFrameCodec(Codec):
     """The official translation. Kept thin -- it is the arbiter."""
 
     def write(self, model: FrameModel, storage: ZarrFrameStorage) -> None:
-        storage.clear()
-        self.write_into(storage.root(mode="w"), model)
+        with storage.replaced() as root:
+            self.write_into(root, model)
 
     def read(self, storage: ZarrFrameStorage) -> FrameModel:
         return self.read_from(storage.root(mode="r"))
@@ -573,12 +601,11 @@ class ZarrTrajectoryCodec(Codec):
     """
 
     def write(self, model: TrajectoryModel, storage: ZarrTrajectoryStorage) -> None:
-        storage.clear()
-        root = storage.root(mode="w")
-        # Root, then ``meta/``, then the sequence -- the creation order every
-        # writer follows.
-        root.create_group(RECORD_META)
-        self.write_into(root.create_group(TRAJECTORY_GROUP), model)
+        with storage.replaced() as root:
+            # Root, then ``meta/``, then the sequence -- the creation order
+            # every writer follows.
+            root.create_group(RECORD_META)
+            self.write_into(root.create_group(TRAJECTORY_GROUP), model)
 
     def read(self, storage: ZarrTrajectoryStorage) -> TrajectoryModel:
         root = storage.root(mode="r")
@@ -676,10 +703,13 @@ class ZarrTrajectoryCodec(Codec):
         offset = np.zeros(len(entries) + 1, dtype="uint64")
         offset[1:] = np.cumsum(counts, dtype="uint64")
         if entries and not regular:
+            # The materialization order (``docs/spec/chunking.md``): `offset`,
+            # then `step_index` -- the array a reader switches on -- and both
+            # before the columns below.
+            _create_dense(group, OFFSET_ARRAY, (len(entries) + 1,), "u64")[...] = offset
             _create_dense(group, STEP_INDEX_ARRAY, (len(entries),), "u64")[...] = np.asarray(
                 ordinals, dtype="uint64"
             )
-            _create_dense(group, OFFSET_ARRAY, (len(entries) + 1,), "u64")[...] = offset
 
         # One rows-per-chunk for the whole block, sized by its narrowest
         # column, so a frame's rows stay chunk-aligned across columns.
@@ -766,15 +796,17 @@ class ZarrTrajectoryCodec(Codec):
         _create_dense(group, STEP_INDEX_ARRAY, (count,), "u64")[...] = np.asarray(
             [update.step_index for update in updates], dtype="uint64"
         )
-        _create_dense(group, "vectors", (count, 3, 3), "f64")[...] = np.stack(
-            [update.box.vectors for update in updates]
-        )
         # ``origin`` and ``boundary`` are optional with normative defaults;
         # each is written only when some update departs from its default.
         if origins.any():
             _create_dense(group, "origin", (count, 3), "f64")[...] = origins
         if not boundaries.all():
             _create_dense(group, "boundary", (count, 3), "bool")[...] = boundaries
+        # ``vectors`` last (``docs/spec/chunking.md``, materialization order):
+        # it is the array a reader switches on, so the others are there first.
+        _create_dense(group, "vectors", (count, 3, 3), "f64")[...] = np.stack(
+            [update.box.vectors for update in updates]
+        )
 
     def _write_meta(self, group: zarr.Group, model: TrajectoryModel) -> None:
         if not model.meta:
@@ -1236,10 +1268,9 @@ class ZarrForceFieldCodec(Codec):
     """
 
     def write(self, model: ForceFieldModel, storage: ZarrForceFieldStorage) -> None:
-        storage.clear()
-        root = storage.root(mode="w")
-        root.create_group(RECORD_META)
-        self.write_into(root.create_group(FORCEFIELD_GROUP), model)
+        with storage.replaced() as root:
+            root.create_group(RECORD_META)
+            self.write_into(root.create_group(FORCEFIELD_GROUP), model)
 
     def read(self, storage: ZarrForceFieldStorage) -> ForceFieldModel:
         root = storage.root(mode="r")
@@ -1355,6 +1386,11 @@ class PackedRecordStorage(ZarrRecordStorage):
     def clear(self) -> None:
         self.path.unlink(missing_ok=True)
 
+    @contextmanager
+    def replaced(self) -> Iterator[zarr.Group]:
+        raise ValueError(f"{self.path}: a packed record is read-only")
+        yield  # pragma: no cover -- a generator, so the refusal is raised on entry
+
 
 class ZarrRecordCodec(Codec):
     """The official record translation.
@@ -1375,8 +1411,10 @@ class ZarrRecordCodec(Codec):
 
     def write(self, model: RecordModel, storage: ZarrRecordStorage) -> None:
         require_stated_units(model, model.meta.units)
-        storage.clear()
-        root = storage.root(mode="w")
+        with storage.replaced() as root:
+            self._write_sections(root, model)
+
+    def _write_sections(self, root: zarr.Group, model: RecordModel) -> None:
         root.create_group(RECORD_META).attrs.update(document(model.meta))
         for name, section in ((RECORD_STATUS, model.status), (RECORD_METHOD, model.method)):
             if section is not None:

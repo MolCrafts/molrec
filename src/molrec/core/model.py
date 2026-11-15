@@ -40,7 +40,7 @@ from pydantic import (
 from molrec import jsonvalue
 from molrec.arrays import NdArray, arrays_equal, arrays_identical
 from molrec.precision import PRECISION_MAX, PRECISION_MIN, quantize
-from molrec.safe_name import percent_decode, percent_encode
+from molrec.safe_name import METADATA_KEY, percent_decode, percent_encode
 
 
 class DocumentModel(BaseModel):
@@ -344,6 +344,46 @@ def decode_typed_meta(attrs: dict[str, Any], where: str) -> tuple[dict[str, Any]
 #: ``__`` prefix for node names.
 VALIDITY_GROUP = "_validity"
 
+
+def check_node_name(name: str, what: str) -> None:
+    """``name`` is one node name (``docs/spec/frame.md``, names): what a
+    block, a column, a per-step meta key and a section each are on the Zarr
+    binding. The rule is the model's, so every binding holds the same names."""
+    if (
+        not isinstance(name, str)
+        or not name
+        or name in (".", "..", METADATA_KEY)
+        or "/" in name
+        or name.startswith("__")
+    ):
+        raise ValueError(
+            f"{what} {name!r} is not one node name (non-empty, no '/', not '.', '..' or "
+            f"{METADATA_KEY!r}, no leading '__')"
+        )
+
+
+def _ascii_folded(name: str) -> str:
+    """``name`` with its ASCII letters lowered, and nothing else touched."""
+    return "".join(char.lower() if char.isascii() else char for char in name)
+
+
+def check_names(names: Iterable[str], what: str, reserved: Iterable[str] = ()) -> None:
+    """Every one of ``names`` is a node name, and no two siblings -- two of
+    them, or one of them and a ``reserved`` name of the layout -- differ only
+    in the case of their ASCII letters: a case-insensitive file system holds
+    one node for both. A name that *is* a reserved one is its owner's to
+    refuse."""
+    seen = {_ascii_folded(name): name for name in reserved}
+    for name in names:
+        check_node_name(name, what)
+        other = seen.setdefault(_ascii_folded(name), name)
+        if other != name:
+            raise ValueError(
+                f"{what} {name!r} and {other!r} differ only in case; a case-insensitive file "
+                "system stores one node for both"
+            )
+
+
 #: A column's validity mask in the published schema: one flag per row.
 _MASK = {"type": "array", "items": {"type": "boolean"}}
 
@@ -617,6 +657,7 @@ class BlockModel(BaseModel):
             raise ValueError(
                 f"{VALIDITY_GROUP!r} names a block's validity masks; a column cannot take it"
             )
+        check_names(self.columns, "column", reserved=(VALIDITY_GROUP,))
         for name, column in self.columns.items():
             if column.count != self.count:
                 raise ValueError(
@@ -659,6 +700,9 @@ _MATRIX3 = {"type": "array", "items": _VECTOR3, "minItems": 3, "maxItems": 3}
 _FLAGS3 = {"type": "array", "items": {"type": "boolean"}, "minItems": 3, "maxItems": 3}
 
 BOX_NDIM = 3
+
+#: The child of a frame-shaped group that is the cell, not a block.
+BOX_NAME = "box"
 
 
 def _float64(value: np.ndarray, what: str) -> np.ndarray:
@@ -812,6 +856,11 @@ class FrameModel(BaseModel):
                 raise ValueError(f"meta key {key!r} is tagged {tags[key]!r}: {exc}") from None
         object.__setattr__(self, "meta", meta)
         object.__setattr__(self, "meta_types", tags)
+        return self
+
+    @model_validator(mode="after")
+    def _blocks_are_named(self) -> FrameModel:
+        check_names(self.blocks, "block", reserved=(BOX_NAME,))
         return self
 
     @model_validator(mode="after")
@@ -1016,6 +1065,11 @@ class SequenceBlockModel(DocumentModel):
     aligned_with: str | None = None
 
     @model_validator(mode="after")
+    def _columns_are_named(self) -> SequenceBlockModel:
+        check_names(self.columns, "column", reserved=RESERVED_BLOCK_NAMES)
+        return self
+
+    @model_validator(mode="after")
     def _targets_are_declared_u64_columns(self) -> SequenceBlockModel:
         _targets_are_u64_columns(
             self.targets,
@@ -1036,6 +1090,12 @@ class SequenceSchemaModel(DocumentModel):
 
     blocks: dict[str, SequenceBlockModel] = Field(default_factory=dict)
     meta: dict[str, MetaSeriesModel] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _sections_are_named(self) -> SequenceSchemaModel:
+        check_names(self.blocks, "block", reserved=RESERVED_TRAJECTORY_NAMES)
+        check_names(self.meta, "per-step meta key")
+        return self
 
 
 def declare_block(block: BlockModel) -> SequenceBlockModel:
@@ -1299,6 +1359,7 @@ class TrajectoryModel(BaseModel):
         """
         stated = self.blocks is not None
         declared: dict[str, SequenceBlockModel] = dict(self.blocks or {})
+        check_names(self.meta, "per-step meta key")
         for name, block in declared.items():
             _refuse_reserved(name, block.columns)
             for column, spec in block.columns.items():
@@ -1618,6 +1679,8 @@ def _union_nullable(
 def _refuse_reserved(name: str, columns: dict[str, Any]) -> None:
     if name in RESERVED_TRAJECTORY_NAMES:
         raise ValueError(f"{name!r} is reserved by the trajectory layout; a block cannot take it")
+    check_names((name,), "block", reserved=RESERVED_TRAJECTORY_NAMES)
+    check_names(columns, "column", reserved=RESERVED_BLOCK_NAMES)
     taken = sorted(set(columns) & RESERVED_BLOCK_NAMES)
     if taken:
         raise ValueError(
@@ -1746,6 +1809,10 @@ class StatusModel(DocumentModel):
     error: ErrorModel | None = None
 
 
+#: The ``method.type`` whose document is a list of stages.
+WORKFLOW_METHOD = "workflow"
+
+
 class EngineModel(DocumentModel):
     name: str
     version: str | None = None
@@ -1762,6 +1829,25 @@ class MethodModel(DocumentModel):
     engine: EngineModel
     order: list[str] | None = None
     stages: dict[str, MethodModel] | None = None
+
+    @model_validator(mode="after")
+    def _a_workflow_orders_its_stages(self) -> MethodModel:
+        """A ``workflow`` carries ``order`` and ``stages``, and ``order`` names
+        every stage exactly once. Outside a workflow the two keys are a
+        producer's and mean nothing here."""
+        if self.type != WORKFLOW_METHOD:
+            return self
+        if self.order is None or self.stages is None:
+            raise ValueError("a workflow method carries both order and stages")
+        repeated = sorted({name for name in self.order if self.order.count(name) > 1})
+        if repeated:
+            raise ValueError(f"workflow order names stages {repeated} twice")
+        unmatched = sorted(set(self.order) ^ set(self.stages))
+        if unmatched:
+            raise ValueError(
+                f"workflow order and stages disagree on {unmatched}; order names every stage once"
+            )
+        return self
 
 
 class ArrayModel(BaseModel):
@@ -1814,6 +1900,15 @@ class NodeModel(BaseModel):
     attributes: dict[str, Any] = Field(default_factory=dict)
     arrays: dict[str, ArrayNodeModel] = Field(default_factory=dict)
     groups: dict[str, NodeModel] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _children_are_named(self) -> NodeModel:
+        """Arrays and groups are children of one group: one namespace."""
+        both = sorted(set(self.arrays) & set(self.groups))
+        if both:
+            raise ValueError(f"{both} name both an array and a group of one node")
+        check_names((*self.arrays, *self.groups), "node")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -2280,6 +2375,7 @@ class ForceFieldModel(DocumentModel):
             if key in seen:
                 raise ValueError(f"style {style.category}/{style.style} is listed twice")
             seen.add(key)
+        check_names(self.tables, "table", reserved=(BOX_NAME,))
         class_keyed = any(style.endpoint_key == "class" for style in self.styles)
         for style in self.styles:
             table = self.tables.get(style.block)
@@ -2345,6 +2441,7 @@ class RecordModel(BaseModel):
         """An extra key is a root section the contract does not define: a
         group, kept as the :class:`NodeModel` it was read as."""
         extra = self.__pydantic_extra__ or {}
+        check_names(extra, "section", reserved=type(self).model_fields)
         for name, value in extra.items():
             extra[name] = NodeModel.model_validate(value)
         return self
@@ -2353,7 +2450,10 @@ class RecordModel(BaseModel):
     def _system_and_trajectory_align(self) -> RecordModel:
         """A ``system`` block and the ``trajectory`` block of the same name are
         aligned 1:1 by row order: every update has the system block's row
-        count, and an ``id`` column both carry is equal row for row."""
+        count, and an ``id`` column both carry is equal row for row. A reader
+        presents the two as one block whose columns are the union, so ``id``
+        is the only column both may carry: any other is time-independent or
+        not, never both."""
         if self.system is None or self.trajectory is None:
             return self
         _aligned_apart_from_system(self.system, self.trajectory)
@@ -2372,6 +2472,12 @@ class RecordModel(BaseModel):
                     raise ValueError(
                         f"block {name!r}: the id column differs between system and trajectory at "
                         f"ordinal {ordinal}; blocks sharing a name align row for row"
+                    )
+                shared = sorted((set(update.columns) & set(fixed.columns)) - {"id"})
+                if shared:
+                    raise ValueError(
+                        f"columns {shared} of block {name!r} are in both system and trajectory; "
+                        "a column is time-independent or not (only id is restated)"
                     )
         return self
 
@@ -2618,7 +2724,9 @@ class CollectionModel(BaseModel):
     def _shared_blocks_split_their_columns(self) -> CollectionModel:
         """In a collection a reader presents a system block and the trajectory
         block of the same name as one block whose columns are the union, so a
-        column is time-independent or not -- never both."""
+        column is time-independent or not -- never both. ``id`` alone is
+        restated (equal row for row, which the record checked). Checked again
+        here because the collection's declaration re-holds each trajectory."""
         for r, record in enumerate(self.records):
             if record.system is None or record.trajectory is None:
                 continue
@@ -2630,10 +2738,12 @@ class CollectionModel(BaseModel):
             for name, fixed in record.system.blocks.items():
                 for frame in record.trajectory.frames:
                     update = frame.blocks.get(name)
-                    shared = set() if update is None else set(update.columns) & set(fixed.columns)
+                    if update is None:
+                        continue
+                    shared = sorted((set(update.columns) & set(fixed.columns)) - {"id"})
                     if shared:
                         raise ValueError(
-                            f"record {r}: columns {sorted(shared)} of block {name!r} are in both "
+                            f"record {r}: columns {shared} of block {name!r} are in both "
                             "system and trajectory; a column is time-independent or not"
                         )
         return self

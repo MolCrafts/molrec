@@ -146,6 +146,33 @@ def test_n_atoms_is_the_system_count_even_when_zero(tmp_path):
     assert index.columns["has_trajectory"].values.tolist() == [False, True]
 
 
+def test_an_id_restated_beside_the_system_round_trips(tmp_path):
+    """``id`` is the one column a system block and its trajectory block both
+    carry (``docs/spec/trajectory.md``); each side comes back with its own."""
+    ids = _column("u64", [7, 8])
+    system = FrameModel(blocks={"atoms": BlockModel(count=2, columns={"id": ids})})
+    frames = [
+        FrameModel(
+            blocks={"atoms": BlockModel(count=2, columns={"id": ids, "x": _column("f64", [x, x])})}
+        )
+        for x in (0.0, 1.0)
+    ]
+    record = RecordModel(
+        meta=MetaModel(), system=system, trajectory=TrajectoryModel(frames=frames, step=[0, 1])
+    )
+    storage = LmdbCollectionStorage(tmp_path / "id.mrec.lmdb")
+    LmdbCollectionCodec().write(
+        CollectionModel(meta=CollectionMetaModel(units={"length": "angstrom"}), records=[record]),
+        storage,
+    )
+    back = LmdbCollectionCodec().read(storage).records[0]
+    assert back.system.blocks["atoms"].columns["id"].values.tolist() == [7, 8]
+    for frame, x in zip(back.trajectory.frames, (0.0, 1.0), strict=True):
+        atoms = frame.blocks["atoms"]
+        assert atoms.columns["id"].values.tolist() == [7, 8]
+        assert atoms.columns["x"].values.tolist() == [x, x]
+
+
 class TestColumnUnit:
     def test_header_stores_unit_beside_precision(self) -> None:
         values = np.array([1.0])

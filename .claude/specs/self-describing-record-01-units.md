@@ -88,10 +88,10 @@ created: 2026-10-09
 - [x] Implement `UnitsModel`, `require_stated_units`, `ColumnModel.unit`, and the collection, force-field, and trajectory checks in `src/molrec/core/model.py` (plain docstrings; unit strings are labels, not converted, and have no default)
 - [x] Write failing unit tests for column-unit persistence, record-root refusal, and the bare-trajectory LMDB round trip in `tests/test_core/test_bindings/test_zarr.py` → `TestColumnUnit` and `tests/test_core/test_bindings/test_lmdb.py` → `TestColumnUnit`
 - [x] Implement unit persistence and the record-root / bare-trajectory wiring in `src/molrec/core/bindings/zarr.py` and `src/molrec/core/bindings/lmdb.py`
-- [ ] Generalize the units prose in `docs/spec/conventions.md` and `docs/spec/collection.md`
-- [ ] Regenerate `schema/core/meta.schema.json`, `schema/core/collection-meta.schema.json`, and `schema/core/column.schema.json` with `python -m molrec.schema_export schema` (do not hand-edit JSON); add `fixtures/schema/core/meta/valid-units.json`, `fixtures/schema/core/meta/invalid-units-not-object.json`, `fixtures/schema/core/collection-meta/invalid-units-not-object.json`, `fixtures/schema/core/column/valid-unit.json`, and `fixtures/schema/core/column/invalid-unit-not-string.json`; delete `fixtures/schema/core/collection-meta/invalid-no-units.json`
+- [x] Generalize the units prose in `docs/spec/conventions.md` and `docs/spec/collection.md`
+- [x] Regenerate `schema/core/meta.schema.json`, `schema/core/collection-meta.schema.json`, and `schema/core/column.schema.json` with `python -m molrec.schema_export schema` (do not hand-edit JSON); add `fixtures/schema/core/meta/valid-units.json`, `fixtures/schema/core/meta/invalid-units-not-object.json`, `fixtures/schema/core/collection-meta/invalid-units-not-object.json`, `fixtures/schema/core/column/valid-unit.json`, and `fixtures/schema/core/column/invalid-unit-not-string.json`; delete `fixtures/schema/core/collection-meta/invalid-no-units.json`
 - [ ] Update callers the new check rejects: `src/molrec/core/suite.py` (`RecordSuite` metas and `CollectionSuite.UNITS`), `tests/test_core/test_bindings/test_lmdb.py` (`_collection` must state `energy` because `pe` is present), `tests/test_precision.py`, and `scripts/layout_examples.py`; regenerate `docs/layout.md` and `fixtures/precision.mrec.zip`
-- [ ] Add regression example `regressions/self-describing-record-01-units.py` (public models only; hard-coded goldens; no molrs)
+- [x] Add regression example `regressions/self-describing-record-01-units.py` (public models only; hard-coded goldens; no molrs)
 - [ ] Run full check + test suite
 
 ## Testing strategy

@@ -1,0 +1,7 @@
+{
+  "units": {
+    "energy": "kcal/mol",
+    "force": "kcal/mol/angstrom",
+    "length": "angstrom"
+  }
+}

@@ -18,11 +18,13 @@ from molrec.core.model import (
     CollectionMetaModel,
     CollectionModel,
     ColumnModel,
+    EngineModel,
     ForceFieldModel,
     ForceFieldUnitsModel,
     FrameModel,
     MetaModel,
     MetaSeriesModel,
+    MethodModel,
     RecordModel,
     SequenceBlockModel,
     SequenceColumnModel,
@@ -437,6 +439,43 @@ class TestRecordAlignment:
         with pytest.raises(ValidationError, match="align 1:1"):
             RecordModel(meta=MetaModel(), system=system, trajectory=trajectory)
 
+    @staticmethod
+    def _ids(*ids: int, **columns: ColumnModel) -> BlockModel:
+        values = np.array(ids, dtype="uint64")
+        id_column = ColumnModel(dtype="u64", shape=values.shape, values=values)
+        return BlockModel(count=len(ids), columns={"id": id_column, **columns})
+
+    @staticmethod
+    def _f64_column(*values: float) -> ColumnModel:
+        array = np.array(values, dtype="float64")
+        return ColumnModel(dtype="f64", shape=array.shape, values=array)
+
+    def _sharing(self, column: str) -> tuple[FrameModel, TrajectoryModel]:
+        """A system and a one-step trajectory whose ``atoms`` both carry ``id``,
+        and both carry ``column`` when it is not ``id``."""
+        extra = {} if column == "id" else {column: self._f64_column(0.0, 1.0)}
+        system = FrameModel(blocks={"atoms": self._ids(7, 8, **extra)})
+        update = self._ids(7, 8, x=self._f64_column(0.0, 1.0), **extra)
+        return system, TrajectoryModel(frames=[FrameModel(blocks={"atoms": update})], step=[0])
+
+    def test_id_is_the_one_column_both_sides_carry(self) -> None:
+        system, trajectory = self._sharing("id")
+        record = RecordModel(meta=MetaModel(), system=system, trajectory=trajectory)
+        CollectionModel(meta=CollectionMetaModel(units={"length": "angstrom"}), records=[record])
+
+    def test_any_other_column_is_in_system_or_in_the_trajectory(self) -> None:
+        system, trajectory = self._sharing("charge")
+        with pytest.raises(ValidationError, match="time-independent or not"):
+            RecordModel(meta=MetaModel(), system=system, trajectory=trajectory)
+
+    def test_a_frame_and_a_system_are_independent_sections(self) -> None:
+        """Nothing aligns ``frame`` with ``system``: a coarse-grained system
+        beside its all-atom frame names both row sets ``atoms``
+        (``docs/spec/system.md``)."""
+        system = FrameModel(blocks={"atoms": self._ids(7, 8)})
+        frame = FrameModel(blocks={"atoms": self._ids(1, 2, 3)})
+        RecordModel(meta=MetaModel(), system=system, frame=frame)
+
 
 class TestRunDocuments:
     @pytest.mark.parametrize("stamp", ["2026-08-04T12:00:00", "2026-08-04", "yesterday"])
@@ -451,6 +490,40 @@ class TestRunDocuments:
     def test_counters_are_non_negative_integers(self) -> None:
         with pytest.raises(ValidationError):
             StatusModel(state="running", epoch=-1)
+
+    @staticmethod
+    def _method(kind: str = "classical", **keys: object) -> MethodModel:
+        return MethodModel(
+            type=kind, description="a stage", engine=EngineModel(name="lammps"), **keys
+        )
+
+    def test_a_workflow_names_every_stage_once_in_order(self) -> None:
+        stages = {"relax": self._method(), "score": self._method("ml")}
+        kept = self._method("workflow", order=["relax", "score"], stages=stages)
+        assert kept.order == ["relax", "score"]
+
+    @pytest.mark.parametrize(
+        ("keys", "why"),
+        [
+            ({}, "order and stages"),
+            ({"order": ["relax"]}, "order and stages"),
+            ({"stages": {}}, "order and stages"),
+            ({"order": ["relax", "relax"], "stages": {"relax": None}}, "twice"),
+            ({"order": ["relax", "score"], "stages": {"relax": None}}, "score"),
+            ({"order": ["relax"], "stages": {"relax": None, "score": None}}, "score"),
+        ],
+    )
+    def test_a_workflow_whose_order_and_stages_disagree_is_refused(
+        self, keys: dict, why: str
+    ) -> None:
+        if "stages" in keys:
+            keys = {**keys, "stages": {name: self._method() for name in keys["stages"]}}
+        with pytest.raises(ValidationError, match=why):
+            self._method("workflow", **keys)
+
+    def test_order_and_stages_mean_nothing_outside_a_workflow(self) -> None:
+        kept = self._method("classical", order=["anything"])
+        assert kept.order == ["anything"]
 
 
 class TestTypedFrameMeta:
@@ -802,3 +875,92 @@ class TestUnitsModel:
     def test_mass_and_charge_are_not_defaulted(self) -> None:
         assert _f64("mass", 1.0).columns["mass"].unit is None
         assert _f64("charge", 1.0).columns["charge"].unit is None
+
+
+class TestNames:
+    """``docs/spec/frame.md``, names: a block, a column, a per-step meta key
+    and a section are each one node name, and no two siblings differ only in
+    the case of their ASCII letters."""
+
+    @pytest.mark.parametrize("name", ["", ".", "..", "a/b", "__private", "zarr.json"])
+    def test_a_column_is_one_node_name(self, name: str) -> None:
+        column = ColumnModel(dtype="f64", shape=(1,), values=np.array([1.0]))
+        with pytest.raises(ValidationError, match="node name"):
+            BlockModel(count=1, columns={name: column})
+
+    @pytest.mark.parametrize("name", ["", ".", "..", "a/b", "__private", "zarr.json"])
+    def test_a_block_is_one_node_name(self, name: str) -> None:
+        with pytest.raises(ValidationError, match="node name"):
+            FrameModel(blocks={name: _x(0.0)})
+
+    def test_columns_do_not_differ_only_in_case(self) -> None:
+        column = ColumnModel(dtype="f64", shape=(1,), values=np.array([1.0]))
+        with pytest.raises(ValidationError, match="only in case"):
+            BlockModel(count=1, columns={"E": column, "e": column})
+
+    def test_blocks_do_not_differ_only_in_case(self) -> None:
+        with pytest.raises(ValidationError, match="only in case"):
+            FrameModel(blocks={"Sites": _x(0.0), "sites": _x(1.0)})
+
+    @pytest.mark.parametrize("name", ["Box", "BOX"])
+    def test_a_block_is_no_case_variant_of_the_cell(self, name: str) -> None:
+        with pytest.raises(ValidationError, match="only in case"):
+            FrameModel(blocks={name: _x(0.0)})
+
+    def test_a_column_is_no_case_variant_of_the_validity_group(self) -> None:
+        column = ColumnModel(dtype="f64", shape=(1,), values=np.array([1.0]))
+        with pytest.raises(ValidationError, match="only in case"):
+            BlockModel(count=1, columns={"_Validity": column})
+
+    def test_a_per_step_meta_key_is_one_node_name(self) -> None:
+        with pytest.raises(ValidationError, match="node name"):
+            TrajectoryModel(
+                frames=[FrameModel(blocks={"sites": _x(0.0)}, meta={"a/b": 1.0})],
+                step=[0],
+                meta={"a/b": MetaSeriesModel(dtype="f64")},
+            )
+
+    def test_per_step_meta_keys_do_not_differ_only_in_case(self) -> None:
+        with pytest.raises(ValidationError, match="only in case"):
+            TrajectoryModel(
+                frames=[FrameModel(blocks={"sites": _x(0.0)}, meta={"T": 1.0, "t": 2.0})],
+                step=[0],
+                meta={"T": MetaSeriesModel(dtype="f64"), "t": MetaSeriesModel(dtype="f64")},
+            )
+
+    @pytest.mark.parametrize("name", ["Step", "META", "Offset"])
+    def test_a_declared_name_is_no_case_variant_of_a_reserved_one(self, name: str) -> None:
+        column = SequenceColumnModel(dtype="f64")
+        with pytest.raises(ValidationError, match="only in case"):
+            block = (
+                {"sites": SequenceBlockModel(columns={name: column})}
+                if name == "Offset"
+                else {name: SequenceBlockModel(columns={"v": column})}
+            )
+            TrajectoryModel(frames=[], step=[], blocks=block)
+
+    def test_a_frame_meta_key_is_any_string(self) -> None:
+        """Meta keys of a frame are attribute names, not nodes."""
+        frame = FrameModel(meta={"a/b": 1.0, "A/B": 2.0, "..": "x"})
+        assert set(frame.meta) == {"a/b", "A/B", ".."}
+
+    @pytest.mark.parametrize("name", ["a/b", "..", "__x"])
+    def test_an_unknown_root_section_is_one_node_name(self, name: str) -> None:
+        with pytest.raises(ValidationError, match="node name"):
+            RecordModel.model_validate({"meta": {}, "status": {"state": "ok"}, name: {}})
+
+    def test_an_unknown_root_section_is_no_case_variant_of_a_section(self) -> None:
+        with pytest.raises(ValidationError, match="only in case"):
+            RecordModel.model_validate({"meta": {}, "status": {"state": "ok"}, "Frame": {}})
+
+    def test_an_unknown_subtree_holds_node_names(self) -> None:
+        from molrec.core.model import NodeModel
+
+        with pytest.raises(ValidationError, match="only in case"):
+            NodeModel.model_validate({"groups": {"a": {}, "A": {}}})
+        with pytest.raises(ValidationError, match="node name"):
+            NodeModel.model_validate({"groups": {"a/b": {}}})
+
+    def test_names_beyond_ascii_are_kept(self) -> None:
+        frame = FrameModel(blocks={"Å": _x(0.0), "原子": _x(1.0)})
+        assert set(frame.blocks) == {"Å", "原子"}
