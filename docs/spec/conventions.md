@@ -124,12 +124,11 @@ trip through a force field. Numeric type ordinals live in `type_id`.
 
 `charge`, `mass`
 
-Partial charge and atomic mass. Their units are **defaults**, not fixed:
-`mass` is in amu and `charge` in elementary charges `e` unless a declared
-unit says otherwise — a [collection's](collection.md#model) `units`, or a
-module under `meta/modules`. Coordinates, velocities, forces and energies
-carry no default unit: without a declaration they are whatever the producer
-used, and a reader that needs one must find it declared.
+Partial charge and atomic mass, in the `charge` and `mass` units the record
+states ([Units](#units)). Neither has a default — `mass` is not amu and
+`charge` is not `e` unless the record says so — and a record that carries
+the column states the unit. The same holds for coordinates, forces and
+energies: none has a default unit.
 
 Continuous quantities (`x`/`y`/`z`, `vx`/`vy`/`vz`, `charge`, `mass`) are
 float-canonical: a value written as an integer is stored as a float so a
@@ -236,7 +235,7 @@ is no float `order` column.
 | `virtual_sites` | `atomi` (the site), `atomj`, `atomk`, `atoml` (constructing atoms) | `type`, `type_id`, `style` |
 | `drudes` | `atomi` (core), `atomj` (Drude particle) | `type`, `type_id`, `style` |
 | `cmaps` | `atomi` … `atomm` | `type`, `type_id`, `style` |
-| `members` | `ibead` → `atoms`, `atom` (declared) | — |
+| `members` | `ibead`, `atom` (both declared in `targets`) | — |
 
 `type` names a row of the record's [force field](forcefield.md#linking-a-system)
 and `style` picks the style when several hold that name. `type_id` is a
@@ -259,7 +258,13 @@ that one pair ([special pairs](forcefield.md#special-pairs)); an excluded
 pair is a row whose scales are `0`. A system with bonds and no `pairs`
 block states no special pairs: every pair, bonded ones included, is at full
 strength, which is rarely what a force field means, so a writer of one
-**SHOULD** generate the rows with its angles and dihedrals.
+**SHOULD** generate the rows with its angles and dihedrals. An absent
+`pairs` block and one with zero rows mean the same thing, so the record
+cannot tell "none" from "not generated": a consumer that evaluates an
+energy over a system with `bonds`, no `pairs` rows, and a force field whose
+[`special_bonds`](forcefield.md#the-document) weights are not all `1`
+**SHOULD** refuse or warn rather than price every bonded pair at full
+strength in silence, and a validator **SHOULD** report it.
 `exclude_14` marks a torsion whose 1-4 non-bonded term is suppressed
 (AMBER's negative third index).
 
@@ -273,9 +278,12 @@ consecutive dihedrals, `atomi`–`atomj`–`atomk`–`atoml` (φ) and
 
 A coarse-grained frame stores its beads as `atoms` rows (with `bead_type`)
 and its bonds in `bonds`. `members` maps beads to the atoms they group, one
-row per (bead, atom): `ibead` references `atoms` of the same frame; `atom`
-references the all-atom block named by `targets` (`/frame/atoms`, …), and
-without a declared target it is an opaque handle.
+row per (bead, atom). Neither column is one of the five implicit endpoints
+([row references](frame.md#row-references)), so both are references only
+when `targets` declares them: `ibead` → `atoms` (the beads of the same
+frame), `atom` → the all-atom block (`/frame/atoms`, …). Undeclared, either
+is a plain number, an opaque handle a reader neither range-checks nor
+renumbers.
 
 There is no `residues`, `chains` or `molecules` block: per-atom `res_id`,
 `res_name`, `chain`, `icode` and `mol_id` are what every format carries, and
@@ -305,17 +313,66 @@ all `f64`:
 | `press` | pressure |
 | `volume` | cell volume |
 
-As with columns, the tag carries no unit; producers add other keys freely
-and readers preserve them.
+As with columns, the tag carries no unit: the record states it
+([Units](#units)). Producers add other keys freely and readers preserve
+them.
 
-## Units on a frame
+## Units
 
-The meta key `units` (`json`) on a `frame` or `system` says what unit system
-the frame's numbers are in. Its value has the shape of the
-[force-field `units`](forcefield.md#the-document) object
-(`{"preset": "real"}`, `{"length": "nm", "energy": "kJ/mol"}`). A string
-value is read as `{"preset": <string>}`. Absent means the frame states none
-(a collection states them once, in its `meta.units`).
+A record states **one unit system**, in `meta.units`
+([Metadata](overview.md#metadata)): a map from quantity to unit string. A
+[collection](collection.md#model) states it once, in its own `meta.units`,
+for every record in it, and a record of a collection carries none.
+
+| Quantity | The unit of | Required when the record carries |
+|----------|-------------|----------------------------------|
+| `length` | `x` `y` `z`, the cell | a column `x`, `y` or `z` |
+| `energy` | `pe` `ke` `etotal` | a meta key `pe`, `ke` or `etotal` |
+| `force` | `fx` `fy` `fz` | a column `fx`, `fy` or `fz` |
+| `charge` | `charge` | a column `charge` |
+| `mass` | `mass` | a column `mass` |
+| `time` | the trajectory's `time` | a trajectory with `time` |
+| `pressure` | `press` | a meta key `press` |
+| `temperature` | `temp` | a meta key `temp` |
+| `angle` | no standardized key | — |
+
+A column counts in any block of `frame`, `system` or `trajectory`; a meta
+key on a frame, on a system, or among a trajectory's per-step keys. A
+trajectory that declares the column or the key requires the unit even when
+it holds no frame.
+
+- **A required unit is stated, never defaulted.** A record that carries one
+  of the quantities above without its unit is refused, on write and on read.
+  A record that carries none of them may leave `units` out.
+- **Nothing else is required.** A name outside the table — `vx`, `volume`,
+  the cell, `total_charge`, `formal_charge` — requires no entry, and nothing
+  requires `angle`.
+- **A unit string is a label** (`angstrom`, `kcal/mol`, `kcal/mol/angstrom`,
+  `e`, `amu`). A reader hands it back as written; nothing converts it and
+  nothing parses it.
+- A quantity left unset is absent, never `null`; a key the table does not
+  name is preserved.
+
+**A column's own unit.** A column may carry `unit`, a unit string for that
+column alone. It replaces the record's unit for that one column and never
+stands in for it: a record whose `x` states `unit: "nm"` still states
+`length`. A column outside the table may carry one too. It is stored where
+the column is — the array's attribute `unit` on the
+[Zarr binding](storage.md#frame-shaped-group), on the frame path and the
+trajectory path alike; the column's header entry on [LMDB](lmdb.md#frame-bytes)
+— and it is no part of a trajectory's `sequence_schema`. A trajectory column
+states one unit string for the run: frames that state different ones are
+refused, and a frame that states none takes the one another frame stated. A
+[force-field](forcefield.md) style table's columns carry none.
+
+**The force field's units are its own.** The
+[`forcefield`](forcefield.md#the-document) document states the units of its
+parameters, with presets; that object and `meta.units` are two statements,
+and neither is read for the other.
+
+**A meta key named `units`.** On a `frame` or `system` it is an ordinary
+meta value, kept under its tag like any other. It is not the record's unit
+system and does not satisfy the requirement above.
 
 ## Composition and identity keys
 
@@ -342,7 +399,7 @@ JSON has no NaN, no infinity, no complex number, and a reader whose numbers
 are binary64 (JavaScript, a wasm viewer) silently rounds an integer beyond
 2⁵³. Wherever a JSON value has a declared dtype — a per-step `fill` in
 `sequence_schema`, a per-step value in an [LMDB](lmdb.md) frame header, a
-value in a live observables WAL row, a value of a frame's or system's `meta`
+value of a frame's or system's `meta`
 (typed by `_meta_types`, [Root layout](storage.md#frame-shaped-group)) — it
 is written in exactly one form:
 

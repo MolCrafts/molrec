@@ -78,9 +78,14 @@ attributes. The root of a record may coincide with the Zarr root of a
 [root](overview.md). Several levels of subgroups may exist inside,
 allowing the storage and description of subsystems.
 
-The record is allowed to possess non-specified groups, arrays, or attributes
-that contain additional information such as application-specific parameters
-or data structures, leaving scope for future extensions. Only the `meta`
+The record is allowed to possess non-specified groups, and inside them any
+arrays or attributes, that contain additional information such as
+application-specific parameters or data structures, leaving scope for future
+extensions. **The root itself holds groups only**: a writer puts no array
+and no attribute on the record root, because a section is the unit a reader
+carries and the root has no document of its own. An array or attribute a
+reader nevertheless finds on the root is outside the record: it is not
+interpreted and not carried, and a validator **SHOULD** report it. Only the `meta`
 group is mandatory at the root, and it may be an empty document. All other
 root groups — `system` and `frame` included — are optional, allowing the
 user to store only relevant data. A record must nevertheless contain at

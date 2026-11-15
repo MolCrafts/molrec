@@ -20,7 +20,9 @@ method
 
 Selects parse rules. Standard values are `classical`, `ml`,
 `electronic_structure`, and `workflow`. A custom type is valid if its parse
-rules are declared under `meta/modules`.
+rules are declared under `meta/modules`: **the custom `type` is the module's
+name**, so `type: "docking"` is read under `meta/modules/docking`. A reader
+that does not know the module keeps the document and interprets none of it.
 
 `description`
 
@@ -33,5 +35,8 @@ string; other `engine` keys are preserved.
 
 When `type` is `workflow`, `method.order` is an ordered list of stage ids
 (strings) and `method.stages` an object whose `<stage_id>` entries are each
-themselves a method document (`type`, `description`, `engine`). Every other
-key is preserved.
+themselves a method document (`type`, `description`, `engine`). Both are
+required, and `order` names **every stage exactly once**: a stage `order`
+omits, an id with no stage, or an id listed twice is refused. A stage may
+itself be a workflow. Under any other `type`, `order` and `stages` are a
+producer's keys. Every other key is preserved.

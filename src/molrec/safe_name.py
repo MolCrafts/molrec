@@ -10,9 +10,9 @@ every byte of the UTF-8 text outside the set is written ``%XX`` with
 uppercase hex.
 
 The series rule (``docs/spec/metrics.md``) keeps ``[A-Za-z0-9._-]``. A result
-Zarr would refuse as a node name -- ``.``, ``..``, or one starting with
-``__`` -- has its first byte escaped too. Total over non-empty keys,
-reversible, a dozen lines in any language.
+that is no node name -- ``.``, ``..``, ``zarr.json`` (a group's own metadata
+key), or one starting with ``__`` -- has its first byte escaped too. Total
+over non-empty keys, reversible, a dozen lines in any language.
 """
 
 from __future__ import annotations
@@ -25,6 +25,9 @@ SERIES_UNRESERVED: frozenset[int] = frozenset(
 )
 
 _HEX = frozenset("0123456789ABCDEF")
+
+#: A Zarr group's own metadata key: a child node cannot take the name.
+METADATA_KEY = "zarr.json"
 
 
 def percent_encode(text: str, unreserved: frozenset[int]) -> str:
@@ -60,11 +63,12 @@ def percent_decode(encoded: str, unreserved: frozenset[int]) -> str:
 
 
 def safe_name(name: str) -> str:
-    """``train/loss`` -> ``train%2Floss``; ``.`` -> ``%2E``; ``__x`` -> ``%5F_x``."""
+    """``train/loss`` -> ``train%2Floss``; ``.`` -> ``%2E``; ``__x`` -> ``%5F_x``;
+    ``zarr.json`` -> ``%7Aarr.json``."""
     if not name:
         raise ValueError("the empty string is not a series key")
     encoded = percent_encode(name, SERIES_UNRESERVED)
-    if encoded in (".", "..") or encoded.startswith("__"):
+    if encoded in (".", "..", METADATA_KEY) or encoded.startswith("__"):
         encoded = f"%{ord(encoded[0]):02X}{encoded[1:]}"
     return encoded
 

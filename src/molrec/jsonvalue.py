@@ -3,8 +3,9 @@
 JSON has no NaN, no infinity, no complex number, and a reader in a language
 whose numbers are binary64 (JavaScript, a wasm viewer) silently rounds an
 integer beyond 2^53. A value whose dtype is known -- a per-step ``fill`` in
-``sequence_schema``, a per-step value in an LMDB frame header, a value in an
-observables WAL row -- is therefore written in a fixed form
+``sequence_schema``, a per-step value in an LMDB frame header, a typed
+``meta`` value of a frame or system (and, in the draft observables model
+only, a value in its WAL row) -- is therefore written in a fixed form
 (``docs/spec/conventions.md``, typed JSON values):
 
 * ``f64``: a finite value is a JSON number; NaN, +inf and -inf are the strings

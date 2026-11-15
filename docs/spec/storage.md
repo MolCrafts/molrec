@@ -34,7 +34,9 @@ Rules:
    ([Metrics](metrics.md)).
 4. Live metrics → append-only UTF-8 JSONL WAL (`metrics/metrics.jsonl`);
    densify into Zarr on flush / close.
-5. Readers must preserve unknown sibling sections and unknown keys.
+5. Readers must preserve unknown sibling sections and unknown keys. A
+   section is a group: the record root carries no array and no attribute of
+   its own ([Specification](specification.md)).
 
 ## Canonical root
 
@@ -153,6 +155,7 @@ frame-shaped — share one normative layout:
  |    +-- (<other attribute>)     preserved
  |    \-- <column>: <dtype>[N][...]
  |         +-- (precision: f64[])      optional: the column's declared precision
+ |         +-- (unit: string[])        optional: the column's own unit
  |    \-- (_validity)            reserved: the block's validity masks
  |         \-- (<column>: bool[N])
  \-- (box)                        reserved: the cell
@@ -172,11 +175,18 @@ frame-shaped — share one normative layout:
   other form; it infers the tag of an untagged key — `bool`; an integer in
   `[−2⁶³, 2⁶³)` as `i64`, in `[2⁶³, 2⁶⁴)` as `u64`; any other number `f64`;
   a string `string`; anything else `json` — and ignores a tag whose key is
-  absent. The `forcefield` document is plain JSON and carries no
+  absent. Inference reads the **JSON text**: `1` is an integer and `1.0` a
+  real, a distinction a parser that maps every number to binary64 has
+  already lost. It exists for a document written by hand or by a foreign
+  tool; a conforming writer tags every key, and only a tag makes the type
+  survive every reader. The `forcefield` document is plain JSON and carries no
   `_meta_types`.
 - **A column may declare a precision**: the array's attribute `precision`
   ([Declared precision](frame.md#declared-precision)). A reader preserves it
   and returns the stored values exactly.
+- **A column may state its own unit**: the array's attribute `unit`, a
+  string ([Units](conventions.md#units)). A trajectory column's array
+  carries it the same way. A reader preserves it and converts nothing.
 - **A block is a child group**; its **columns are its child arrays**. Each
   block group carries the required integer attribute `count` — a block with
   no columns still has one, and a reader refuses a block whose columns
@@ -190,7 +200,9 @@ frame-shaped — share one normative layout:
   the subgroup of [validity masks](frame.md#nullable-columns); a column named
   `_validity` is refused at write. Nothing else is reserved: `meta`,
   `atoms`, `values` are ordinary block names, because the meta document is
-  attributes.
+  attributes. A name that differs from a reserved one only in case (`Box`,
+  `_Validity`) is refused like any pair of siblings that do
+  ([Names](frame.md#names)).
 - A reader preserves a block, a column, or a block attribute it does not
   recognise.
 
@@ -257,4 +269,7 @@ Reference implementation: molrs, Python package `molpy`.
 7. Data precede metadata. A writer lands chunk bytes before it replaces an
    array's `zarr.json` (atomically), and the trajectory group's `nstep`
    attribute — the commit marker — last of all; a reader is bound by it
-   ([Chunking and packing](chunking.md#normative)).
+   ([Chunking and packing](chunking.md#normative)). A flush that replaces an
+   elided form with arrays — a regular block's index, a fixed cell's arrays —
+   lands those arrays, already holding the history, before the rows they
+   index.

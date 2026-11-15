@@ -31,6 +31,16 @@ system                    attributes = the system's meta document
 A conforming `system` may omit coordinate columns entirely; instantaneous
 Cartesian coordinates belong on `frame` or `trajectory`.
 
+**`frame` and `system` are independent sections.** Nothing aligns a `frame`
+block with the `system` block of the same name: not row count, not `id`, not
+column set. A coarse-grained `system` whose `atoms` are beads may sit beside
+an all-atom `frame` whose `atoms` are atoms. A relation between the two
+exists only where a block declares one, as an
+[absolute row reference](frame.md#row-references) (`/frame/atoms`,
+`/system/atoms`). A producer that means "the snapshot of this system" writes
+the state as a one-frame `trajectory`, which *is* aligned, or repeats what
+the snapshot needs in `frame`.
+
 Records with only `frame` (no `system`) remain valid. Records with only
 `system` (no `frame`) are valid. A trajectory may omit `system`; when
 `system` is present, `trajectory` should carry state updates only, aligned

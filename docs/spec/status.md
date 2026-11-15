@@ -27,6 +27,13 @@ status
 Lowercase lifecycle: `pending`, `running`, `succeeded`, `failed`,
 `cancelled`, `skipped`. Writers may preserve custom states.
 
+`state` is what the writer last recorded, not a liveness signal: a process
+that is killed leaves `running` behind for ever. A reader that must tell a
+live run from a dead one compares `updated_at` with the cadence the host
+expects, or asks the host that started the run; it never takes `running` as
+permission to treat the record as locked, nor its absence as permission to
+append ([Chunking and packing](chunking.md#normative)).
+
 `stage`
 
 Current execution phase, independent of lifecycle state (e.g. `train`,
@@ -49,8 +56,11 @@ instant and is not valid here.
 
 `error`
 
-Present when `state` is `failed`: an object with at least `message`
-(string), and optionally `type` (string) and `traceback` (string).
+What went wrong: an object with at least `message` (string), and optionally
+`type` (string) and `traceback` (string). A writer that records `failed`
+**SHOULD** record `error` with it; a `failed` status without one is valid
+(a run killed from outside has nothing to say), and so is an `error` kept
+beside a later state (a retry that succeeded).
 
 Every key a producer adds beyond these is preserved.
 

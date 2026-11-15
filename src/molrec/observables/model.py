@@ -18,7 +18,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from molrec.core.model import ArrayModel, DocumentModel
+from molrec.core.model import ArrayModel, DocumentModel, check_names, check_node_name
 
 #: The kinds the contract defines. Others are carried through, never refused.
 KNOWN_KINDS: tuple[str, ...] = ("scalar", "vector")
@@ -29,17 +29,13 @@ OBSERVABLES_META_GROUP = "meta"
 
 
 def check_observable_name(name: str) -> None:
-    """An observable is one array and one metadata group named ``name``: a
-    single Zarr node name that is not the reserved ``meta``."""
-    if (
-        not name
-        or name in (".", "..", OBSERVABLES_META_GROUP)
-        or "/" in name
-        or name.startswith("__")
-    ):
+    """An observable is one array and one metadata group named ``name``: one
+    node name (``docs/spec/frame.md``, names) that is not the reserved
+    ``meta``."""
+    check_node_name(name, "observable")
+    if name == OBSERVABLES_META_GROUP:
         raise ValueError(
-            f"observable name {name!r} is not a single node name (non-empty, no '/', not "
-            f"'.', '..' or {OBSERVABLES_META_GROUP!r}, no leading '__')"
+            f"observable {name!r} takes the name of the metadata group; an observable cannot"
         )
 
 
@@ -91,4 +87,5 @@ class ObservablesModel(BaseModel):
     def _names_are_node_names(self) -> ObservablesModel:
         for name in self.observables:
             check_observable_name(name)
+        check_names(self.observables, "observable", reserved=(OBSERVABLES_META_GROUP,))
         return self

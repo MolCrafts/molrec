@@ -308,6 +308,103 @@ def test_a_longer_array_is_tolerated_a_shorter_one_refused(tmp_path: Path) -> No
         ZarrTrajectoryCodec().read(storage)
 
 
+def _weights(*values: float) -> BlockModel:
+    array = np.array(values, dtype="float64")
+    return BlockModel(
+        count=len(values),
+        columns={"weight": ColumnModel(dtype="f64", shape=array.shape, values=array)},
+    )
+
+
+def _stated_once(box: TrajectoryBoxModel | None = None) -> TrajectoryModel:
+    """Three frames whose ``labels`` block is stated at ordinal 0 and carried
+    forward: a regular block with fewer updates than the run has frames."""
+    return TrajectoryModel(
+        frames=[
+            FrameModel(blocks={"atoms": _atoms(0.0, 1.0), "labels": _weights(1.0, 2.0)}),
+            FrameModel(blocks={"atoms": _atoms(0.5, 1.5)}),
+            FrameModel(blocks={"atoms": _atoms(1.0, 2.0)}),
+        ],
+        step=[0, 10, 20],
+        box=box,
+    )
+
+
+def test_an_interrupted_index_materialization_reads_as_the_last_commit(tmp_path: Path) -> None:
+    """The materialization order of ``docs/spec/chunking.md``: a flush that
+    gives a regular block its index lands ``offset``, then ``step_index``,
+    then the rows, then withdraws the markers. Stopped after any of them, the
+    record still reads as the three frames it committed."""
+    model = _stated_once()
+    storage = ZarrTrajectoryStorage(tmp_path / "materializing.mrec")
+    codec = ZarrTrajectoryCodec()
+    codec.write(model, storage)
+    labels = zarr.open_group(store=storage.path, mode="r+")["trajectory/labels"]
+    assert labels.attrs["uniform_rows"] == 2 and labels.attrs["dense_updates"] is True
+
+    # The flush of frame 3 restates `labels`: update 1 at ordinal 3 is not at
+    # its own ordinal, so the block stops being regular.
+    labels.create_array("offset", shape=(3,), dtype="uint64")[...] = [0, 2, 4]
+    assert codec.read(storage) == model
+
+    labels.create_array("step_index", shape=(2,), dtype="uint64")[...] = [0, 3]
+    assert codec.read(storage) == model
+
+    labels["weight"].resize((4,))
+    labels["weight"][2:] = [9.0, 9.0]
+    assert codec.read(storage) == model
+
+    labels.attrs.clear()
+    assert codec.read(storage) == model
+
+
+def test_an_interrupted_cell_materialization_reads_as_the_last_commit(tmp_path: Path) -> None:
+    """A fixed cell leaves the ``box/`` attributes for arrays with ``vectors``
+    last: until it exists a reader is still on the attributes, and once it
+    does the other arrays already hold the attribute cell as update 0."""
+    cell = CellModel(
+        vectors=np.eye(3) * 4.0, origin=np.array([1.0, 2.0, 3.0]), boundary=(True, True, False)
+    )
+    model = _stated_once(TrajectoryBoxModel(updates=[BoxUpdateModel(step_index=0, box=cell)]))
+    storage = ZarrTrajectoryStorage(tmp_path / "cell.mrec")
+    codec = ZarrTrajectoryCodec()
+    codec.write(model, storage)
+    box = zarr.open_group(store=storage.path, mode="r+")["trajectory/box"]
+    assert {name for name, _ in box.arrays()} == set()
+
+    # The flush of frame 3 changes the cell: update 0 is the attribute cell,
+    # backfilled, and update 1 sits at ordinal 3.
+    box.create_array("step_index", shape=(2,), dtype="uint64")[...] = [0, 3]
+    box.create_array("origin", shape=(2, 3), dtype="float64")[...] = [[1.0, 2.0, 3.0]] * 2
+    box.create_array("boundary", shape=(2, 3), dtype="bool")[...] = [[True, True, False]] * 2
+    assert codec.read(storage) == model
+
+    box.create_array("vectors", shape=(2, 3, 3), dtype="float64")[...] = np.stack(
+        [np.eye(3) * 4.0, np.eye(3) * 5.0]
+    )
+    assert codec.read(storage) == model
+
+    box.attrs.clear()
+    assert codec.read(storage) == model
+
+
+def test_an_interrupted_first_cell_reads_as_no_cell(tmp_path: Path) -> None:
+    """A cell that first appears after ordinal 0 lands its ``step_index``
+    before its ``vectors``: ``vectors`` alone would read as one update at
+    ordinal 0, a cell the committed frames never had."""
+    model = _stated_once()
+    storage = ZarrTrajectoryStorage(tmp_path / "first-cell.mrec")
+    codec = ZarrTrajectoryCodec()
+    codec.write(model, storage)
+    box = zarr.open_group(store=storage.path, mode="r+")["trajectory"].create_group("box")
+
+    box.create_array("step_index", shape=(1,), dtype="uint64")[...] = [3]
+    assert codec.read(storage) == model
+
+    box.create_array("vectors", shape=(1, 3, 3), dtype="float64")[...] = np.eye(3)[None] * 4.0
+    assert codec.read(storage) == model
+
+
 def test_the_record_codec_writes_meta_as_given_and_reads_a_missing_meta_as_empty(
     tmp_path: Path,
 ) -> None:
@@ -421,6 +518,66 @@ def test_the_record_codec_carries_unknown_content_through(tmp_path: Path) -> Non
     back = ZarrRecordCodec().read(storage)
     assert back == record
     assert back.model_extra == {"x_vendor": vendor}
+
+
+class TestPublishing:
+    """A one-shot write builds beside the record and renames it into place
+    (``docs/spec/chunking.md``, publishing): the ``*.mrec`` name never holds a
+    half-written record."""
+
+    @staticmethod
+    def _record(x: float) -> RecordModel:
+        return RecordModel(
+            meta=MetaModel(units={"length": "angstrom", "energy": "kcal/mol"}),
+            frame=FrameModel(blocks={"atoms": _atoms(x)}),
+            trajectory=_trajectory(),
+        )
+
+    @staticmethod
+    def _break_the_trajectory(monkeypatch: pytest.MonkeyPatch) -> None:
+        def torn(*args: object, **kwargs: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(ZarrTrajectoryCodec, "write_into", torn)
+
+    def test_a_failed_write_leaves_the_previous_record(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        storage = ZarrRecordStorage(tmp_path / "run.mrec")
+        ZarrRecordCodec().write(self._record(1.0), storage)
+        self._break_the_trajectory(monkeypatch)
+        with pytest.raises(OSError, match="disk full"):
+            ZarrRecordCodec().write(self._record(2.0), storage)
+        monkeypatch.undo()
+        back = ZarrRecordCodec().read(storage)
+        assert back.frame.blocks["atoms"].columns["x"].values.tolist() == [1.0]
+        assert back.trajectory is not None
+        assert [entry.name for entry in tmp_path.iterdir()] == ["run.mrec"]
+
+    def test_a_failed_first_write_publishes_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._break_the_trajectory(monkeypatch)
+        with pytest.raises(OSError, match="disk full"):
+            ZarrRecordCodec().write(self._record(1.0), ZarrRecordStorage(tmp_path / "run.mrec"))
+        assert list(tmp_path.iterdir()) == []
+
+    def test_a_record_under_construction_is_not_named_like_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        seen: list[list[str]] = []
+        write_into = ZarrTrajectoryCodec.write_into
+
+        def watching(self: ZarrTrajectoryCodec, *args: object, **kwargs: object) -> None:
+            seen.append(sorted(entry.name for entry in tmp_path.iterdir()))
+            write_into(self, *args, **kwargs)
+
+        monkeypatch.setattr(ZarrTrajectoryCodec, "write_into", watching)
+        ZarrRecordCodec().write(self._record(1.0), ZarrRecordStorage(tmp_path / "run.mrec"))
+        (during,) = seen
+        assert len(during) == 1
+        assert not during[0].endswith((".mrec", ".mrec.zip"))
+        assert [entry.name for entry in tmp_path.iterdir()] == ["run.mrec"]
 
 
 class TestColumnUnit:

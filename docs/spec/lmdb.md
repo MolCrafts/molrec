@@ -24,6 +24,11 @@ everywhere else.
   `.mrec.lmdb`, one unnamed database. One writer at a time; readers take
   LMDB's reader lock (the `-lock` file beside it), so a file on read-only
   media is copied first.
+* The file is LMDB's own format, which is **not portable across word size
+  or byte order**: a `.mrec.lmdb` is written and read on 64-bit
+  little-endian hosts, and a reader on any other refuses it rather than
+  read garbage. It is a store for one machine class, not an interchange
+  format; the portable form of the same content is one `*.mrec` per record.
 * Keys are bytes. Values are UTF-8 JSON or [frame bytes](#frame-bytes).
 * Record `r` and global frame ordinal `j` are unsigned 64-bit integers,
   encoded **big-endian** in keys so that byte order is numeric order and a
@@ -53,7 +58,12 @@ everywhere else.
 ```
 
 `meta` is written **last**, in the transaction that commits the collection.
-A file without it is not a collection, and a reader refuses it.
+A file without it is not a collection, and a reader refuses it. `n_records`
+and `n_frames` bound everything else: an `r`, `s` or `f` key at or beyond
+them is not part of the collection — a writer that died before its commit
+left it — and a reader never reads it. A collection is written once and
+closed: `meta` present means complete, and this binding defines no append
+to a committed file.
 
 `layout` names this binding; a reader refuses any other value. `collection`
 is the [collection](collection.md)'s document.
@@ -89,7 +99,11 @@ ordinal:
   target's row count at every resolved ordinal of the record.
 * **meta**: every declared per-step key, with any declared fill materialized.
 * **step**: the frame's step number; **time** when the trajectory has one.
-* **box**: the cell, only at the ordinals where it changes.
+* **box**: the cell, only at the ordinals where it changes. Every cell
+  update of one record states the same `cell_defined`
+  ([an undefined cell](frame.md#simulation-box) is a property of the
+  trajectory, not of a frame); a reader refuses a record whose updates
+  disagree.
 
 A reader resolves a record's frames exactly as a
 [trajectory](ragged.md#the-three-states-of-a-block) resolves them. Two
@@ -139,6 +153,10 @@ payload := the column buffers
   header entry, and its buffer holds the rounded values. A trajectory frame's
   columns carry none: the collection's `sequence_schema` declares them. No
   codec is applied: frame bytes are raw buffers.
+* A column that states its own [unit](conventions.md#units) carries
+  `"unit": "<string>"` in its header entry, on a system frame and on a
+  trajectory update alike: unlike a precision, it is not part of the
+  `sequence_schema`.
 * A [nullable column](frame.md#nullable-columns) that carries a mask adds
   `"validity": <offset>` to its entry: a buffer of `shape[0]` one-byte
   `bool`s (`0` / `1`) at that 8-aligned offset. No `validity` key means
