@@ -90,7 +90,7 @@ a red PR.
 
 - **pre-commit** (staged files, cheap, in place): file hygiene
   (whitespace, EOF, yaml/toml/json, merge markers, large files) and ruff.
-- **pre-push**: the same hygiene hooks on `--all-files` (as lint.yml `lint / hooks`
+- **pre-push**: the same hygiene hooks on `--all-files` (as test.yml `test / hooks`
   runs them); `scripts/partners.py check` (every partner in
   `.github/partners.env` resolves, no path source CI cannot resolve, no
   workflow spelling a partner commit of its own); `uv lock --check` and the
@@ -176,24 +176,25 @@ fixed molpy; `dev` returns to `MOLPY_REF=dev` when `master` is merged back.
 
 ## CI
 
-One workflow per kind of work. Every push of any branch runs `lint`, `test`
-and `docs`, on a fork as on MolCrafts. A pull request into `dev`, `master` or
-`main` runs them again, except one inside a fork (its push already ran the
-full tier). molrec publishes nothing, so
-there is no `release.yml` or `nightly.yml`.
+One workflow, `test.yml`. Every push of any branch runs it, on a fork as on
+MolCrafts. A pull request into `dev`, `master` or `main` runs it again, except
+one inside a fork (its push already ran the full tier). molrec publishes
+nothing, so there is no `release.yml` or `nightly.yml`.
 
-| workflow | feature-branch push to MolCrafts | everything else: any push to a fork, `dev`/`master`/`main`, pull requests, tags, dispatches | upstream only |
+| job | feature-branch push to MolCrafts | everything else: any push to a fork, `dev`/`master`/`main`, pull requests, tags, dispatches | upstream only |
 | --- | --- | --- | --- |
-| `lint.yml` | `lint / hooks` (commit hooks on every file, partners, `uv lock --check`), `lint / workflows` (`check-workflows`) | same | — |
-| `test.yml` | fast: `test / python (ubuntu-latest)` (bare import + the full suite against molrs) | full: `test / python` on Linux, macOS and Windows | — |
-| `docs.yml` | `docs / build` (zensical `--strict`) | same | Cloudflare Pages deploys the site from MolCrafts |
+| `test / hooks` | commit hooks on every file, partners, `uv lock --check` | same | — |
+| `test / docs` | zensical `--strict` | same | Cloudflare Pages deploys the site from MolCrafts |
+| `test / python` | fast: `ubuntu-latest` (bare import + the full suite against molrs) | full: Linux, macOS and Windows | — |
+| `test / workflows` | `check-workflows` | same | — |
+| `test / result` | every job above succeeded or was skipped | same | — |
 
 So a fork branch gets the full tier on its push: push to your fork, wait for
-green, then open the pull request into MolCrafts `dev`. The
-`require-green-ci` (`dev`) and `protect-master` rulesets require the full
-tier's jobs and `test / context`. Every workflow's first job,
-`<file> / context`, runs `MolCrafts/molcrafts-ci/actions/ci-context@<CI_REF>`,
-which decides the tier, fork vs upstream and the pull-request dedup; the other
+green, then open the pull request into MolCrafts `dev`. The `ci` (`dev` and
+the default branch) ruleset requires only `test / result`; `protect-master`
+blocks deletion and force-pushes. The first job, `test / context`, calls
+`MolCrafts/molcrafts-ci/.github/workflows/context.yml@<CI_REF>`, which decides
+the tier, fork vs upstream and the pull-request dedup; the other
 jobs read its outputs. Shared setup is molcrafts-ci's
 `MolCrafts/molcrafts-ci/actions/<name>@<CI_REF>` (`setup-rust`,
 `setup-python`, `setup-partners`), every ref the full `CI_REF` commit from

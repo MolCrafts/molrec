@@ -1,13 +1,19 @@
 name: test
 
-# The whole suite -- the molrs-marked conformance cases included, judging
-# molpy built from the commit .github/partners.env declares (MOLPY_REF, used
-# exactly as written) -- in two tiers (`test / context` decides):
+# Every check molrec has, in one workflow, in two tiers (`test / context`
+# decides):
 #
-#   fast  a feature-branch push to MolCrafts: Linux.
+#   fast  a feature-branch push to MolCrafts: the suite on Linux.
 #   full  every push to a fork (proven before its pull request), dev, master
-#         and main on MolCrafts, pull requests, tags and dispatches: Linux,
-#         macOS and Windows.
+#         and main on MolCrafts, pull requests, tags and dispatches: the suite
+#         on Linux, macOS and Windows.
+#
+# The suite (the molrs-marked conformance cases included) judges molpy built
+# from the commit .github/partners.env declares (MOLPY_REF, used exactly as
+# written). `test / hooks` runs the commit hooks on every file, the partners
+# check and `uv lock --check`; `test / docs` builds the site as Cloudflare Pages
+# does (a fresh `.[docs]` install, then zensical --strict). Cloudflare Pages
+# deploys it from MolCrafts itself, so no job here deploys.
 on:
   push:
     branches: ["**"]
@@ -35,17 +41,34 @@ env:
 jobs:
   # Where this run happens, decided once: MolCrafts/molcrafts-ci/actions/ci-context.
   context:
-    name: test / context
+    permissions:
+      contents: read
+    name: test
+    uses: MolCrafts/molcrafts-ci/.github/workflows/context.yml@3cc26f4ff1b8b6d09365d677c4a05cc8cbb70a76
+
+  hooks:
+    name: test / hooks
+    needs: context
+    # A pull request inside a fork was already run by its push.
+    if: needs.context.outputs.skip-pr != 'true'
     runs-on: ubuntu-latest
-    outputs:
-      tier: ${{ steps.context.outputs.tier }}
-      upstream: ${{ steps.context.outputs.upstream }}
-      integration: ${{ steps.context.outputs.integration }}
-      skip-pr: ${{ steps.context.outputs.skip-pr }}
-      publish: ${{ steps.context.outputs.publish }}
     steps:
-      - id: context
-        uses: MolCrafts/molcrafts-ci/actions/ci-context@03352583738d9424ce37996ef9e04df9290087ba
+      - uses: actions/checkout@v7
+      - uses: MolCrafts/molcrafts-ci/actions/setup-python@3cc26f4ff1b8b6d09365d677c4a05cc8cbb70a76
+      - uses: MolCrafts/molcrafts-ci/actions/setup-partners@3cc26f4ff1b8b6d09365d677c4a05cc8cbb70a76
+      - run: uvx pre-commit run --all-files --show-diff-on-failure
+      - run: python3 scripts/partners.py check
+      - run: uv lock --check
+
+  docs:
+    name: test / docs
+    needs: context
+    if: needs.context.outputs.skip-pr != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: MolCrafts/molcrafts-ci/actions/setup-python@3cc26f4ff1b8b6d09365d677c4a05cc8cbb70a76
+      - run: uv run --isolated --no-project --python 3.12 --with '.[docs]' zensical build --clean --strict
 
   python:
     name: test / python (${{ matrix.os }})
@@ -58,10 +81,10 @@ jobs:
         os: ${{ fromJSON(needs.context.outputs.tier == 'full' && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v7
-      - uses: MolCrafts/molcrafts-ci/actions/setup-python@03352583738d9424ce37996ef9e04df9290087ba
-      - uses: MolCrafts/molcrafts-ci/actions/setup-partners@03352583738d9424ce37996ef9e04df9290087ba
+      - uses: MolCrafts/molcrafts-ci/actions/setup-python@3cc26f4ff1b8b6d09365d677c4a05cc8cbb70a76
+      - uses: MolCrafts/molcrafts-ci/actions/setup-partners@3cc26f4ff1b8b6d09365d677c4a05cc8cbb70a76
       # molpy/rust-toolchain.toml pins the compiler that builds the molpy wheel.
-      - uses: MolCrafts/molcrafts-ci/actions/setup-rust@03352583738d9424ce37996ef9e04df9290087ba
+      - uses: MolCrafts/molcrafts-ci/actions/setup-rust@3cc26f4ff1b8b6d09365d677c4a05cc8cbb70a76
         with:
           toolchain-dir: ../molpy
           cache: molpy
@@ -69,3 +92,24 @@ jobs:
       # molrec alone, no extras, must import.
       - run: uv run --isolated --locked --python 3.12 python -c "import molrec"
       - run: uv run --locked --python 3.12 --extra dev python -X warn_default_encoding -m pytest -q
+
+  # Every workflow against the CI scheme: MolCrafts/molcrafts-ci/actions/check-workflows.
+  workflow-policy:
+    name: test / workflows
+    needs: context
+    if: needs.context.outputs.skip-pr != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: MolCrafts/molcrafts-ci/actions/check-workflows@3cc26f4ff1b8b6d09365d677c4a05cc8cbb70a76
+
+  result:
+    name: test / result
+    needs: [context, hooks, docs, python, workflow-policy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job succeeded or was skipped
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: echo "$RESULTS" | jq -e 'all(.[]; . == "success" or . == "skipped")'
