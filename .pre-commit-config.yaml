@@ -1,5 +1,5 @@
 # Managed by prek / pre-commit: `prek install` (installs both hook types).
-# CI parity: every job in .github/workflows/{lint,test,docs}.yml has a hook here, running
+# CI parity: every job in .github/workflows/test.yml has a hook here, running
 # the same command against the same molpy commit (scripts/partners.py runs
 # molcrafts-ci's resolver on .github/partners.env, whose MOLPY_REF is used
 # exactly as declared).
@@ -34,26 +34,26 @@ repos:
 
   - repo: local
     hooks:
-      # lint.yml's `lint / workflows`: every workflow against the CI scheme,
+      # test.yml's `test / workflows`: every workflow against the CI scheme,
       # with the validator CI runs (CI_REF in .github/partners.env).
       - id: workflows
-        name: "check-workflows (lint.yml)"
+        name: "check-workflows (test.yml)"
         entry: bash -c 'ref=$(sed -n "s/^CI_REF=//p" .github/partners.env); d=$(mktemp -d); trap "rm -rf $d" EXIT; git -C "$d" init -q; git -C "$d" fetch -q --depth 1 https://github.com/MolCrafts/molcrafts-ci "$ref"; git -C "$d" checkout -q FETCH_HEAD; env -u VIRTUAL_ENV uv run -q --no-project --script "$d/actions/check-workflows/check_workflows.py" .'
         language: system
         pass_filenames: false
         files: ^\.github/workflows/
 
       - id: ci-lint
-        name: "ruff format + ruff (lint.yml)"
+        name: "ruff format + ruff (test.yml)"
         entry: bash -c 'uvx ruff@0.16.5 format --check . && uvx ruff@0.16.5 check .'
         language: system
         pass_filenames: false
         always_run: true
 
-      # lint.yml runs the hooks above on every file; a commit only
+      # test.yml (`test / hooks`) runs the hooks above on every file; a commit only
       # sees the staged ones (an untouched file with no final newline slips by).
       - id: all-files
-        name: "pre-commit hooks on --all-files (lint.yml)"
+        name: "pre-commit hooks on --all-files (test.yml)"
         entry: uvx pre-commit run --all-files --hook-stage pre-commit --show-diff-on-failure
         language: system
         pass_filenames: false
@@ -71,7 +71,7 @@ repos:
       # uv.lock records the molcrafts-molrs metadata the RESOLVED molrs carries,
       # not the sibling ../molpy's: checked in CI's layout.
       - id: uv-lock
-        name: "uv.lock is current against the resolved molrs (lint.yml)"
+        name: "uv.lock is current against the resolved molrs (test.yml)"
         entry: python3 scripts/partners.py run -- uv lock --check
         language: system
         pass_filenames: false
@@ -79,7 +79,7 @@ repos:
         stages: [pre-push]
 
       - id: bare-import
-        name: "molrec imports with no extras (lint.yml)"
+        name: "molrec imports with no extras (test.yml)"
         entry: >-
           python3 scripts/partners.py run --
           uv run --isolated --locked --python 3.12 python -c "import molrec"
@@ -90,7 +90,7 @@ repos:
 
       # Cloudflare Pages builds the site: `pip install ".[docs]"` + zensical.
       - id: docs
-        name: "docs build (docs.yml, Cloudflare Pages)"
+        name: "docs build (test.yml, Cloudflare Pages)"
         entry: uv run --isolated --no-project --python 3.12 --with '.[docs]' zensical build --clean --strict
         language: system
         pass_filenames: false
